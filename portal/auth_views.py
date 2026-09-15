@@ -19,7 +19,7 @@ from django.views.decorators.http import require_POST
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
-from .models import User, Consent, Notification, AccountRequest
+from .models import User, Consent, Notification, AccountRequest, PlatformSettings
 from .security import throttle
 from .services import audit
 
@@ -34,6 +34,9 @@ def activation_email(user,kind='activation'):
 
 def register(request):
     if request.user.is_authenticated:return redirect('/panel/')
+    configuration=PlatformSettings.objects.filter(pk=1).first()
+    if not configuration or not configuration.registration_open or not configuration.legal_validated:
+        return auth_render(request,None,'Próximamente podrás anunciar tu maquinaria','',intro='El registro de nuevos anunciantes todavía no está abierto. Puedes consultar cómo funciona el portal o comunicarte con el equipo desde Contacto.')
     form=RegisterForm(request.POST or None)
     if request.method=='POST':
         if not throttle(request,'register',5,3600):form.add_error(None,'Demasiados intentos. Espera un momento para volver a intentarlo.')

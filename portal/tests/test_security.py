@@ -16,7 +16,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from PIL import Image
 
 from portal.models import (AnalysisJob, Asset, AuditEvent, Machine, Message, Notification,
-                           Publication, Submission, User)
+                           Publication, Submission, User, PlatformSettings, Lead)
 from portal.services import review_submission, set_advertiser_status, set_publication, submit_machine
 from portal.views import safe_public_data, sheet_context
 
@@ -150,6 +150,7 @@ class WebSecurityTests(TestCase):
         self.assertEqual(self.owner.email,"owner@example.com")
 
     def test_registration_creates_regular_account_consents_and_real_mail_job(self):
+        PlatformSettings.objects.create(registration_open=True,legal_validated=True)
         response=self.client.post("/registro/",{"first_name":"Prueba","email":"New@Example.com","phone":"+52 55 1234 5678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on","is_superuser":"on"})
         self.assertEqual(response.status_code,302)
         user=User.objects.get(email="new@example.com")
@@ -157,6 +158,16 @@ class WebSecurityTests(TestCase):
         self.assertFalse(user.email_verified)
         self.assertEqual(user.consents.count(),2)
         self.assertTrue(Notification.objects.filter(user=user,kind="verify",status="pending").exists())
+
+    def test_registration_closed_until_both_operational_and_legal_approval(self):
+        configuration=PlatformSettings.objects.create(registration_open=False,legal_validated=False)
+        payload={"first_name":"Prueba","email":"closed@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        for open_value,legal_value in [(False,False),(True,False),(False,True)]:
+            configuration.registration_open=open_value;configuration.legal_validated=legal_value;configuration.save()
+            response=self.client.post("/registro/",payload)
+            self.assertEqual(response.status_code,200)
+            self.assertFalse(User.objects.filter(email="closed@example.com").exists())
+            self.assertContains(response,"todavía no está abierto")
 
     def test_recovery_response_does_not_reveal_account_existence(self):
         self.assertEqual(self.client.post("/recuperar-acceso/",{"email":self.owner.email}).status_code,302)
@@ -249,6 +260,37 @@ class WebSecurityTests(TestCase):
         publication=Publication.objects.create(machine=self.machine)
         self.assertEqual(self.client.get(f"/ficha/{publication.token}/").status_code,404)
         self.assertEqual(self.client.get(f"/ficha/{publication.token}/pdf/").status_code,404)
+
+    def test_contact_cannot_link_private_machine_from_anonymous_or_other_user(self):
+        data={"name":"Consulta","email":"lead@example.com","phone":"","message":"Información","privacy":"on","machine":str(self.machine.pk)}
+        self.assertEqual(self.client.get(f"/contacto/?maquinaria={self.machine.pk}").status_code,404)
+        self.assertEqual(self.client.post("/contacto/",data).status_code,404)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.post("/contacto/",data).status_code,404)
+        self.assertFalse(Lead.objects.exists())
+
+    def test_owner_contact_links_own_machine_and_test_classification(self):
+        self.owner.is_test=True;self.owner.save()
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(f"/contacto/?maquinaria={self.machine.pk}").status_code,200)
+        response=self.client.post("/contacto/",{"name":"Consulta","email":"owner@example.com","phone":"","message":"Ayuda","privacy":"on","machine":str(self.machine.pk)})
+        self.assertEqual(response.status_code,302)
+        lead=Lead.objects.get()
+        self.assertEqual(lead.machine_id,self.machine.pk)
+        self.assertEqual(lead.user_id,self.owner.pk)
+        self.assertTrue(lead.is_test)
+
+    def test_anonymous_contact_links_current_public_version_and_disabled_denied(self):
+        _,publication=self.approved()
+        self.machine.title="BORRADOR-PRIVADO";self.machine.save()
+        response=self.client.get(f"/contacto/?maquinaria={self.machine.pk}")
+        self.assertEqual(response.status_code,200)
+        self.assertNotContains(response,"BORRADOR-PRIVADO")
+        response=self.client.post("/contacto/",{"name":"Consulta","email":"lead@example.com","phone":"","message":"Información","privacy":"on","machine":str(self.machine.pk)})
+        self.assertEqual(response.status_code,302)
+        self.assertEqual(Lead.objects.get().machine_id,self.machine.pk)
+        publication.enabled=False;publication.save()
+        self.assertEqual(self.client.get(f"/contacto/?maquinaria={self.machine.pk}").status_code,404)
 
     def test_retained_assets_cannot_be_deleted(self):
         self.approved()

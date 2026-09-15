@@ -279,6 +279,19 @@ class ProcessingTests(TestCase):
         self.assertEqual(notice.attempts, 3)
         self.assertNotIn("secret", notice.error)
 
+    def test_invalid_test_domain_is_suppressed_without_claiming_delivery(self):
+        self.user.email = "fixture@example.invalid"
+        self.user.save()
+        notice = Notification.objects.create(user=self.user, kind="review", subject="Prueba",
+                                              body="No debe enviarse.", channel="email")
+        with patch("portal.processing.send_mail") as send:
+            self.assertEqual(process_notifications(), 0)
+        send.assert_not_called()
+        notice.refresh_from_db()
+        self.assertEqual(notice.status, "failed")
+        self.assertEqual(notice.error, "Envío suprimido: dirección de prueba .invalid")
+        self.assertIsNone(notice.sent_at)
+
     def test_pdf_requires_public_version_and_excludes_private_fields(self):
         from portal.pdf import build_pdf
         from pypdf import PdfReader

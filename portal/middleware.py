@@ -16,7 +16,9 @@ class SecurityHeadersMiddleware:
         response=self.get_response(request)
         response['Permissions-Policy']='camera=(self), microphone=(), geolocation=()'
         response['Content-Security-Policy']="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; media-src 'self' blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        if request.path.startswith(('/panel/','/admin/','/operaciones/','/api/','/archivos/','/activar/')):
+        if request.path.startswith(('/panel/','/admin/','/operaciones/','/api/','/archivos/','/activar/','/recuperar-acceso/','/iniciar-sesion/')):
             response['Cache-Control']='private, no-store'
             response['X-Robots-Tag']='noindex, nofollow'
+        if request.path.startswith(('/activar/','/recuperar-acceso/')):
+            response['Referrer-Policy']='no-referrer'
         return response

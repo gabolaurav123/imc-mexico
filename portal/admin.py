@@ -7,13 +7,15 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils.html import format_html
+from django.utils.html import format_html_join
 from django.db import transaction
 import json
+import csv
 
 from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEvent, Brand, EquipmentModel, Unit, Category,
                      Consent, Lead, Machine, MachineVersion, Message, Notification,
-                     PlatformSettings, Publication, SiteContent, Submission, User)
-from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, _validate_payload
+                     PlatformSettings, Publication, SiteContent, Submission, User, NotificationTemplate)
+from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, find_possible_duplicates, send_machine_reminder, _validate_payload
 
 
 admin.site.site_header = "IMC México · Administración"
@@ -219,14 +221,34 @@ class MachineAdmin(AuditedAdmin):
     list_display = ("folio", "title", "owner", "category", "status", "availability", "revision", "updated_at")
     list_filter = ("status", "availability", "category", "owner__is_test")
     search_fields = ("id", "title", "owner__email", "data__brand", "data__model", "data__location")
-    readonly_fields = ("id", "folio", "owner", "status", "availability", "revision", "approved_version", "created_at", "updated_at")
+    readonly_fields = ("id", "folio", "owner", "status", "availability", "revision", "approved_version", "created_at", "updated_at", "possible_duplicates")
     list_select_related = ("owner", "category")
     inlines = (AssetInline,)
     action_form=TransferActionForm
-    actions = ("mark_sold", "mark_withdrawn", "enable_share", "disable_share", "transfer_owner")
+    actions = ("mark_sold", "mark_withdrawn", "enable_share", "disable_share", "transfer_owner", "send_reminder")
 
     def has_add_permission(self, request):
         return False
+
+    def get_object(self,request,object_id,from_field=None):
+        obj=super().get_object(request,object_id,from_field)
+        if obj is not None:obj._imc_duplicate_actor=request.user
+        return obj
+
+    @admin.display(description="Posibles coincidencias · revisión manual, sin fusión automática")
+    def possible_duplicates(self,obj):
+        actor=getattr(obj,"_imc_duplicate_actor",None)
+        if actor is None:return "Abre la ficha administrativa para consultar coincidencias."
+        matches=find_possible_duplicates(obj,actor)
+        if not matches:return "Sin coincidencias por serie, marca/modelo o archivos compartidos."
+        return format_html_join(" · ",'<a href="/admin/portal/machine/{}/change/">{} · {}</a>',((item.pk,item.folio,item.title) for item in matches))
+
+    @admin.action(description="Enviar recordatorio al anunciante (escribe el texto en Motivo)")
+    def send_reminder(self,request,queryset):
+        for machine in queryset:
+            try:send_machine_reminder(machine,request.user,request.POST.get("reason",""))
+            except (PermissionDenied,ValidationError) as exc:self.message_user(request,f"{machine.folio}: {exc}",messages.ERROR)
+            else:self.message_user(request,f"{machine.folio}: recordatorio en cola.")
 
     @admin.action(description="Reasignar excepcionalmente (correo destino y motivo obligatorios)")
     def transfer_owner(self,request,queryset):
@@ -471,6 +493,13 @@ class NotificationAdmin(HistoricalAdmin):
         return super().get_queryset(request).exclude(kind__in=["activation","admin_activation","verify","recovery"])
 
 
+@admin.register(NotificationTemplate)
+class NotificationTemplateAdmin(AuditedAdmin):
+    list_display=("key","subject","active")
+    list_filter=("active",)
+    search_fields=("key","subject","body")
+
+
 @admin.register(SiteContent)
 class ContentAdmin(AuditedAdmin):
     list_display = ("key", "title", "active")
@@ -489,6 +518,29 @@ class AnalyticsAdmin(HistoricalAdmin):
     list_display = ("event", "user", "source", "campaign", "device", "is_test", "created_at")
     list_filter = ("event", "source", "device", "is_test", "created_at")
     search_fields = ("campaign",)
+    actions=("export_events",)
+
+    def has_export_permission(self,request):
+        return request.user.has_perm("portal.export_analytics")
+
+    @admin.action(description="Exportar eventos seleccionados (CSV)",permissions=["export"])
+    def export_events(self,request,queryset):
+        if not self.has_export_permission(request):raise PermissionDenied
+        response=HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"]='attachment; filename="imc-eventos.csv"'
+        response.write("\ufeff")
+        writer=csv.writer(response)
+        writer.writerow(["fecha","evento","tipo_actor","usuario_id","maquinaria","origen","campana","dispositivo","prueba"])
+        def safe(value):
+            text=str(value or "")
+            return "'"+text if text.startswith(("=","+","-","@","\t","\r","\n")) else text
+        count=0
+        for item in queryset.select_related("user","machine").iterator(chunk_size=500):
+            actor_type="prueba" if item.is_test else "equipo" if item.user_id and item.user.is_staff else "registrado" if item.user_id else "anonimo"
+            writer.writerow([item.created_at.isoformat(),safe(item.event),actor_type,item.user_id or "",item.machine.folio if item.machine_id else "",safe(item.source),safe(item.campaign),safe(item.device),int(item.is_test)])
+            count+=1
+        audit(request.user,"analytics.exported",request.user,{"records":count})
+        return response
 
 
 @admin.register(AccountRequest)

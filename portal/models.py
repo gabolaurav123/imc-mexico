@@ -1,4 +1,5 @@
 import uuid
+from string import Template
 from pathlib import Path
 
 from django.conf import settings
@@ -409,6 +410,31 @@ class Notification(models.Model):
         verbose_name_plural = "notificaciones"
 
 
+class NotificationTemplate(models.Model):
+    key=models.SlugField("clave",unique=True,choices=[("submission","Solicitud recibida"),("review_in_review","Revisión iniciada"),("review_changes_requested","Correcciones solicitadas"),("review_approved","Ficha aprobada"),("review_rejected","Ficha rechazada"),("review_cancelled","Solicitud cancelada"),("advertiser","Permiso de anunciante"),("reminder","Recordatorio"),("reassignment","Reasignación")])
+    subject=models.CharField("asunto",max_length=180)
+    body=models.TextField("contenido en texto plano",help_text="Variables admitidas: $folio, $status, $reason, $title, $name y $portal_url. Usa $$ para un signo de dólar literal.")
+    active=models.BooleanField("activa",default=True)
+
+    class Meta:
+        ordering=["key"]
+        verbose_name="plantilla de notificación"
+        verbose_name_plural="plantillas de notificaciones"
+
+    def clean(self):
+        allowed={"folio","status","reason","title","name","portal_url"}
+        for field in ("subject","body"):
+            text=getattr(self,field)
+            template=Template(text)
+            if not template.is_valid() or set(template.get_identifiers())-allowed:
+                raise ValidationError({field:"Usa únicamente las variables indicadas; no se ejecutan expresiones ni HTML."})
+        if len(self.body)>12000:
+            raise ValidationError({"body":"La plantilla admite hasta 12000 caracteres."})
+
+    def __str__(self):
+        return self.get_key_display()
+
+
 class SiteContent(models.Model):
     key = models.SlugField("clave", unique=True)
     title = models.CharField("título", max_length=180)
@@ -424,6 +450,7 @@ class SiteContent(models.Model):
 
 
 class PlatformSettings(models.Model):
+    registration_open=models.BooleanField("registro público abierto",default=False,help_text="Sólo abre registros cuando los documentos legales también estén validados.")
     ai_enabled = models.BooleanField("IA habilitada", default=False)
     max_images = models.PositiveSmallIntegerField("máximo de fotografías", default=20, validators=[MinValueValidator(1), MaxValueValidator(100)])
     max_image_mb = models.PositiveSmallIntegerField("MB por imagen", default=20, validators=[MinValueValidator(1), MaxValueValidator(100)])
@@ -471,6 +498,7 @@ class AnalyticsEvent(models.Model):
         ordering = ["-created_at"]
         verbose_name = "evento de analítica"
         verbose_name_plural = "analítica"
+        permissions=[("export_analytics","Puede exportar eventos de analítica")]
 
 
 class RateLimit(models.Model):

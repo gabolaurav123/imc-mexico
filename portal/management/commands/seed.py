@@ -2,7 +2,7 @@ from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from portal.models import Category, PlatformSettings, SiteContent, Unit
+from portal.models import Category, PlatformSettings, SiteContent, Unit, NotificationTemplate
 
 
 class Command(BaseCommand):
@@ -44,7 +44,7 @@ class Command(BaseCommand):
                 "operate_platform", "view_lead", "add_lead", "change_lead", "view_machine", "view_user", "view_message", "add_message",
                 "view_publication", "view_accountrequest", "change_accountrequest",
             },
-            "Contenido IMC": {"view_sitecontent", "add_sitecontent", "change_sitecontent", "view_category", "change_category", "view_brand", "add_brand", "change_brand", "view_equipmentmodel", "add_equipmentmodel", "change_equipmentmodel", "view_unit", "add_unit", "change_unit"},
+            "Contenido IMC": {"view_sitecontent", "add_sitecontent", "change_sitecontent", "view_category", "change_category", "view_brand", "add_brand", "change_brand", "view_equipmentmodel", "add_equipmentmodel", "change_equipmentmodel", "view_unit", "add_unit", "change_unit", "view_notificationtemplate", "add_notificationtemplate", "change_notificationtemplate"},
         }
         for role, codenames in roles.items():
             group, created = Group.objects.get_or_create(name=role)
@@ -60,4 +60,18 @@ class Command(BaseCommand):
         }
         for key, (title, body) in pages.items():
             SiteContent.objects.get_or_create(key=key, defaults={"title": title, "body": body})
+        SiteContent.objects.get_or_create(key="home-hero",defaults={"title":"Buenas fotos.\nUna ficha clara.\nEl siguiente paso.","body":"Sube tus fotografías. Te ayudamos a preparar la descripción y la ficha para enviarla a IMC México.","active":False})
+        templates={
+            "submission":("$folio: solicitud recibida","Hola $name. Recibimos $title para revisión. Enviar una solicitud no equivale a publicar. Consulta tu avance: $portal_url"),
+            "review_in_review":("$folio: revisión iniciada","Tu ficha está en revisión. $reason\nConsulta tu panel: $portal_url"),
+            "review_changes_requested":("$folio: necesitamos una corrección","Revisa estas observaciones: $reason\nActualiza tu borrador y envíalo nuevamente desde $portal_url"),
+            "review_approved":("$folio: ficha aprobada","La ficha fue aprobada para su presentación. La publicación requiere autorización independiente. $reason\nConsulta $portal_url"),
+            "review_rejected":("$folio: respuesta a tu solicitud","Tu solicitud fue rechazada. Motivo: $reason\nPuedes comunicarte con el equipo desde $portal_url"),
+            "review_cancelled":("$folio: solicitud cancelada","La solicitud fue cancelada. Motivo: $reason\nConsulta $portal_url"),
+            "advertiser":("Actualización de tu permiso de anunciante","Hola $name. $reason\nConsulta tu cuenta: $portal_url"),
+            "reminder":("$folio: recordatorio de IMC México","Hola $name. $reason\nContinúa desde $portal_url"),
+            "reassignment":("$folio: actualización administrativa","$reason\nConsulta tu panel: $portal_url"),
+        }
+        for key,(subject,body) in templates.items():
+            NotificationTemplate.objects.get_or_create(key=key,defaults={"subject":subject,"body":body})
         self.stdout.write(self.style.SUCCESS("Datos iniciales creados sin modificar contenidos ni permisos existentes."))

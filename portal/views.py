@@ -1,5 +1,7 @@
 import copy
 import json
+import re
+from urllib.parse import urlencode
 from functools import wraps
 from datetime import timedelta
 from django.conf import settings
@@ -47,7 +49,9 @@ def event(request,name,machine=None):
     if request.user.is_authenticated:
         AnalyticsEvent.objects.create(event=name,user=request.user,machine=machine,is_test=request.user.is_test,device='mobile' if 'Mobile' in request.META.get('HTTP_USER_AGENT','') else 'desktop')
 
-def home(request):return render(request,'portal/home.html')
+def home(request):
+    content=SiteContent.objects.filter(key='home-hero',active=True).first()
+    return render(request,'portal/home.html',{'home_content':content})
 
 PAGES={
  'como-funciona':('Tus fotos son el punto de partida','Prepara tu maquinaria con ayuda, a tu ritmo.', [('01 · Fotografía','Sube una vista general de la máquina. Si tienes una foto de la placa o el horómetro, agrégala. Puedes continuar sin ellos.'),('02 · Revisa','La IA propone una ficha a partir de lo visible. Tú confirmas o corriges cada dato. Lo desconocido puede quedarse sin especificar.'),('03 · Envía','Completa la ubicación y los datos comerciales. IMC México revisará la solicitud y podrá pedir correcciones. El envío no equivale a publicación.'),('04 · Sigue el proceso','Consulta tus solicitudes y responde las observaciones desde tu panel. Conservamos el avance aunque cierres el navegador.')]),
@@ -67,16 +71,27 @@ def example(request):
     return render(request,'portal/example.html')
 
 def contact(request):
+    linked_machine=None
+    linked_title=''
+    machine_id=request.POST.get('machine') if request.method=='POST' else request.GET.get('maquinaria')
+    if machine_id:
+        try:linked_machine=Machine.objects.select_related('owner','approved_version').get(pk=machine_id)
+        except (Machine.DoesNotExist,ValidationError,ValueError):raise Http404
+        private_access=request.user.is_authenticated and (linked_machine.owner_id==request.user.pk or (staff_authorized(request.user) and request.user.has_perm('portal.view_machine')))
+        public_access=linked_machine.approved_version_id and linked_machine.owner.advertiser_status=='approved' and linked_machine.availability!='withdrawn' and linked_machine.publications.filter(destination='share',enabled=True,status='published',version_id=linked_machine.approved_version_id).exists()
+        if not private_access and not public_access:raise Http404
+        linked_title=linked_machine.title if private_access else linked_machine.approved_version.data.get('title','Maquinaria')
     form=ContactForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         if not throttle(request,'contact',5,3600):form.add_error(None,'Has enviado varias consultas. Espera un momento antes de intentar de nuevo.')
         else:
             lead=form.save(commit=False)
+            lead.machine=linked_machine
             if request.user.is_authenticated:lead.user=request.user;lead.is_test=request.user.is_test
             lead.save()
             flash.success(request,'Recibimos tu consulta. Quedó registrada para seguimiento del equipo.')
             return redirect('/contacto/?enviado=1')
-    return render(request,'portal/contact.html',{'form':form})
+    return render(request,'portal/contact.html',{'form':form,'contact_machine':linked_machine,'contact_machine_title':linked_title})
 
 @login_required
 def panel(request):
@@ -275,7 +290,13 @@ def sheet_context(machine,version=None,public=False,token=None):
     category_name=version.data.get('category_name','') if version else (machine.category.name if machine.category_id else '')
     labels={'power':'Potencia declarada','weight':'Peso declarado','capacity':'Capacidad declarada','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios'}
     extra_fields=[{'label':label,'value':data[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
-    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'provenance':{} if public else (version.data.get('provenance',{}) if version else machine.provenance)}
+    whatsapp_url=''
+    if public:
+        contact_settings=PlatformSettings.objects.filter(pk=1).first()
+        phone=re.sub(r'[\s()-]','',contact_settings.contact_phone if contact_settings else '')
+        if re.fullmatch(r'\+[1-9]\d{7,14}',phone):
+            whatsapp_url=f'https://wa.me/{phone[1:]}?'+urlencode({'text':f'Hola IMC México. Quiero información sobre {machine.folio}: {title}.'})
+    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'whatsapp_url':whatsapp_url,'provenance':{} if public else (version.data.get('provenance',{}) if version else machine.provenance)}
 
 @login_required
 def machine_sheet(request,pk):
@@ -346,7 +367,8 @@ def operations(request):
     state=request.GET.get('status',request.GET.get('estado',''))
     if state:qs=qs.filter(status=state)
     live=Machine.objects.filter(owner__is_test=False)
-    counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,machine__owner__is_test=False).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':AnalysisJob.objects.filter(status='failed').count(),'tokens':AnalysisJob.objects.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).count()}
+    live_jobs=AnalysisJob.objects.filter(requested_by__is_test=False)
+    counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':live_jobs.filter(status='failed').count(),'tokens':live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).count()}
     page=Paginator(qs,20).get_page(request.GET.get('page'))
     return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q})
 
@@ -386,7 +408,7 @@ def review(request,pk):
             return redirect(f'/operaciones/solicitudes/{sub.pk}/')
         except ValidationError as exc:flash.error(request,' '.join(exc.messages))
     pub=machine.publications.filter(destination='share').first()
-    return render(request,'portal/review.html',{'submission':sub,'machine':machine,'assets':machine.assets.filter(pk__in=sub.version.data.get('asset_ids',[])),'data':sub.version.data.get('data',{}),'provenance':sub.version.data.get('provenance',{}),'versions':machine.versions.all(),'messages_list':machine.messages.select_related('sender'),'publication':pub,'share_url':f'{settings.PUBLIC_URL}/ficha/{pub.token}/' if pub and pub.enabled else '', 'jobs':AnalysisJob.objects.filter(machine=machine).order_by('-created_at')})
+    return render(request,'portal/review.html',{'submission':sub,'machine':machine,'assets':machine.assets.filter(pk__in=sub.version.data.get('asset_ids',[])),'data':sub.version.data.get('data',{}),'provenance':sub.version.data.get('provenance',{}),'versions':machine.versions.all(),'versions_json':[{'id':v.pk,'number':v.number,'data':v.data} for v in machine.versions.all()],'messages_list':machine.messages.select_related('sender'),'publication':pub,'share_url':f'{settings.PUBLIC_URL}/ficha/{pub.token}/' if pub and pub.enabled else '', 'jobs':AnalysisJob.objects.filter(machine=machine).order_by('-created_at')})
 
 @operator_required('portal.publish_machine')
 @require_POST

@@ -160,3 +160,8 @@ exactitud de todas las fotografías futuras.
 El PDF de prueba con imagen, título largo, tablas, párrafos y notas internas ocupó
 dos páginas, renderizadas con Poppler e inspeccionadas visualmente: sin recortes ni
 superposiciones. No se utilizó inventario ficticio como publicación comercial.
+
+Se probó también una conversión real con FFmpeg 9.0.1: video MOV sintético de dos
+segundos a MP4 H.264/yuv420p, con conservación del original, resolución sin ampliación
+y rechazo al bajar el máximo permitido a un segundo. La suite de procesamiento
+completó 17 pruebas sin omisiones cuando ffmpeg y ffprobe estuvieron configurados.

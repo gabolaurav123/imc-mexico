@@ -62,6 +62,28 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }));
 
+  const compare = $('#version-compare');
+  if (compare) {
+    let versions = [];
+    try { versions = JSON.parse($('#versions-data').textContent); } catch { /* No comparison without validated source data. */ }
+    const before = $('#compare-before'), after = $('#compare-after'), body = $('#version-differences');
+    if (versions.length > 1) before.selectedIndex = 1;
+    const labels = { title:'Título', category:'Categoría', brand:'Marca', model:'Modelo', year:'Año', serial:'Serie privada', hours:'Horas', location:'Ubicación', description:'Descripción', price:'Precio', currency:'Moneda', condition:'Condición', notes:'Comentarios', contact_public:'Contacto para difusión', no_plate:'Sin placa', plate_kind:'Componente de la placa', plate_transcription:'Transcripción privada', files:'Archivos asociados' };
+    function showDiff() {
+      body.replaceChildren();
+      const left = versions.find(v => String(v.id) === before.value), right = versions.find(v => String(v.id) === after.value);
+      if (!left || !right) return;
+      const fields = v => ({ title:v.data.title, category:v.data.category_name, ...v.data.data, files:(v.data.asset_ids || []).join(', ') });
+      const a = fields(left), b = fields(right); let count = 0;
+      const show = value => value === undefined || value === null || value === '' ? 'Sin indicar' : typeof value === 'boolean' ? (value ? 'Sí' : 'No') : String(value);
+      for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        if (show(a[key]) === show(b[key])) continue;
+        count++; const row = el('tr'); row.append(el('td', '', labels[key] || key), el('td', '', key === 'files' ? `${left.data.asset_ids?.length || 0} archivo(s)` : show(a[key])), el('td', '', key === 'files' ? `${right.data.asset_ids?.length || 0} archivo(s) · selección u orden diferente` : show(b[key]))); body.append(row);
+      }
+      $('#version-compare-status').textContent = count ? `${count} campo(s) diferente(s) entre la versión ${left.number} y la ${right.number}.` : 'No hay diferencias en los datos o archivos de estas versiones.';
+    }
+    before.addEventListener('change', showDiff); after.addEventListener('change', showDiff); showDiff();
+  }
   const wizard = $('#wizard');
   if (!wizard) return;
   let state;
@@ -73,7 +95,7 @@
   let dirty = false, editSequence = 0, savedSequence = 0, saveTimer, saving = null, conflict = false;
   let uploadCount = 0, activeJob = null, pollTimer, pendingMode = 'analysis', currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
-  const keyLabels = { title: 'Título', description: 'Descripción', brand: 'Marca', model: 'Modelo', year: 'Año', serial: 'Número de serie', hours: 'Horas de uso', category: 'Categoría', location: 'Ubicación', condition: 'Condición', plate_kind: 'La placa corresponde a', plate_transcription: 'Texto de la placa', price: 'Precio', currency: 'Moneda', notes: 'Comentarios', contact_public: 'Contacto autorizado' };
+  const keyLabels = { title: 'Título', description: 'Descripción', brand: 'Marca', model: 'Modelo', year: 'Año', serial: 'Número de serie', hours: 'Horas de uso', category: 'Categoría', location: 'Ubicación', condition: 'Condición', plate_kind: 'La placa corresponde a', plate_transcription: 'Texto de la placa', price: 'Precio', currency: 'Moneda', notes: 'Comentarios', contact_public: 'Contacto autorizado', power: 'Potencia declarada', weight: 'Peso declarado', capacity: 'Capacidad declarada', dimensions: 'Dimensiones', fuel: 'Combustible', kilometers: 'Kilometraje', attachments: 'Accesorios', engine: 'Motor', transmission: 'Transmisión' };
   const sourceLabels = { image: 'Imagen', plate: 'Placa', user: 'Declaración del usuario', external: 'Fuente externa', visual: 'Propuesta visual', visual_proposal: 'Propuesta visual', user_declared: 'Declaración del usuario', unknown: 'Sin identificar' };
   const reviewLabels = { clear: 'Lectura clara', pending: 'Necesita revisión', needs_review: 'Necesita revisión', confirmed: 'Confirmado por el usuario', unreadable: 'No identificable', needs_confirmation: 'Necesita confirmación' };
   function problem(message) { errorBox.textContent = message; errorBox.hidden = false; errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
@@ -99,12 +121,19 @@
     if (!editable || !dirty) return;
     if (conflict) throw new Error('Este borrador cambió en otra sesión. Recarga antes de seguir.');
     if (saving) { await saving; if (dirty) return save(); return; }
-    const sequence = editSequence, payload = collect(); markSave('Guardando…', 'pending');
+    const sequence = editSequence, payload = collect();
+    // Submit visible category fields and shared fields; historical category-specific
+    // data remains on the server and must not make a category change invalid.
+    const sharedFields = ['brand','model','year','serial','hours','description','location','price','currency','condition','notes','contact_public','plate_transcription','plate_type','plate_kind','no_plate','kilometers','power','capacity','weight','dimensions','fuel','attachments','engine','transmission'];
+    const dataKeys = new Set([...sharedFields, ...$$('[data-field]', wizard).map(input => input.dataset.field)]);
+    payload.data = Object.fromEntries(Object.entries(payload.data).filter(([key]) => dataKeys.has(key)));
+    payload.provenance = Object.fromEntries(Object.entries(payload.provenance).filter(([key]) => dataKeys.has(key) || key === 'title' || key === 'category'));
+    markSave('Guardando…', 'pending');
     saving = (async () => {
       try {
         const result = await api(`${base}guardar/`, payload);
         state.revision = result.revision; state.title = payload.title; state.category = payload.category;
-        state.data = payload.data;
+        state.data = { ...state.data, ...payload.data };
         savedSequence = sequence; dirty = editSequence !== sequence;
         if (!dirty) markSave('Guardado'); else markSave('Cambios pendientes', 'pending');
       } catch (error) {
@@ -170,6 +199,19 @@
       } catch (error) { problem(error.message); }
       finally { button.disabled = false; }
     }));
+    const purposeSelect = el('select', 'asset-purpose'); purposeSelect.setAttribute('aria-label', 'Tipo de archivo'); purposeSelect.disabled = !editable;
+    for (const [value, label] of Object.entries(purposeLabels)) { const option = el('option', '', label); option.value = value; option.selected = value === card.dataset.purpose; purposeSelect.append(option); }
+    purposeSelect.addEventListener('change', async () => {
+      const previous = card.dataset.purpose; purposeSelect.disabled = true;
+      try {
+        await save(); const result = await api(`/api/archivos/${card.dataset.assetId}/accion/`, { action: 'purpose', purpose: purposeSelect.value }); updateRevision(result);
+        card.dataset.purpose = purposeSelect.value;
+        $('.asset-info>.small', card).textContent = purposeLabels[purposeSelect.value];
+        renderAnalysisAssets(); toast('Tipo de archivo guardado. Se revisará su privacidad antes de difundirlo.');
+      } catch (error) { purposeSelect.value = previous; problem(error.message); }
+      finally { purposeSelect.disabled = !editable; }
+    });
+    $('.asset-info', card).append(purposeSelect);
   }
   $$('.asset-card', wizard).forEach(assetActionButtons);
   function appendAsset(result) {
@@ -193,7 +235,7 @@
       const xhr = new XMLHttpRequest(); xhr.open('POST', `${base}archivos/`); xhr.withCredentials = true;
       xhr.setRequestHeader('X-CSRFToken', csrf()); xhr.setRequestHeader('Accept', 'application/json'); xhr.timeout = 300000;
       xhr.upload.addEventListener('progress', event => {
-        if (event.lengthComputable) { progress.max = event.total; progress.value = event.loaded; label.textContent = event.loaded === event.total ? 'Archivo recibido. Validando y procesando…' : `${Math.round(event.loaded / event.total * 100)}% transferido`; }
+        if (event.lengthComputable) { progress.max = event.total; progress.value = event.loaded; label.textContent = event.loaded === event.total ? 'Transferencia completa. Esperando validación del servidor…' : `${Math.round(event.loaded / event.total * 100)}% transferido`; }
       });
       xhr.addEventListener('load', () => {
         let result; try { result = JSON.parse(xhr.responseText); } catch { reject(new Error('No recibimos una respuesta válida. Tu sesión puede haber expirado.')); return; }
@@ -346,10 +388,10 @@
     target.replaceChildren();
     const fields = category?.fields || [];
     for (const item of fields) {
-      const field = typeof item === 'string' ? { key: item, label: item } : item;
+      const field = typeof item === 'string' ? { key: item, label: keyLabels[item] || item } : item;
       const key = field.key || field.name;
       if (!key || !/^[a-zA-Z0-9_]+$/.test(key) || $$('[data-field]', wizard).some(input => input.dataset.field === key)) continue;
-      const group = el('div', 'form-field'), label = el('label', '', `${field.label || key}${field.unit ? ` (${field.unit})` : ''} · opcional`); label.htmlFor = `extra-${key}`;
+      const group = el('div', 'form-field'), label = el('label', '', `${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`); label.htmlFor = `extra-${key}`;
       const input = el('input'); input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = state.data[key] ?? ''; input.disabled = !editable; input.maxLength = 500;
       if (input.type === 'number') input.step = 'any'; input.addEventListener('input', changed); group.append(label, input); target.append(group);
     }

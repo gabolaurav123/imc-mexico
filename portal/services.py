@@ -1,15 +1,17 @@
 """Transactional business boundary. Views and admin must use these operations."""
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
+from string import Template
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max,Q
 from django.utils import timezone
 
 from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine, MachineVersion,
-                     Message, Notification, Publication, Submission, User, WorkflowStatus)
+                     Message, Notification, NotificationTemplate, Publication, Submission, User, WorkflowStatus)
 
 
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"}
@@ -33,7 +35,19 @@ def require_owner(machine, user):
         require_operator(user, "portal.change_machine")
 
 
-def _notify(user, machine, kind, subject, body):
+def _notify(user, machine, kind, subject, body, template_key=None, context=None):
+    template=NotificationTemplate.objects.filter(key=template_key or kind,active=True).first()
+    if template:
+        values={"folio":machine.folio if machine else "", "status":machine.get_status_display() if machine else "", "reason":body,
+                "title":machine.title if machine else "", "name":user.get_full_name() or user.email, "portal_url":getattr(settings,"PUBLIC_URL","")+"/panel/"}
+        values.update(context or {})
+        try:
+            template.full_clean()
+            subject=Template(template.subject).substitute(values)[:180].replace("\r","").replace("\n"," ")
+            body=Template(template.body).substitute(values)
+        except (ValidationError,ValueError,KeyError):
+            # Invalid out-of-band configuration cannot lose an important workflow notification.
+            audit(None,"notification.template_invalid",template)
     Notification.objects.create(user=user, machine=machine, kind=kind, subject=subject, body=body,
                                 channel="in_app", status="sent", sent_at=timezone.now())
     Notification.objects.create(user=user, machine=machine, kind=kind, subject=subject, body=body, channel="email")
@@ -222,6 +236,8 @@ def snapshot(machine, user):
 def submit_machine(machine, user, advertise_consent, contact_consent=False):
     machine = Machine.objects.select_for_update().select_related("owner").get(pk=machine.pk)
     require_owner(machine, user)
+    if machine.owner_id!=user.pk:
+        raise PermissionDenied("El anunciante debe autorizar y enviar personalmente su solicitud.")
     if not machine.editable:
         raise ValidationError("Esta maquinaria ya tiene una solicitud en revisión.")
     if machine.owner.advertiser_status in {"suspended", "rejected"}:
@@ -292,7 +308,7 @@ def review_submission(submission, actor, decision, reason=""):
     if reason:
         Message.objects.create(machine=machine, sender=actor, body=reason)
     audit(actor, f"submission.{decision}", submission, {"reason": reason, "version": original_version.number, "approved_version": approved_version.number if approved_version else None})
-    _notify(machine.owner, machine, "review", f"{machine.folio}: {submission.get_status_display()}", reason or "Consulta el estado actualizado de tu solicitud en el panel. La publicación requiere autorización independiente.")
+    _notify(machine.owner, machine, "review", f"{machine.folio}: {submission.get_status_display()}", reason or "Consulta el estado actualizado de tu solicitud en el panel. La publicación requiere autorización independiente.",template_key="review_"+decision)
     return submission
 
 
@@ -420,3 +436,32 @@ def reassign_machine(machine, actor, new_owner, reason):
     _notify(previous_owner,machine,"reassignment","Reasignación administrativa de maquinaria",f"{machine.folio}: {reason}")
     _notify(new_owner,machine,"reassignment","Maquinaria asignada a tu cuenta",f"{machine.folio}: revisa los datos y envía una nueva solicitud con tus autorizaciones.")
     return machine
+
+
+def find_possible_duplicates(machine,actor):
+    """Return suggestions only. Similar identifiers are not proof of duplicate ownership."""
+    require_operator(actor,"portal.view_machine")
+    criteria=Q(pk__in=[])
+    serial=str(machine.data.get("serial") or "").strip()
+    brand=str(machine.data.get("brand") or "").strip()
+    model=str(machine.data.get("model") or "").strip()
+    if len(serial)>=4:
+        criteria|=Q(data__serial__iexact=serial)
+    if brand and model:
+        criteria|=Q(data__brand__iexact=brand,data__model__iexact=model)
+    hashes=list(machine.assets.exclude(sha256="").values_list("sha256",flat=True)[:100])
+    if hashes:
+        criteria|=Q(assets__sha256__in=hashes)
+    return Machine.objects.filter(criteria).exclude(pk=machine.pk).select_related("owner").distinct().order_by("-updated_at")[:10]
+
+
+@transaction.atomic
+def send_machine_reminder(machine,actor,reason):
+    require_operator(actor,"portal.change_machine")
+    if not str(reason or "").strip():
+        raise ValidationError("Escribe el recordatorio concreto para el anunciante.")
+    machine=Machine.objects.select_for_update().select_related("owner").get(pk=machine.pk)
+    if not machine.owner.is_active:
+        raise ValidationError("La cuenta del anunciante está inactiva.")
+    _notify(machine.owner,machine,"reminder",f"{machine.folio}: recordatorio de IMC México",str(reason).strip())
+    audit(actor,"machine.reminder_queued",machine,{"reason":str(reason).strip()})

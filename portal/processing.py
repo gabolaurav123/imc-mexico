@@ -536,6 +536,12 @@ def process_notifications():
             if not notice:
                 break
             notice.attempts += 1
+            domain = notice.user.email.strip().lower().rsplit("@", 1)[-1]
+            if notice.channel == "email" and (domain == "invalid" or domain.endswith(".invalid")):
+                notice.status = "failed"
+                notice.error = "Envío suprimido: dirección de prueba .invalid"
+                notice.save()
+                continue
             try:
                 if notice.channel == "email":
                     sent = send_mail(notice.subject, notice.body, settings.DEFAULT_FROM_EMAIL,

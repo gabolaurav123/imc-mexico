@@ -116,6 +116,10 @@ class WorkflowTests(TestCase):
             submit_machine(self.machine, self.owner, True)
         self.assertEqual(Consent.objects.count(), 0)
 
+    def test_staff_cannot_grant_advertiser_consent_on_behalf_of_owner(self):
+        with self.assertRaises(PermissionDenied):submit_machine(self.machine,self.admin,True,True)
+        self.assertFalse(Consent.objects.filter(machine=self.machine).exists())
+
     def test_edit_and_duplicate_submission_blocked_in_review(self):
         submit_machine(self.machine, self.owner, True)
         with self.assertRaises(ValidationError):
