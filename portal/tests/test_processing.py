@@ -1,8 +1,14 @@
 import io
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from unittest import skipUnless
 import uuid
 
 from django.core import mail
@@ -97,6 +103,35 @@ class ProcessingTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "50 megapíxeles"):
             ingest_asset(self.machine, self.user, SimpleUploadedFile("large.png", payload))
 
+    @skipUnless(shutil.which(os.getenv("FFMPEG_BINARY", "ffmpeg")) and shutil.which(os.getenv("FFPROBE_BINARY", "ffprobe")),
+                "Real video conversion requires ffmpeg and ffprobe")
+    def test_real_mov_conversion_and_duration_limit(self):
+        ffmpeg = shutil.which(os.getenv("FFMPEG_BINARY", "ffmpeg"))
+        ffprobe = shutil.which(os.getenv("FFPROBE_BINARY", "ffprobe"))
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "fixture.mov"
+            subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-f", "lavfi", "-i", "color=c=navy:s=320x240:r=10:d=2",
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-y", str(source)], check=True, timeout=30)
+            fixture = source.read_bytes()
+            with override_settings(FFMPEG_BINARY=ffmpeg, FFPROBE_BINARY=ffprobe):
+                self.limits.max_video_seconds = 1
+                self.limits.save()
+                with self.assertRaisesMessage(ValidationError, "1 segundos"):
+                    ingest_asset(self.machine, self.user, SimpleUploadedFile("phone.mov", fixture))
+                self.limits.max_video_seconds = 120
+                self.limits.save()
+                asset = ingest_asset(self.machine, self.user, SimpleUploadedFile("phone.mov", fixture))
+                self.assertEqual(asset.kind, "video")
+                self.assertEqual(asset.processing_status, "ready")
+                self.assertTrue(asset.preview.name.endswith(".mp4"))
+                result = subprocess.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_name,pix_fmt,width,height",
+                                         "-of", "json", asset.preview.path], capture_output=True, check=True, timeout=20)
+                stream = json.loads(result.stdout)["streams"][0]
+                self.assertEqual(stream["codec_name"], "h264")
+                self.assertEqual(stream["pix_fmt"], "yuv420p")
+                self.assertEqual((stream["width"], stream["height"]), (320, 240))
+                self.assertEqual(asset.original.size, len(fixture))
+
     def test_storage_refuses_public_urls_and_traversal(self):
         storage = PrivateStorage()
         with self.assertRaises(ValueError):
@@ -145,7 +180,9 @@ class ProcessingTests(TestCase):
         self.assertIsNone(normalized["data"]["serial"])
         field["component"] = "engine"
         parsed = analysis_result(asset_id, fields=[field])
-        self.assertNotIn("serial", normalize_analysis(parsed, [asset_id])["data"])
+        normalized = normalize_analysis(parsed, [asset_id])
+        self.assertNotIn("serial", normalized["data"])
+        self.assertIsNone(normalized["fields"][0]["value"])
 
     def test_request_uses_responses_structured_images_and_omits_private_contact(self):
         asset = ingest_asset(self.machine, self.user, photo())
@@ -164,6 +201,14 @@ class ProcessingTests(TestCase):
         self.assertIn("data:image/jpeg;base64,", str(kwargs["input"]))
         self.assertNotIn("private-contact@example.com", str(kwargs["input"]))
         self.assertEqual(result["data"]["title"], "Excavadora")
+
+    def test_consent_revocation_before_worker_prevents_remote_request(self):
+        ingest_asset(self.machine, self.user, photo())
+        job = enqueue_analysis(self.machine, self.user)
+        Consent.objects.create(user=self.user, machine=self.machine, kind="ai", granted=False)
+        with patch("openai.OpenAI") as mock, self.assertRaises(ValidationError):
+            process_analysis(job)
+        mock.assert_not_called()
 
     def test_worker_saves_suggestions_without_overwriting_user_edits(self):
         asset = ingest_asset(self.machine, self.user, photo())
@@ -240,21 +285,31 @@ class ProcessingTests(TestCase):
         asset = ingest_asset(self.machine, self.user, photo())
         asset.public_authorized = True
         asset.save()
+        plate = ingest_asset(self.machine, self.user, photo(color="orange"), purpose="plate")
+        plate.public_authorized = True
+        plate.save()
         values = {"brand": "Marca revisada", "serial": "PRIVATE-SERIAL-099", "notes": "PRIVATE-NOTE-099",
-                  "description": "Descripción aprobada", "price": "120000", "currency": "MXN"}
+                  "description": "Descripción aprobada", "price": "120000", "currency": "MXN",
+                  "contact_public": "PRIVATE-CONTACT-099"}
         version = MachineVersion.objects.create(machine=self.machine, number=1, created_by=self.user,
                                                  data={"title": "Título aprobado", "data": values,
-                                                       "asset_ids": [str(asset.pk)], "public_asset_ids": [str(asset.pk)]})
+                                                       "asset_ids": [str(asset.pk), str(plate.pk)],
+                                                       "public_asset_ids": [str(asset.pk), str(plate.pk)],
+                                                       "contact_authorized": False,
+                                                       "public_contact": {"text": "NONCONSENTED-PERSON"}})
         self.machine.title = "Unreviewed latest title"
         self.machine.availability = "sold"
         with self.assertRaises(ValueError):
             build_pdf(self.machine, values, [asset], public=True)
-        public = PdfReader(io.BytesIO(build_pdf(self.machine, values, [asset], public=True, version=version)))
+        public = PdfReader(io.BytesIO(build_pdf(self.machine, values, [asset, plate], public=True, version=version)))
         text = " ".join(page.extract_text() for page in public.pages)
         self.assertIn("Título aprobado", text)
         self.assertIn("Vendida", text)
         self.assertNotIn("PRIVATE-SERIAL", text)
         self.assertNotIn("PRIVATE-NOTE", text)
+        self.assertNotIn("PRIVATE-CONTACT", text)
+        self.assertNotIn("NONCONSENTED", text)
+        self.assertEqual(sum(len(page.images) for page in public.pages), 1)
         self.assertNotIn("Unreviewed", text)
         internal = PdfReader(io.BytesIO(build_pdf(self.machine, values, [asset], version=version)))
         internal_text = " ".join(page.extract_text() for page in internal.pages)

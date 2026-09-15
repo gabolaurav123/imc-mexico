@@ -84,4 +84,4 @@ FFMPEG_BINARY = os.getenv('FFMPEG_BINARY','ffmpeg')
 FFPROBE_BINARY = os.getenv('FFPROBE_BINARY','ffprobe')
 for key in ['PRIVATE_S3_BUCKET','PRIVATE_S3_ENDPOINT_URL','PRIVATE_S3_REGION','PRIVATE_S3_ACCESS_KEY_ID','PRIVATE_S3_SECRET_ACCESS_KEY']:
     globals()[key] = os.getenv(key,'')
-LOGGING = {'version':1,'disable_existing_loggers':False,'handlers':{'console':{'class':'logging.StreamHandler'}},'root':{'handlers':['console'],'level':'INFO'},'loggers':{'httpx':{'level':'WARNING'},'httpcore':{'level':'WARNING'},'openai':{'level':'WARNING'}}}
+LOGGING = {'version':1,'disable_existing_loggers':False,'handlers':{'console':{'class':'logging.StreamHandler'}},'root':{'handlers':['console'],'level':'INFO'},'loggers':{'httpx':{'level':'WARNING'},'httpcore':{'level':'WARNING'},'httpx2':{'level':'WARNING'},'httpcore2':{'level':'WARNING'},'openai':{'level':'WARNING'}}}

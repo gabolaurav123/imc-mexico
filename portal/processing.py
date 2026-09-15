@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,13 +23,13 @@ from django.db import connection, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from .models import AnalysisJob, Asset, Consent, Machine, Notification, PlatformSettings
-from .services import audit
+from .services import audit, require_owner
 from .storage import option
 
-PROMPT_VERSION = "imc-vision-2026-09-v1"
+PROMPT_VERSION = "imc-vision-2026-09-v2"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -101,10 +102,7 @@ def platform_settings():
 
 
 def _check_editor(machine, user):
-    if not user or not user.is_authenticated or not user.is_active:
-        raise PermissionDenied
-    if machine.owner_id != user.pk and not user.has_perm("portal.change_machine"):
-        raise PermissionDenied
+    require_owner(machine, user)
     if not machine.editable:
         raise ValidationError("Esta versión ya está en revisión. Solicita cambios antes de editarla.")
 
@@ -144,17 +142,21 @@ def _jpeg_preview(raw, purpose):
         raise ValidationError("No pudimos leer esta imagen. Prueba con otra foto JPG, PNG, WEBP o HEIC.") from exc
 
 
-def _video_preview(raw, suffix, limits):
+def _video_preview(uploaded, suffix, limits):
     ffmpeg = shutil.which(str(option("FFMPEG_BINARY", "ffmpeg")))
     ffprobe = shutil.which(str(option("FFPROBE_BINARY", "ffprobe")))
     if not ffmpeg or not ffprobe:
         raise ValidationError("La carga de video no está disponible en este momento. Puedes continuar con fotografías.")
-    if len(raw) < 12 or raw[4:8] != b"ftyp":
+    uploaded.seek(0)
+    header = uploaded.read(12)
+    if len(header) < 12 or header[4:8] != b"ftyp":
         raise ValidationError("El archivo no es un video MP4 o MOV válido.")
     with tempfile.TemporaryDirectory(prefix="imc-video-") as directory:
         source = Path(directory) / ("source" + suffix)
         target = Path(directory) / "preview.mp4"
-        source.write_bytes(raw)
+        uploaded.seek(0)
+        with source.open("wb") as stream:
+            shutil.copyfileobj(uploaded, stream, length=1024 * 1024)
         try:
             result = subprocess.run([ffprobe, "-v", "error", "-protocol_whitelist", "file",
                                      "-show_entries", "format=duration,format_name:stream=codec_type,width,height",
@@ -168,14 +170,19 @@ def _video_preview(raw, suffix, limits):
                 raise ValidationError("El video no contiene una pista de imagen compatible.")
             subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-protocol_whitelist", "file",
                             "-threads", "2", "-i", str(source), "-map", "0:v:0", "-map", "0:a:0?",
-                            "-map_metadata", "-1", "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2",
+                            "-map_metadata", "-1", "-vf", "scale=w='min(1280,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
                             "-c:v", "libx264", "-threads", "2", "-preset", "fast", "-crf", "24",
                             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
                             "-t", str(limits.max_video_seconds), "-y", str(target)],
                            capture_output=True, timeout=180, check=True)
             if target.stat().st_size > limits.max_video_mb * 1024 * 1024:
                 raise ValidationError("No pudimos optimizar este video dentro del tamaño permitido.")
-            return target.read_bytes()
+            # Avoid holding a 100MB original plus converted video in web-worker RAM.
+            preview = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)
+            with target.open("rb") as stream:
+                shutil.copyfileobj(stream, preview, length=1024 * 1024)
+            preview.seek(0)
+            return File(preview, name="preview.mp4")
         except (subprocess.SubprocessError, OSError, ValueError, KeyError) as exc:
             raise ValidationError("No pudimos preparar este video. Prueba con otro MP4 o MOV.") from exc
 
@@ -193,17 +200,29 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
     if uploaded.size <= 0 or uploaded.size > max_bytes:
         raise ValidationError(f"El archivo supera el máximo de {max_bytes // (1024 * 1024)} MB o está vacío.")
     uploaded.seek(0)
-    raw = uploaded.read(max_bytes + 1)
-    if len(raw) > max_bytes:
-        raise ValidationError("El archivo supera el tamaño permitido.")
-    digest = hashlib.sha256(raw).hexdigest()
+    if is_video:
+        hasher = hashlib.sha256()
+        actual_size = 0
+        for chunk in uploaded.chunks(chunk_size=1024 * 1024):
+            actual_size += len(chunk)
+            if actual_size > max_bytes:
+                raise ValidationError("El archivo supera el tamaño permitido.")
+            hasher.update(chunk)
+        digest = hasher.hexdigest()
+        raw = None
+    else:
+        raw = uploaded.read(max_bytes + 1)
+        actual_size = len(raw)
+        if actual_size > max_bytes:
+            raise ValidationError("El archivo supera el tamaño permitido.")
+        digest = hashlib.sha256(raw).hexdigest()
     existing = machine.assets.filter(sha256=digest).first()
     if existing:
         return existing
     if is_video:
         if purpose in {"plate", "document"}:
             raise ValidationError("Las placas y documentos deben subirse como fotografías.")
-        preview = _video_preview(raw, suffix, limits)
+        preview = _video_preview(uploaded, suffix, limits)
         mime = "video/quicktime" if suffix == ".mov" else "video/mp4"
     else:
         preview, mime = _jpeg_preview(raw, purpose)
@@ -219,19 +238,26 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
                 raise ValidationError("Puedes subir un video por maquinaria.")
             if not is_video and locked.assets.filter(kind="image").count() >= limits.max_images:
                 raise ValidationError(f"Puedes subir hasta {limits.max_images} fotografías.")
+            locked.revision += 1
+            if locked.status == "approved":
+                locked.status = "draft"
+            locked.save(update_fields=["revision", "status", "updated_at"])
             asset = Asset(machine=locked, revision=locked.revision, kind="video" if is_video else "image",
-                          purpose=purpose, mime_type=mime, size=len(raw), sha256=digest,
+                          purpose=purpose, mime_type=mime, size=actual_size, sha256=digest,
                           position=locked.assets.count(), processing_status="ready",
                           is_cover=not is_video and not locked.assets.filter(is_cover=True).exists())
             # Random identifiers only. User filenames are never used as storage keys.
             prefix = f"machines/{locked.pk}/{asset.pk}"
-            asset.original.save(f"{prefix}/original{suffix}", ContentFile(raw), save=False)
+            uploaded.seek(0)
+            asset.original.save(f"{prefix}/original{suffix}", uploaded if is_video else ContentFile(raw), save=False)
             stored.append((asset.original.storage, asset.original.name))
             asset.preview.save(f"{prefix}/preview{'.mp4' if is_video else '.jpg'}",
-                               ContentFile(preview), save=False)
+                               preview if is_video else ContentFile(preview), save=False)
             stored.append((asset.preview.storage, asset.preview.name))
             asset.save()
             audit(user, "asset.uploaded", asset, {"kind": asset.kind, "bytes": asset.size})
+            machine.revision = locked.revision
+            machine.status = locked.status
             return asset
     except Exception:
         for storage, name in stored:
@@ -240,6 +266,9 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
             except Exception:
                 pass
         raise
+    finally:
+        if is_video:
+            preview.close()
 
 
 def _reservation(image_count, mode):
@@ -338,6 +367,9 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
     plates = {p["asset_id"]: p for p in result["plates"]}
     if any(p["asset_id"] not in allowed for p in result["plates"]):
         raise ValidationError("El análisis no identificó correctamente las fotografías. Vuelve a intentarlo.")
+    for plate in plates.values():
+        if re.search(r"\[(?:[^\]]*(?:ilegible|unreadable|unknown)[^\]]*)\]|\?{2,}", plate["transcription"], re.I):
+            plate["readability"] = "partial"
     seen = set()
     for item in result["fields"]:
         if item["asset_id"] is not None and item["asset_id"] not in allowed:
@@ -350,14 +382,15 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
         if item["source"] == "visual_proposal":
             item["review"] = "needs_review"
         key = item["key"]
-        if key not in AI_KEYS or item["component"] != "machine":
-            continue
         plate = plates.get(item["asset_id"])
         if key == "serial" and (item["review"] != "clear" or
                                 item["source"] != "plate" or not plate or
-                                plate["component"] != "machine" or plate["readability"] != "clear"):
+                                plate["component"] != item["component"] or plate["readability"] != "clear" or
+                                (item["value"] and re.search(r"[?\[\]*]|ilegible|unreadable", item["value"], re.I))):
             item["value"] = None
             item["review"] = "needs_review"
+        if key not in AI_KEYS or item["component"] != "machine":
+            continue
         if key in seen:
             # Multiple sources for one field need a human resolution.
             result["data"][key] = None
@@ -373,6 +406,9 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
 def process_analysis(job):
     """One API attempt. SDK retries disabled so all retries are durable/accounted."""
     from openai import OpenAI
+    consent = Consent.objects.filter(user=job.requested_by, machine=job.machine, kind="ai").order_by("-created_at").first()
+    if not job.requested_by.is_active or not consent or not consent.granted:
+        raise ValidationError("La autorización para el análisis ya no está vigente.")
     assets = list(Asset.objects.filter(machine=job.machine, pk__in=job.asset_ids,
                                       kind="image", processing_status="ready").exclude(purpose="document"))
     if len(assets) != len(job.asset_ids):
@@ -387,14 +423,19 @@ def process_analysis(job):
     for asset in assets:
         content.extend([{"type": "input_text", "text": f"asset_id={asset.pk}; propósito declarado={asset.purpose}"},
                         _image_input(asset)])
+    if sum(len(item.get("image_url", "")) for item in content) > 40 * 1024 * 1024:
+        raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
                     timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
-    response = client.responses.parse(
-        model=job.model, instructions=SYSTEM_PROMPT,
-        input=[{"role": "user", "content": content}],
-        text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
-        max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
-    )
+    try:
+        response = client.responses.parse(
+            model=job.model, instructions=SYSTEM_PROMPT,
+            input=[{"role": "user", "content": content}],
+            text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
+            max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
+        )
+    finally:
+        client.close()
     if response.output_parsed is None or response.status != "completed":
         raise ValidationError("No se pudo completar el análisis. Intenta con fotos más claras o completa los datos manualmente.")
     return normalize_analysis(response.output_parsed, job.asset_ids, job.mode), response.usage

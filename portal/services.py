@@ -42,6 +42,8 @@ def _notify(user, machine, kind, subject, body):
 def _validate_payload(machine, payload, trusted_provenance=False):
     previous_data = deepcopy(machine.data)
     previous_provenance = deepcopy(machine.provenance)
+    previous_title = machine.title
+    previous_category = machine.category_id
     if not isinstance(payload, dict) or set(payload) - {"title", "category", "data", "provenance"}:
         raise ValidationError("La actualización contiene campos no permitidos.")
     if "title" in payload:
@@ -99,8 +101,8 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                     raise ValidationError({key: "Escribe un valor válido o déjalo sin completar."})
         machine.data = {**machine.data, **clean}
     if "provenance" in payload:
-        provenance = payload["provenance"]
-        if not isinstance(provenance, dict) or set(provenance) - (allowed | {"title"}):
+        provenance = deepcopy(payload["provenance"])
+        if not isinstance(provenance, dict) or set(provenance) - (allowed | {"title","category"}):
             raise ValidationError({"provenance": "La procedencia contiene campos no admitidos."})
         valid_assets = {str(pk) for pk in machine.assets.values_list("id", flat=True)}
         for key, value in provenance.items():
@@ -110,7 +112,12 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                 raise ValidationError({"provenance": "Formato de procedencia inválido."})
             if value.get("asset_id") and value["asset_id"] not in valid_assets:
                 raise ValidationError({"provenance": "El archivo de procedencia no pertenece a esta maquinaria."})
-            if not trusted_provenance and previous_data.get(key) == machine.data.get(key):
+            unchanged=(previous_title==machine.title if key=="title" else previous_category==machine.category_id if key=="category" else previous_data.get(key)==machine.data.get(key))
+            if not trusted_provenance and value.get("source")=="user":
+                original=previous_provenance.get(key,{})
+                provenance[key]={**original,"review":"confirmed"} if unchanged and original else {"source":"user","review":"confirmed"}
+                continue
+            if not trusted_provenance and unchanged:
                 original = previous_provenance.get(key, {})
                 for field, item in value.items():
                     if field != "review" and item != original.get(field) and not (field == "source" and not original and item == "user"):
@@ -121,11 +128,15 @@ def _validate_payload(machine, payload, trusted_provenance=False):
         for key in payload.get("data", {}):
             if previous_data.get(key) != machine.data.get(key) or key not in previous_provenance:
                 machine.provenance[key] = {"source": "user", "review": "confirmed"}
+        if "title" in payload and previous_title != machine.title:
+            machine.provenance["title"] = {"source": "user", "review": "confirmed"}
+        if "category" in payload and previous_category != machine.category_id:
+            machine.provenance["category"] = {"source": "user", "review": "confirmed"}
 
 
 @transaction.atomic
 def save_draft(machine, user, payload, expected_revision):
-    machine = Machine.objects.select_for_update().select_related("category").get(pk=machine.pk)
+    machine = Machine.objects.select_for_update(of=("self",)).select_related("category").get(pk=machine.pk)
     require_owner(machine, user)
     if not machine.editable:
         raise ValidationError("La solicitud está en revisión. Espera una respuesta antes de editarla.")
@@ -185,11 +196,11 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
 
 @transaction.atomic
 def snapshot(machine, user):
-    machine = Machine.objects.select_for_update().select_related("category").get(pk=machine.pk)
+    machine = Machine.objects.select_for_update(of=("self",)).select_related("category").get(pk=machine.pk)
     require_owner(machine, user)
     assets = list(machine.assets.filter(processing_status="ready"))
     number = (machine.versions.aggregate(value=Max("number"))["value"] or 0) + 1
-    contact = machine.consents.filter(kind="contact").order_by("-created_at", "-pk").first()
+    contact = machine.consents.filter(kind="contact",user_id=machine.owner_id).order_by("-created_at", "-pk").first()
     public_contact = {}
     if contact and contact.granted and machine.data.get("contact_public"):
         if isinstance(machine.data["contact_public"], str):
@@ -359,7 +370,7 @@ def set_advertiser_status(user, actor, status, reason=""):
 @transaction.atomic
 def set_publication(machine, actor, enabled, destination="share"):
     require_operator(actor, "portal.publish_machine")
-    machine = Machine.objects.select_for_update().select_related("owner", "approved_version").get(pk=machine.pk)
+    machine = Machine.objects.select_for_update(of=("self",)).select_related("owner", "approved_version").get(pk=machine.pk)
     if destination not in {"share", "main"}:
         raise ValidationError("Destino no válido.")
     if enabled and (not machine.approved_version_id or machine.owner.advertiser_status != "approved"):
@@ -376,3 +387,36 @@ def set_publication(machine, actor, enabled, destination="share"):
     publication.save()
     audit(actor, "publication.enabled" if enabled else "publication.disabled", publication, {"destination": destination})
     return publication
+
+
+@transaction.atomic
+def reassign_machine(machine, actor, new_owner, reason):
+    """Exceptional transfer: invalidate publication and require fresh owner consent/review."""
+    require_operator(actor,"portal.reassign_machine")
+    if not str(reason or "").strip():
+        raise ValidationError("Registra la justificación de la reasignación excepcional.")
+    machine=Machine.objects.select_for_update().get(pk=machine.pk)
+    new_owner=User.objects.get(pk=new_owner.pk)
+    if not new_owner.is_active or new_owner.advertiser_status in {"suspended","rejected"}:
+        raise ValidationError("La cuenta de destino debe estar activa y habilitada para preparar anuncios.")
+    if machine.owner_id==new_owner.pk:
+        raise ValidationError("La maquinaria ya pertenece a esta cuenta.")
+    previous_owner=machine.owner
+    machine.publications.update(enabled=False,status="disabled")
+    for submission in machine.submissions.filter(status__in=["submitted","in_review"]):
+        submission.status="cancelled"
+        submission.message="Solicitud cancelada por reasignación administrativa: "+str(reason).strip()
+        submission.decided_by=actor
+        submission.decided_at=timezone.now()
+        submission.save(update_fields=["status","message","decided_by","decided_at"])
+    machine.owner=new_owner
+    machine.status="draft"
+    machine.approved_version=None
+    machine.revision+=1
+    machine.data={**machine.data,"contact_public":""}
+    machine.assets.update(public_authorized=False)
+    machine.save()
+    audit(actor,"machine.owner_reassigned",machine,{"previous_owner":previous_owner.pk,"new_owner":new_owner.pk,"reason":str(reason).strip()})
+    _notify(previous_owner,machine,"reassignment","Reasignación administrativa de maquinaria",f"{machine.folio}: {reason}")
+    _notify(new_owner,machine,"reassignment","Maquinaria asignada a tu cuenta",f"{machine.folio}: revisa los datos y envía una nueva solicitud con tus autorizaciones.")
+    return machine

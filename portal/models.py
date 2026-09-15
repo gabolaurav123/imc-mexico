@@ -58,6 +58,12 @@ class User(AbstractUser):
     def save(self, *args, **kwargs):
         self.email = self.email.strip().lower()
         self.username = self.email
+        if not self._state.adding and self.pk:
+            old_email=type(self).objects.filter(pk=self.pk).values_list("email",flat=True).first()
+            if old_email is not None and old_email!=self.email:
+                self.email_verified=False
+                if kwargs.get("update_fields") and "email" in kwargs["update_fields"]:
+                    kwargs["update_fields"]=set(kwargs["update_fields"])|{"email_verified"}
         if kwargs.get("update_fields") and "email" in kwargs["update_fields"]:
             kwargs["update_fields"] = set(kwargs["update_fields"]) | {"username"}
         super().save(*args, **kwargs)
@@ -79,6 +85,50 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Brand(models.Model):
+    name=models.CharField("nombre",max_length=100,unique=True)
+    active=models.BooleanField("activa",default=True)
+
+    class Meta:
+        ordering=["name"]
+        verbose_name="marca"
+        verbose_name_plural="marcas"
+
+    def __str__(self):
+        return self.name
+
+
+class EquipmentModel(models.Model):
+    brand=models.ForeignKey(Brand,on_delete=models.PROTECT,related_name="equipment_models",verbose_name="marca")
+    name=models.CharField("modelo",max_length=100)
+    category=models.ForeignKey(Category,on_delete=models.PROTECT,null=True,blank=True,verbose_name="categoría")
+    active=models.BooleanField("activo",default=True)
+
+    class Meta:
+        ordering=["brand__name","name"]
+        verbose_name="modelo de equipo"
+        verbose_name_plural="modelos de equipo"
+        constraints=[models.UniqueConstraint(fields=["brand","name"],name="unique_brand_equipment_model")]
+
+    def __str__(self):
+        return f"{self.brand.name} {self.name}"
+
+
+class Unit(models.Model):
+    name=models.CharField("nombre",max_length=80)
+    symbol=models.CharField("símbolo",max_length=20,unique=True)
+    dimension=models.CharField("magnitud",max_length=60,blank=True)
+    active=models.BooleanField("activa",default=True)
+
+    class Meta:
+        ordering=["dimension","name"]
+        verbose_name="unidad de medida"
+        verbose_name_plural="unidades de medida"
+
+    def __str__(self):
+        return f"{self.name} ({self.symbol})"
 
 
 class WorkflowStatus(models.TextChoices):

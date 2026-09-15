@@ -2,7 +2,7 @@ from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from portal.models import Category, PlatformSettings, SiteContent
+from portal.models import Category, PlatformSettings, SiteContent, Unit
 
 
 class Command(BaseCommand):
@@ -27,6 +27,8 @@ class Command(BaseCommand):
         for slug, (name, fields) in categories.items():
             Category.objects.get_or_create(slug=slug, defaults={"name": name, "fields": fields})
         PlatformSettings.load()
+        for name,symbol,dimension in [("Horas","h","Uso"),("Kilómetros","km","Uso"),("Kilogramos","kg","Masa"),("Toneladas","t","Masa"),("Metros","m","Longitud"),("Milímetros","mm","Longitud"),("Kilovatios","kW","Potencia"),("Caballos de potencia","hp","Potencia"),("Metros cúbicos","m³","Volumen"),("Litros","L","Volumen")]:
+            Unit.objects.get_or_create(symbol=symbol,defaults={"name":name,"dimension":dimension})
         roles = {
             "Revisión IMC": {
                 "view_user", "manage_advertisers", "operate_platform", "view_machine", "change_machine", "review_submission",
@@ -42,7 +44,7 @@ class Command(BaseCommand):
                 "operate_platform", "view_lead", "add_lead", "change_lead", "view_machine", "view_user", "view_message", "add_message",
                 "view_publication", "view_accountrequest", "change_accountrequest",
             },
-            "Contenido IMC": {"view_sitecontent", "add_sitecontent", "change_sitecontent", "view_category", "change_category"},
+            "Contenido IMC": {"view_sitecontent", "add_sitecontent", "change_sitecontent", "view_category", "change_category", "view_brand", "add_brand", "change_brand", "view_equipmentmodel", "add_equipmentmodel", "change_equipmentmodel", "view_unit", "add_unit", "change_unit"},
         }
         for role, codenames in roles.items():
             group, created = Group.objects.get_or_create(name=role)

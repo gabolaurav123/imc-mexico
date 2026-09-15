@@ -13,7 +13,7 @@ from portal.models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Ma
                            Notification, PlatformSettings, Publication, Submission, User)
 from portal.services import (apply_analysis_suggestions, duplicate_machine, review_submission,
                              save_draft, set_advertiser_status, set_availability, set_publication,
-                             snapshot, submit_machine)
+                             snapshot, submit_machine, reassign_machine)
 
 
 class WorkflowTests(TestCase):
@@ -84,6 +84,28 @@ class WorkflowTests(TestCase):
         self.assertEqual(changed.provenance["brand"], {"source": "user", "review": "confirmed"})
         with self.assertRaises(ValidationError):
             save_draft(changed, self.owner, {"provenance": {"brand": {"source": "manufacturer"}}}, 2)
+
+    def test_category_and_title_provenance_work_with_browser_payload(self):
+        category=Category.objects.create(name="Otra",slug="otra")
+        changed=save_draft(self.machine,self.owner,{"category":category.pk,"title":"Nuevo título","provenance":{"category":{"source":"user","review":"confirmed"},"title":{"source":"user","review":"confirmed"}}},1)
+        self.assertEqual(changed.category_id,category.pk)
+        self.assertEqual(changed.provenance["category"]["source"],"user")
+        self.assertEqual(changed.provenance["title"]["source"],"user")
+
+    def test_retyping_identical_ai_value_preserves_original_source(self):
+        self.machine.data["brand"]="Marca visible"
+        self.machine.provenance["brand"]={"source":"image","review":"needs_review","asset_id":str(self.photo.pk)}
+        self.machine.save()
+        changed=save_draft(self.machine,self.owner,{"data":{"brand":"Marca visible"},"provenance":{"brand":{"source":"user","review":"confirmed"}}},1)
+        self.assertEqual(changed.provenance["brand"]["source"],"image")
+        self.assertEqual(changed.provenance["brand"]["review"],"confirmed")
+
+    def test_email_change_clears_old_verification(self):
+        self.owner.email_verified=True;self.owner.save()
+        self.owner.email="changed@example.com";self.owner.save(update_fields=["email"])
+        self.owner.refresh_from_db()
+        self.assertFalse(self.owner.email_verified)
+        self.assertEqual(self.owner.username,"changed@example.com")
 
     def test_useful_image_and_consent_required(self):
         with self.assertRaises(ValidationError):
@@ -187,6 +209,33 @@ class WorkflowTests(TestCase):
         self.owner.save()
         self.assertNotEqual(version.data["public_contact"]["phone"], self.owner.phone)
 
+    def test_contact_text_does_not_expand_to_full_profile(self):
+        self.machine.data["contact_public"]="Sólo llamar al +52 55 1234 5678"
+        self.machine.save()
+        Consent.objects.create(user=self.owner,machine=self.machine,kind="contact",granted=True)
+        version=snapshot(self.machine,self.owner)
+        self.assertEqual(version.data["public_contact"],{"text":"Sólo llamar al +52 55 1234 5678"})
+        self.assertNotIn(self.owner.email,str(version.data["public_contact"]))
+
+    def test_exceptional_reassignment_revokes_approval_and_requires_new_consent(self):
+        self.approve()
+        publication=set_publication(self.machine,self.admin,True)
+        Consent.objects.create(user=self.owner,machine=self.machine,kind="contact",granted=True)
+        machine=reassign_machine(self.machine,self.admin,self.other,"Transferencia revisada y autorizada")
+        self.assertEqual(machine.owner_id,self.other.pk)
+        self.assertEqual(machine.status,"draft")
+        self.assertIsNone(machine.approved_version_id)
+        self.assertEqual(machine.data["contact_public"],"")
+        publication.refresh_from_db()
+        self.assertFalse(publication.enabled)
+        self.photo.refresh_from_db()
+        self.assertFalse(self.photo.public_authorized)
+        self.assertFalse(snapshot(machine,self.other).data["contact_authorized"])
+        with self.assertRaises(PermissionDenied):
+            set_availability(machine,self.owner,"sold")
+        with self.assertRaises(PermissionDenied):
+            reassign_machine(machine,self.other,self.owner,"No autorizado")
+
     def test_ai_suggestions_use_saved_result_and_detect_stale_revision(self):
         job = AnalysisJob.objects.create(machine=self.machine, revision=1, requested_by=self.owner,
             fingerprint="c" * 64, status="completed", result={"data": {"brand": "Visible", "title": "Título propuesto"},
@@ -237,4 +286,3 @@ class WorkflowTests(TestCase):
         self.assertFalse(user.has_usable_password())
         self.assertEqual(Notification.objects.filter(user=user, kind="admin_activation").count(), 1)
         self.assertIn("https://test.example.com/activar/", Notification.objects.get(user=user).body)
-

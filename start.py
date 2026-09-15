@@ -27,7 +27,7 @@ def main():
     subprocess.run([sys.executable,'deploy.py'],check=True)
     port=str(int(os.environ.get('PORT','8000')))
     commands=[
-        [sys.executable,'-m','gunicorn','config.wsgi:application','--bind',f'0.0.0.0:{port}','--workers','2','--threads','2','--timeout','120','--access-logfile','-','--error-logfile','-','--access-logformat','%(m)s %(U)s %(s)s %(L)s'],
+        [sys.executable,'-m','gunicorn','config.wsgi:application','--bind',f'0.0.0.0:{port}','--workers','2','--threads','2','--timeout','240','--access-logfile','-','--error-logfile','-','--access-logformat','%(m)s %(U)s %(s)s %(L)s'],
         [sys.executable,'manage.py','runworker'],
     ]
     for command in commands:children.append(subprocess.Popen(command))

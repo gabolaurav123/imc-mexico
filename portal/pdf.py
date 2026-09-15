@@ -4,11 +4,10 @@ from xml.sax.saxutils import escape
 
 from django.utils import timezone
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (Image, KeepTogether, Paragraph, SimpleDocTemplate,
+from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate,
                                Spacer, Table, TableStyle)
 
 NAVY = colors.HexColor("#142938")
@@ -22,6 +21,8 @@ LABELS = {
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
+PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
+                  "document", "owner_email", "owner_phone", "email", "phone"}
 
 
 def build_pdf(machine, data, assets, public=False, version=None):
@@ -44,8 +45,8 @@ def build_pdf(machine, data, assets, public=False, version=None):
         public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
         asset_list = [a for a in asset_list if str(a.pk) in public_ids and a.public_authorized
                       and a.purpose not in {"plate", "document"}]
-        values.pop("serial", None)
-        values.pop("notes", None)
+        for field in PRIVATE_FIELDS:
+            values.pop(field, None)
         if not snapshot.get("contact_authorized"):
             values.pop("contact_public", None)
     else:
@@ -77,7 +78,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     story = [para("IMC MÉXICO  /  FICHA DE MAQUINARIA", "IMCLabel"),
              Spacer(1, 4 * mm), para(title, "IMCTitle"),
              para(f"{machine.folio}  ·  Versión {version.number if version else machine.revision}  ·  {now:%d/%m/%Y}", "IMCSmall")]
-    draft = not version or machine.status != "approved"
+    draft = not public and (not version or getattr(machine, "approved_version_id", None) != getattr(version, "pk", None))
     state = "FICHA PARA DIFUSIÓN" if public else "VERSIÓN INTERNA - DATOS PRIVADOS"
     if draft:
         state += "  /  PENDIENTE DE REVISIÓN"
@@ -143,7 +144,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         if field_key and field_key not in keys:
             keys.append(field_key)
     for key in keys:
-        if public and key in {"serial", "notes", "contact_public"}:
+        if public and key in PRIVATE_FIELDS | {"contact_public"}:
             continue
         value = values.get(key)
         if value is None or value == "" or isinstance(value, (dict, list)):

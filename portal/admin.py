@@ -5,13 +5,15 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.forms import UserChangeForm, UserCreationForm
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpResponse
+from django.shortcuts import redirect
 from django.utils.html import format_html
+from django.db import transaction
 import json
 
-from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEvent, Category,
+from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEvent, Brand, EquipmentModel, Unit, Category,
                      Consent, Lead, Machine, MachineVersion, Message, Notification,
                      PlatformSettings, Publication, SiteContent, Submission, User)
-from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication
+from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, _validate_payload
 
 
 admin.site.site_header = "IMC México · Administración"
@@ -19,8 +21,20 @@ admin.site.site_title = "IMC México"
 admin.site.index_title = "Operación de la plataforma"
 
 
+def central_admin_login(request,extra_context=None):
+    # Keep all password checks behind the same account/IP throttle and audit trail.
+    return redirect("/iniciar-sesion/?next=/admin/")
+
+
+admin.site.login=central_admin_login
+
+
 class ReasonActionForm(ActionForm):
     reason = forms.CharField(label="Motivo de la decisión", required=False, max_length=2000)
+
+
+class TransferActionForm(ReasonActionForm):
+    new_owner_email=forms.EmailField(label="Correo de la nueva cuenta (sólo reasignación)",required=False)
 
 
 class AuditedAdmin(admin.ModelAdmin):
@@ -136,6 +150,28 @@ class CategoryAdmin(AuditedAdmin):
     prepopulated_fields = {"slug": ("name",)}
 
 
+@admin.register(Brand)
+class BrandAdmin(AuditedAdmin):
+    list_display=("name","active")
+    list_filter=("active",)
+    search_fields=("name",)
+
+
+@admin.register(EquipmentModel)
+class EquipmentModelAdmin(AuditedAdmin):
+    list_display=("name","brand","category","active")
+    list_filter=("active","brand","category")
+    search_fields=("name","brand__name")
+    autocomplete_fields=("brand","category")
+
+
+@admin.register(Unit)
+class UnitAdmin(AuditedAdmin):
+    list_display=("name","symbol","dimension","active")
+    list_filter=("active","dimension")
+    search_fields=("name","symbol")
+
+
 class AssetInline(admin.TabularInline):
     model = Asset
     fields = ("private_link", "purpose", "public_authorized", "is_cover", "processing_status")
@@ -153,9 +189,15 @@ class AssetInline(admin.TabularInline):
 
 
 class MachineForm(forms.ModelForm):
+    expected_revision = forms.IntegerField(widget=forms.HiddenInput)
+
     class Meta:
         model = Machine
         fields = "__all__"
+
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.fields["expected_revision"].initial=self.instance.revision
 
     def clean(self):
         cleaned = super().clean()
@@ -163,6 +205,11 @@ class MachineForm(forms.ModelForm):
             editable_fields = {"title", "category", "data", "provenance"}
             if editable_fields.intersection(self.changed_data):
                 raise ValidationError("Solicita cambios antes de editar una maquinaria en revisión.")
+        if self.instance.pk:
+            current=Machine.objects.get(pk=self.instance.pk)
+            if cleaned.get("expected_revision")!=current.revision:
+                raise ValidationError("La maquinaria cambió desde que abriste esta página. Recarga para revisar la última versión.")
+            _validate_payload(current,{"title":cleaned.get("title",current.title),"category":getattr(cleaned.get("category"),"pk",None),"data":cleaned.get("data",{}),"provenance":cleaned.get("provenance",{})})
         return cleaned
 
 
@@ -175,14 +222,31 @@ class MachineAdmin(AuditedAdmin):
     readonly_fields = ("id", "folio", "owner", "status", "availability", "revision", "approved_version", "created_at", "updated_at")
     list_select_related = ("owner", "category")
     inlines = (AssetInline,)
-    actions = ("mark_sold", "mark_withdrawn", "enable_share", "disable_share")
+    action_form=TransferActionForm
+    actions = ("mark_sold", "mark_withdrawn", "enable_share", "disable_share", "transfer_owner")
 
     def has_add_permission(self, request):
         return False
 
+    @admin.action(description="Reasignar excepcionalmente (correo destino y motivo obligatorios)")
+    def transfer_owner(self,request,queryset):
+        if not request.user.has_perm("portal.reassign_machine"):
+            raise PermissionDenied
+        target=User.objects.filter(email__iexact=request.POST.get("new_owner_email","").strip()).first()
+        if not target:
+            self.message_user(request,"Indica el correo de una cuenta de destino existente.",messages.ERROR)
+            return
+        for machine in queryset:
+            try:
+                reassign_machine(machine,request.user,target,request.POST.get("reason",""))
+            except ValidationError as exc:
+                self.message_user(request,f"{machine.folio}: {exc}",messages.ERROR)
+            else:
+                self.message_user(request,f"{machine.folio}: reasignada; requiere nueva autorización y revisión.")
+
     def save_model(self, request, obj, form, change):
         saved = save_draft(obj, request.user, {"title": obj.title, "category": obj.category_id,
-                          "data": obj.data, "provenance": obj.provenance}, obj.revision)
+                          "data": obj.data, "provenance": obj.provenance}, form.cleaned_data["expected_revision"])
         obj.revision = saved.revision
         obj.status = saved.status
 
@@ -295,10 +359,30 @@ class PublicationAdmin(AuditedAdmin):
     list_filter = ("destination", "status", "enabled")
     search_fields = ("machine__title", "external_id")
     readonly_fields = ("machine", "version", "destination", "status", "enabled", "token", "last_error", "updated_at")
-    actions = ("export_main", "disable")
+    actions = ("export_main", "confirm_main_publication", "disable")
 
     def has_add_permission(self, request):
         return False
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request,obj) and request.user.has_perm("portal.publish_machine")
+
+    @admin.action(description="Confirmar publicación externa verificada (requiere enlace e identificador)")
+    def confirm_main_publication(self, request, queryset):
+        if not request.user.has_perm("portal.publish_machine"):
+            raise PermissionDenied
+        for item in queryset:
+            with transaction.atomic():
+                machine=Machine.objects.select_for_update().select_related("owner").get(pk=item.machine_id)
+                obj=Publication.objects.select_for_update().get(pk=item.pk)
+                if obj.destination!="main" or not obj.external_url or not obj.external_id or obj.version_id!=machine.approved_version_id or machine.owner.advertiser_status!="approved" or machine.availability=="withdrawn":
+                    self.message_user(request,f"{machine.folio}: completa enlace e identificador verificables de la versión aprobada antes de confirmar.",messages.ERROR)
+                    continue
+                obj.status="published"
+                obj.enabled=False
+                obj.save(update_fields=["status","enabled","updated_at"])
+                audit(request.user,"publication.external_confirmed",obj,{"external_id":obj.external_id,"external_url":obj.external_url,"version":obj.version_id})
+                self.message_user(request,f"{machine.folio}: confirmación de publicación externa registrada.")
 
     @admin.action(description="Deshabilitar publicaciones seleccionadas")
     def disable(self, request, queryset):
@@ -323,7 +407,7 @@ class PublicationAdmin(AuditedAdmin):
                 "title": snapshot_data.get("title"), "category": snapshot_data.get("category_name"),
                 "data": data, "asset_ids": snapshot_data.get("public_asset_ids", []),
                 "availability": obj.machine.availability})
-            if obj.destination == "main":
+            if obj.destination == "main" and obj.status != "published":
                 obj.status = "exported"
                 obj.save(update_fields=["status", "updated_at"])
             audit(request.user, "publication.exported", obj, {"version": obj.version.number})
@@ -382,6 +466,9 @@ class NotificationAdmin(HistoricalAdmin):
     list_display = ("user", "subject", "channel", "status", "attempts", "created_at", "sent_at")
     list_filter = ("channel", "status", "kind")
     search_fields = ("user__email", "subject")
+
+    def get_queryset(self,request):
+        return super().get_queryset(request).exclude(kind__in=["activation","admin_activation","verify","recovery"])
 
 
 @admin.register(SiteContent)

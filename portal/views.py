@@ -88,10 +88,13 @@ def panel(request):
 def machines(request):
     qs=request.user.machines.prefetch_related('assets')
     q=request.GET.get('q','')[:100]
-    if q:qs=qs.filter(Q(title__icontains=q)|Q(data__icontains=q))
-    state=request.GET.get('estado','')
+    if q:
+        folio_query=q.removeprefix('IMC-').removeprefix('imc-').replace('-','')
+        qs=qs.filter(Q(title__icontains=q)|Q(data__icontains=q)|Q(id__istartswith=folio_query))
+    state=request.GET.get('status',request.GET.get('estado',''))
     if state:qs=qs.filter(status=state)
-    return render(request,'portal/machines.html',{'machines':Paginator(qs,12).get_page(request.GET.get('page')),'q':q})
+    page=Paginator(qs,12).get_page(request.GET.get('page'))
+    return render(request,'portal/machines.html',{'machines':page,'page_obj':page,'q':q})
 
 @login_required
 def machine_create(request):
@@ -125,7 +128,15 @@ def messages_list(request):
             flash.success(request,'Mensaje guardado para el equipo de IMC México.')
             return redirect('/panel/mensajes/')
         flash.error(request,'Escribe un mensaje de hasta 5 000 caracteres.')
-    return render(request,'portal/messages.html',{'messages_list':Paginator(Message.objects.filter(machine__owner=request.user,internal=False).select_related('machine','sender'),30).get_page(request.GET.get('page')),'machines':request.user.machines.all()})
+    qs=Message.objects.filter(machine__owner=request.user,internal=False).select_related('machine','sender')
+    selected=request.GET.get('maquinaria','')
+    if selected:
+        try:
+            selected_machine=request.user.machines.get(pk=selected)
+            qs=qs.filter(machine=selected_machine)
+        except (Machine.DoesNotExist,ValidationError,ValueError):raise Http404
+    page=Paginator(qs,30).get_page(request.GET.get('page'))
+    return render(request,'portal/messages.html',{'messages_list':page,'page_obj':page,'machines':request.user.machines.all()})
 
 @require_POST
 @api
@@ -157,7 +168,8 @@ def api_upload(request,pk):
     if not throttle(request,'uploads',80,3600,str(request.user.pk)):raise ValidationError('Alcanzaste el límite de cargas por hora.')
     asset=ingest_asset(machine,request.user,request.FILES['file'],request.POST.get('purpose','general'))
     event(request,'file_received',machine)
-    return JsonResponse(asset_info(asset),status=201)
+    machine.refresh_from_db(fields=['revision'])
+    return JsonResponse({**asset_info(asset),'revision':machine.revision},status=201)
 
 @require_POST
 @api
@@ -190,8 +202,11 @@ def api_asset_action(request,pk):
             if purpose not in ['general','plate','detail','document']:raise ValidationError('Tipo de fotografía no válido.')
             asset.purpose=purpose;asset.public_authorized=False;asset.save(update_fields=['purpose','public_authorized'])
         else:raise ValidationError('Acción no válida.')
-        if machine.status=='approved':machine.status='draft';machine.save(update_fields=['status','updated_at'])
-    return JsonResponse({'ok':True,'assets':[asset_info(a) for a in machine.assets.all()]})
+        machine.revision+=1
+        if machine.status=='approved':machine.status='draft'
+        machine.save(update_fields=['revision','status','updated_at'])
+        services.audit(request.user,'asset.'+action,machine,{'asset_id':str(pk),'revision':machine.revision})
+    return JsonResponse({'ok':True,'revision':machine.revision,'assets':[asset_info(a) for a in machine.assets.all()]})
 
 @require_POST
 @api
@@ -325,12 +340,15 @@ def health(request):
 def operations(request):
     qs=Submission.objects.select_related('machine','machine__owner','version')
     q=request.GET.get('q','').strip()[:100]
-    if q:qs=qs.filter(Q(machine__title__icontains=q)|Q(machine__owner__email__icontains=q)|Q(machine__data__icontains=q))
-    state=request.GET.get('estado','')
+    if q:
+        folio_query=q.removeprefix('IMC-').removeprefix('imc-').replace('-','')
+        qs=qs.filter(Q(machine__title__icontains=q)|Q(machine__owner__email__icontains=q)|Q(machine__data__icontains=q)|Q(machine__id__istartswith=folio_query))
+    state=request.GET.get('status',request.GET.get('estado',''))
     if state:qs=qs.filter(status=state)
     live=Machine.objects.filter(owner__is_test=False)
     counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,machine__owner__is_test=False).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':AnalysisJob.objects.filter(status='failed').count(),'tokens':AnalysisJob.objects.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).count()}
-    return render(request,'portal/operations.html',{'counts':counts,'submissions':Paginator(qs,20).get_page(request.GET.get('page')),'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q})
+    page=Paginator(qs,20).get_page(request.GET.get('page'))
+    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q})
 
 @operator_required('portal.review_submission')
 def review(request,pk):

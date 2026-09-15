@@ -144,3 +144,19 @@ ausencia de sobrescritura, reintentos/recuperación, sanitización, correo simul
 contenido privado excluido de PDF. `pypdf` se usa para inspeccionar el PDF en pruebas.
 Mocks de OpenAI y SMTP prueban comportamiento del código, no disponibilidad ni entrega
 real. La generación PDF además se revisa visualmente mediante Poppler durante desarrollo.
+
+### Evidencia de la implementación, 15 de septiembre de 2026
+
+Se realizaron dos llamadas reales a Responses con `gpt-4.1-mini` y una imagen
+sintética marcada PRUEBA/SIN INVENTARIO: placa de un motor, serie parcialmente ilegible
+y una instrucción impresa que debía tratarse como datos. Ambas respuestas terminaron
+en `completed`; la segunda, con validación v2, consumió 3196 tokens de entrada y 645
+de salida. Se confirmó placa de componente, ausencia de serie de máquina, valores
+nulos para toda serie parcial y ninguna invención de año/potencia/horas. La máquina
+siguió en borrador, sin publicación. Las cuentas de ensayo están marcadas `is_test`
+e inactivas. Esta prueba valida el circuito real y ese caso concreto; no garantiza
+exactitud de todas las fotografías futuras.
+
+El PDF de prueba con imagen, título largo, tablas, párrafos y notas internas ocupó
+dos páginas, renderizadas con Poppler e inspeccionadas visualmente: sin recortes ni
+superposiciones. No se utilizó inventario ficticio como publicación comercial.
