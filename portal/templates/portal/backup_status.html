@@ -1,0 +1,15 @@
+<section class="surface" aria-labelledby="backup-heading">
+  <h2 id="backup-heading">Último respaldo verificado</h2>
+  {% if backup_status.available %}
+    <p><b>{{ backup_status.created_at|date:'d M Y, H:i T' }}</b> · {{ backup_status.media_files }} archivos de medios · {{ backup_status.size|filesizeformat }}</p>
+    {% if backup_status.state == 'external_verified' %}
+      <p class="small">Copia local verificada y copia externa confirmada.</p>
+    {% else %}
+      <p class="small">Copia local verificada en el mismo volumen. Aún requiere una copia externa para protegerse ante la pérdida del volumen.</p>
+    {% endif %}
+    {% if backup_status.stale %}<p class="error-text small">Han pasado más de 48 horas. Revisa el proceso de respaldo antes de considerar vigente esta copia.</p>{% endif %}
+    <p class="small muted">Este estado corresponde al último respaldo terminado; no confirma que el proceso siga activo ni sustituye un simulacro de recuperación.</p>
+  {% else %}
+    <p class="small">No comprobado: todavía no hay un registro válido de respaldo terminado en este entorno.</p>
+  {% endif %}
+</section>

@@ -316,7 +316,7 @@ class Message(models.Model):
 class Consent(ImmutableModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="consents")
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, null=True, blank=True, related_name="consents")
-    kind = models.CharField("tipo", max_length=12, choices=[("terms", "Términos"), ("privacy", "Privacidad"), ("ai", "Análisis IA"), ("advertise", "Difusión"), ("contact", "Contacto público"), ("marketing", "Marketing")])
+    kind = models.CharField("tipo", max_length=12, choices=[("terms", "Términos"), ("privacy", "Privacidad"), ("ai", "Análisis IA"), ("advertise", "Difusión"), ("contact", "Contacto público"), ("marketing", "Marketing"), ("analytics", "Analítica opcional")])
     version = models.CharField(max_length=32, default="2026-09")
     granted = models.BooleanField("otorgado", default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -338,6 +338,7 @@ class AnalysisJob(models.Model):
     status = models.CharField("estado", max_length=12, choices=[("queued", "En cola"), ("running", "En curso"), ("completed", "Completado"), ("failed", "Fallido")], default="queued", db_index=True)
     attempts = models.PositiveSmallIntegerField(default=0)
     result = models.JSONField(default=dict, blank=True)
+    analytics_context=models.JSONField("contexto de analítica opcional",default=dict,blank=True)
     error = models.TextField(blank=True)
     model = models.CharField(max_length=100, blank=True)
     prompt_version = models.CharField(max_length=40, default="2026-09-01")
@@ -451,6 +452,8 @@ class SiteContent(models.Model):
 
 class PlatformSettings(models.Model):
     registration_open=models.BooleanField("registro público abierto",default=False,help_text="Sólo abre registros cuando los documentos legales también estén validados.")
+    analytics_enabled=models.BooleanField("analítica de adquisición habilitada",default=False)
+    analytics_require_consent=models.BooleanField("analítica sólo con consentimiento",default=True,help_text="Si se desactiva este requisito, sólo se recogen contadores agregados sin cookies ni identificadores hasta una aceptación expresa. Un rechazo siempre detiene la captura.")
     ai_enabled = models.BooleanField("IA habilitada", default=False)
     max_images = models.PositiveSmallIntegerField("máximo de fotografías", default=20, validators=[MinValueValidator(1), MaxValueValidator(100)])
     max_image_mb = models.PositiveSmallIntegerField("MB por imagen", default=20, validators=[MinValueValidator(1), MaxValueValidator(100)])
@@ -488,6 +491,8 @@ class AnalyticsEvent(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     machine = models.ForeignKey(Machine, on_delete=models.SET_NULL, null=True, blank=True)
     session_hash = models.CharField(max_length=64, blank=True)
+    actor_type=models.CharField("tipo de visitante",max_length=12,choices=[("anonymous","Anónimo"),("registered","Registrado sin identificar"),("staff","Equipo interno"),("test","Prueba")],default="anonymous",db_index=True)
+    page=models.CharField("área de navegación",max_length=40,blank=True)
     source = models.CharField("origen", max_length=100, blank=True)
     campaign = models.CharField("campaña", max_length=100, blank=True)
     device = models.CharField("dispositivo", max_length=30, blank=True)

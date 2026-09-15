@@ -99,7 +99,7 @@ para desarrollo local con un worker.
 - Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 300. Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
   el resultado de una lease posterior.
-- Cuotas iniciales: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
+- Valores por defecto del código: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
 - Reserva conservadora por intento: 9000 tokens más 3200 por imagen; descripción
@@ -145,9 +145,13 @@ contenido privado excluido de PDF. `pypdf` se usa para inspeccionar el PDF en pr
 Mocks de OpenAI y SMTP prueban comportamiento del código, no disponibilidad ni entrega
 real. La generación PDF además se revisa visualmente mediante Poppler durante desarrollo.
 
+Las direcciones de ensayo terminadas en `.invalid` se suprimen antes de SMTP y quedan
+como `failed`, con motivo explícito; nunca como entregadas. El indicador `is_test` por
+sí solo no impide enviar un correo a una dirección real autorizada.
+
 ### Evidencia de la implementación, 15 de septiembre de 2026
 
-Se realizaron dos llamadas reales a Responses con `gpt-4.1-mini` y una imagen
+Antes del despliegue se realizaron dos llamadas reales a Responses con `gpt-4.1-mini` y una imagen
 sintética marcada PRUEBA/SIN INVENTARIO: placa de un motor, serie parcialmente ilegible
 y una instrucción impresa que debía tratarse como datos. Ambas respuestas terminaron
 en `completed`; la segunda, con validación v2, consumió 3196 tokens de entrada y 645
@@ -157,11 +161,23 @@ siguió en borrador, sin publicación. Las cuentas de ensayo están marcadas `is
 e inactivas. Esta prueba valida el circuito real y ese caso concreto; no garantiza
 exactitud de todas las fotografías futuras.
 
+En el hosting se completaron otras dos llamadas reales con `gpt-4.1-mini`, una con
+placa sintética y otra sin placa. La llamada con placa consumió 3197 tokens de entrada
+y 812 de salida. La prueba HTTP verificó clasificación como placa de motor,
+serie/año/horas/potencia de máquina sin inventar, aceptación explícita de propuestas,
+deduplicación y conservación de ediciones. Se verificaron además cargas HEIC y MOV
+con conversión real, rechazo de contenido falso y persistencia tras redespliegue.
+Son cuatro llamadas reales en total; las cuentas y fichas de ensayo no constituyen
+inventario comercial. La configuración de producción se ajustó a **10 trabajos por
+usuario/día, 50 globales/día, 100000 tokens diarios y 2 intentos máximos**.
+
 El PDF de prueba con imagen, título largo, tablas, párrafos y notas internas ocupó
 dos páginas, renderizadas con Poppler e inspeccionadas visualmente: sin recortes ni
 superposiciones. No se utilizó inventario ficticio como publicación comercial.
 
 Se probó también una conversión real con FFmpeg 9.0.1: video MOV sintético de dos
 segundos a MP4 H.264/yuv420p, con conservación del original, resolución sin ampliación
-y rechazo al bajar el máximo permitido a un segundo. La suite de procesamiento
-completó 17 pruebas sin omisiones cuando ffmpeg y ffprobe estuvieron configurados.
+y rechazo al bajar el máximo permitido a un segundo. Las suites de procesamiento,
+respaldo e inventario de medios completaron 31 pruebas sin omisiones con ffmpeg y
+ffprobe configurados. Incluyen revocación de métricas opcionales durante una llamada
+de IA, sin perder el resultado del análisis ni registrar el evento revocado.

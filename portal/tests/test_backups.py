@@ -6,6 +6,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 from unittest.mock import patch
+from datetime import datetime, timedelta, timezone
 
 from django.core.management.base import CommandError
 from django.core.management import call_command
@@ -13,6 +14,31 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from portal.management.commands.backup_private import postgres_environment, verify_backup
 from portal.models import Asset, Machine, User
+from portal.backup_status import get_backup_status
+
+
+class BackupStatusTests(SimpleTestCase):
+    def test_only_summary_fields_are_returned_and_stale_copy_is_marked(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(BACKUP_DIR=folder):
+            value = {"created_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),
+                     "state": "local_only", "media_files": 10, "size": 757087,
+                     "filename": "private-file", "external_copy": {"secret": "never-return"}}
+            (Path(folder) / "last-success.json").write_text(json.dumps(value))
+            status = get_backup_status()
+            self.assertEqual(set(status), {"available", "stale", "created_at", "state", "media_files", "size"})
+            self.assertTrue(status["available"])
+            self.assertTrue(status["stale"])
+            self.assertNotIn("private-file", str(status))
+            self.assertNotIn("never-return", str(status))
+
+    def test_missing_corrupt_or_invalid_status_is_never_success(self):
+        with tempfile.TemporaryDirectory() as folder, override_settings(BACKUP_DIR=folder):
+            path = Path(folder) / "last-success.json"
+            self.assertFalse(get_backup_status()["available"])
+            for raw in ["not-json", "[]", "x" * 8193, json.dumps({"created_at": "2026-01-01", "state": "local_only", "media_files": 1, "size": 1}),
+                        json.dumps({"created_at": datetime.now(timezone.utc).isoformat(), "state": "unknown", "media_files": 1, "size": 1})]:
+                path.write_text(raw)
+                self.assertFalse(get_backup_status()["available"])
 
 
 class BackupTests(SimpleTestCase):

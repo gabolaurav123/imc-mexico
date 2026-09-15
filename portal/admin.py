@@ -515,8 +515,8 @@ class SettingsAdmin(AuditedAdmin):
 
 @admin.register(AnalyticsEvent)
 class AnalyticsAdmin(HistoricalAdmin):
-    list_display = ("event", "user", "source", "campaign", "device", "is_test", "created_at")
-    list_filter = ("event", "source", "device", "is_test", "created_at")
+    list_display = ("event", "actor_type", "page", "source", "campaign", "device", "is_test", "created_at")
+    list_filter = ("event", "actor_type", "page", "source", "device", "is_test", "created_at")
     search_fields = ("campaign",)
     actions=("export_events",)
 
@@ -530,14 +530,14 @@ class AnalyticsAdmin(HistoricalAdmin):
         response["Content-Disposition"]='attachment; filename="imc-eventos.csv"'
         response.write("\ufeff")
         writer=csv.writer(response)
-        writer.writerow(["fecha","evento","tipo_actor","usuario_id","maquinaria","origen","campana","dispositivo","prueba"])
+        writer.writerow(["fecha","evento","tipo_actor","pagina","usuario_id_legado","maquinaria_legado","origen","campana","dispositivo","prueba"])
         def safe(value):
             text=str(value or "")
             return "'"+text if text.startswith(("=","+","-","@","\t","\r","\n")) else text
         count=0
         for item in queryset.select_related("user","machine").iterator(chunk_size=500):
-            actor_type="prueba" if item.is_test else "equipo" if item.user_id and item.user.is_staff else "registrado" if item.user_id else "anonimo"
-            writer.writerow([item.created_at.isoformat(),safe(item.event),actor_type,item.user_id or "",item.machine.folio if item.machine_id else "",safe(item.source),safe(item.campaign),safe(item.device),int(item.is_test)])
+            actor_type="prueba" if item.is_test else "equipo" if item.actor_type=="staff" or item.user_id and item.user.is_staff else "registrado" if item.actor_type=="registered" or item.user_id else "anonimo"
+            writer.writerow([item.created_at.isoformat(),safe(item.event),actor_type,safe(item.page),item.user_id or "",item.machine.folio if item.machine_id else "",safe(item.source),safe(item.campaign),safe(item.device),int(item.is_test)])
             count+=1
         audit(request.user,"analytics.exported",request.user,{"records":count})
         return response

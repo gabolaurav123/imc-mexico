@@ -15,7 +15,20 @@ Las propuestas de IA se incorporan únicamente mediante selección explícita. L
 - Pruebas DOM aisladas con HTML realmente renderizado por Django y respuestas de red simuladas: edición durante un guardado envía el siguiente cambio con la revisión recién confirmada; fallo de red conserva entradas y admite reintento; conflicto 409 detiene sobrescrituras; cero horas se conserva; la vista previa refleja el formulario; ausencia de placa permite completar manualmente; análisis exige consentimiento expreso.
 - Los componentes incluyen etiquetas visibles, navegación por teclado, enlace para saltar al contenido, estados con `aria-live`, controles de selección individuales y preferencia de movimiento reducido.
 
-Las pruebas DOM no equivalen a una inspección visual en un dispositivo real. La prueba de navegador local no pudo ejecutarse: IAB devolvió timeout y el navegador conectado bloqueó localhost. La inspección visual del despliegue público es una comprobación separada.
+Las pruebas DOM no equivalen a una inspección visual. La prueba de navegador local no pudo ejecutarse: IAB devolvió timeout y el navegador conectado bloqueó localhost. Se completó después la inspección visual del despliegue público, descrita a continuación.
+
+## Inspección visual del despliegue público
+
+El 15 de septiembre de 2026 se inspeccionó `https://imc-mexico.seenode.app/` en el navegador Brave conectado. La plataforma respondió correctamente en el navegador aun cuando una ruta de salida del entorno de shell devolvía 502. La primera entrega inspeccionada correspondía al despliegue `1cf4130`.
+
+- Portada de escritorio, aproximadamente 1904 × 854 px: identidad, navegación, llamada principal, ilustración marcada como ejemplo y contenido cargados. Captura mostrada durante la revisión.
+- Portada, menú, guía y acceso con viewport 360 × 780 px: navegación móvil operativa y disposición vertical legible. El ancho útil de documento y viewport fue 345 px en ambos casos; la diferencia con 360 corresponde a la barra de desplazamiento.
+- Acceso real con una cuenta marcada como prueba; no se expusieron credenciales en capturas. Panel, pasos 1, 2, 3 y 5 del asistente y ficha interna inspeccionados en móvil sin modificar datos. El texto extenso de una maquinaria de prueba se distribuye en varias líneas; los estados y consentimientos permanecen visibles.
+- Asistente inspeccionado también a 1440 × 900 px: barra lateral, pasos, indicación de guardado y área de carga correctamente dispuestos.
+- Video sintético de prueba, cargado originalmente como MOV y servido en su versión convertida: reproducción confirmada en la ficha, `duration=2`, `readyState=4`, `paused=false`, `currentTime=0.256911` y `error=null`. No se activó ningún análisis de video.
+- Consola del navegador sin mensajes de nivel error o warning en la consulta de los últimos 20 mensajes durante la inspección.
+
+La inspección detectó dos defectos de presentación corregidos en el código: el template informativo interpretaba `section.items` como método de diccionario y mostraba sus tuplas; el título de acceso unía palabras al ocultar saltos de línea en móvil. En el despliegue `535c6c6` se confirmó que la guía ya no contiene tuplas ni encabezados vacíos y que cerrar sesión retorna a la portada anónima. La conexión del navegador se perdió antes de repetir la captura móvil del título de acceso y de la pantalla de registro cerrado; esos dos puntos no se presentan como inspeccionados visualmente en esa revisión.
 
 ## Contenido configurable
 

@@ -20,6 +20,8 @@ from .models import *
 from .forms import ContactForm
 from .security import operator_required, staff_authorized, throttle
 from . import services
+from .analytics import capture_context,record_event
+from .backup_status import get_backup_status
 
 def owned(request,pk):
     query=Machine.objects.select_related('owner','category','approved_version')
@@ -46,8 +48,7 @@ def api(fn):
     return wrapper
 
 def event(request,name,machine=None):
-    if request.user.is_authenticated:
-        AnalyticsEvent.objects.create(event=name,user=request.user,machine=machine,is_test=request.user.is_test,device='mobile' if 'Mobile' in request.META.get('HTTP_USER_AGENT','') else 'desktop')
+    record_event(request,name,machine,page='wizard')
 
 def home(request):
     content=SiteContent.objects.filter(key='home-hero',active=True).first()
@@ -63,6 +64,8 @@ PAGES={
 def public_page(request,slug):
     if slug not in PAGES:raise Http404
     title,intro,sections=PAGES[slug]
+    if slug=='privacidad':
+        sections=[*sections,('Analítica opcional','La analítica está desactivada inicialmente. Si se habilita, puedes permitirla o rechazarla desde el pie de página. La elección es independiente de los mensajes comerciales. Se cuentan pasos del portal, el tipo general de dispositivo y etiquetas de campaña limitadas; no se guardan IP, direcciones completas, datos de contacto ni identificadores de cuenta o maquinaria en estos eventos. Con aceptación se usa una huella aleatoria de navegador durante 30 minutos, sin relacionar dispositivos. La preferencia se conserva hasta 180 días. Si el responsable configura contadores sin consentimiento, estos no llevan cookies ni huella de sesión; tu rechazo también los detiene. Retirar la aceptación elimina la huella de la sesión actual. Los eventos agregados se conservan según la política indicada; no se convierten en contactos comerciales.')]
     content=SiteContent.objects.filter(key=slug,active=True).first()
     if content:title=content.title or title;sections=[('',content.body)]
     return render(request,'portal/page.html',{'title':title,'intro':intro,'sections':[{'title':a,'body':b} for a,b in sections],'slug':slug})
@@ -181,6 +184,7 @@ def api_upload(request,pk):
     machine=owned(request,pk)
     if not request.FILES.get('file'):raise ValidationError('Selecciona un archivo.')
     if not throttle(request,'uploads',80,3600,str(request.user.pk)):raise ValidationError('Alcanzaste el límite de cargas por hora.')
+    record_event(request,'upload_started',page='upload')
     asset=ingest_asset(machine,request.user,request.FILES['file'],request.POST.get('purpose','general'))
     event(request,'file_received',machine)
     machine.refresh_from_db(fields=['revision'])
@@ -230,7 +234,7 @@ def api_analyze(request,pk):
     machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode'])
     if body.get('consent') is not True:raise ValidationError('Autoriza el procesamiento de las imágenes necesarias mediante OpenAI.')
     if not Consent.objects.filter(user=request.user,machine=machine,kind='ai',granted=True).exists():Consent.objects.create(user=request.user,machine=machine,kind='ai',granted=True)
-    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),body.get('mode','analysis'))
+    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),body.get('mode','analysis'),analytics_context=capture_context(request,page='analysis'))
     return JsonResponse({'id':str(job.pk),'status':job.status})
 
 @require_GET
@@ -302,6 +306,7 @@ def sheet_context(machine,version=None,public=False,token=None):
 def machine_sheet(request,pk):
     machine=owned(request,pk)
     version=get_object_or_404(MachineVersion,machine=machine,pk=request.GET['version']) if request.GET.get('version') else None
+    record_event(request,'sheet_reviewed',page='internal_sheet')
     return render(request,'portal/sheet.html',sheet_context(machine,version))
 
 def public_sheet(request,token):
@@ -370,7 +375,7 @@ def operations(request):
     live_jobs=AnalysisJob.objects.filter(requested_by__is_test=False)
     counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':live_jobs.filter(status='failed').count(),'tokens':live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).count()}
     page=Paginator(qs,20).get_page(request.GET.get('page'))
-    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q})
+    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q,'backup_status':get_backup_status()})
 
 @operator_required('portal.review_submission')
 def review(request,pk):

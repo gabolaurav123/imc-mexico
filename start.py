@@ -20,6 +20,7 @@ def stop(signum=None,frame=None):
         if child.poll() is None:child.terminate()
 
 def main():
+    os.environ.setdefault('PYTHONUNBUFFERED','1')
     signal.signal(signal.SIGTERM,stop)
     signal.signal(signal.SIGINT,stop)
     # Exactly one migrator, guarded on the direct Postgres connection even if two

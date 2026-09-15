@@ -18,7 +18,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from PIL import Image
 
-from portal.models import AnalysisJob, Asset, Consent, Machine, MachineVersion, Notification, PlatformSettings, User
+from portal.models import AnalysisJob, AnalyticsEvent, Asset, Consent, Machine, MachineVersion, Notification, PlatformSettings, User
 from portal.processing import (MachineAnalysis, _claim_job, enqueue_analysis, ingest_asset,
                                normalize_analysis, process_analysis, process_next_job,
                                process_notifications)
@@ -224,14 +224,47 @@ class ProcessingTests(TestCase):
         self.assertEqual(job.input_tokens, 100)
         self.assertEqual(self.machine.title, "Mi excavadora")
         self.assertEqual(self.machine.data["brand"], "Marca declarada")
+        self.assertFalse(AnalyticsEvent.objects.filter(event="analysis_completed").exists())
+
+    def test_analysis_completion_records_only_unrevoked_optional_context(self):
+        asset = ingest_asset(self.machine, self.user, photo())
+        self.limits.analytics_enabled = True
+        self.limits.save()
+        context = {"source": "direct", "device": "desktop", "actor_type": "registered",
+                   "session_hash": "a" * 64, "_consent": True,
+                   "_expires_at": (timezone.now() + timedelta(minutes=10)).timestamp()}
+        job = enqueue_analysis(self.machine, self.user, analytics_context=context)
+        result = normalize_analysis(analysis_result(str(asset.pk)), [str(asset.pk)])
+
+        def remote_result_with_revocation(_job):
+            # Consent is withdrawn while an already-started API call is running.
+            AnalysisJob.objects.filter(pk=job.pk).update(analytics_context={})
+            return result, SimpleNamespace(input_tokens=100, output_tokens=50)
+
+        with patch("portal.processing.process_analysis", side_effect=remote_result_with_revocation):
+            process_next_job()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "completed")
+        self.assertEqual(job.analytics_context, {})
+        self.assertFalse(AnalyticsEvent.objects.filter(event="analysis_completed").exists())
+
+        self.machine.revision += 1
+        self.machine.save()
+        next_job = enqueue_analysis(self.machine, self.user, analytics_context=context)
+        with patch("portal.processing.process_analysis", return_value=(result, SimpleNamespace(input_tokens=100, output_tokens=50))):
+            process_next_job()
+        next_job.refresh_from_db()
+        self.assertEqual(next_job.status, "completed")
+        self.assertEqual(AnalyticsEvent.objects.filter(event="analysis_completed").count(), 1)
 
     def test_failure_is_sanitized_and_stale_worker_has_bounded_recovery(self):
         ingest_asset(self.machine, self.user, photo())
-        job = enqueue_analysis(self.machine, self.user)
+        job = enqueue_analysis(self.machine, self.user, analytics_context={"session_hash": "a" * 64})
         with patch("portal.processing.process_analysis", side_effect=ValueError("secret-api-key-should-never-leak")):
             process_next_job()
         job.refresh_from_db()
         self.assertEqual(job.status, "failed")
+        self.assertEqual(job.analytics_context, {})
         self.assertNotIn("secret", job.error)
         job.status = "running"
         job.attempts = self.limits.ai_max_attempts

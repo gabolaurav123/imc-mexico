@@ -7,4 +7,6 @@ def site_context(request):
         platform_settings = PlatformSettings.objects.filter(pk=1).first()
     except (OperationalError, ProgrammingError):
         platform_settings = None
-    return {'settings_context':platform_settings,'public_url':settings.PUBLIC_URL,'debug':settings.DEBUG}
+    from .analytics import prepare_request
+    prepare_request(request)
+    return {'settings_context':platform_settings,'public_url':settings.PUBLIC_URL,'debug':settings.DEBUG,'analytics_settings':request.analytics_settings}

@@ -218,14 +218,56 @@ límites de frecuencia de más de 31 días y telemetría vencida según `retenti
 y redacta el contenido de avisos con enlaces de acceso vencidos. Nunca elimina
 medios, maquinarias ni versiones; `--inspect-media` solo informa archivos sin referencia.
 
+### Archivos huérfanos y temporales
+
+`python manage.py audit_media` compara los archivos del almacenamiento con **todos**
+los originales y vistas de `Asset`, incluyendo archivos conservados por versiones.
+Informa referencias ausentes, archivos sin referencia, bytes antiguos y enlaces
+omitidos. No elimina nada por defecto. Para la instalación local, después de revisar
+el inventario y disponer de respaldo, un operador puede ejecutar:
+
+```sh
+python manage.py audit_media --apply --older-than 7
+```
+
+El umbral nunca puede ser menor de siete días y se calcula desde la última
+modificación del archivo. Cada candidato debe seguir sin referencia al momento de
+borrarlo, conservar su identidad, tamaño y fecha y permanecer dentro de `MEDIA_ROOT`.
+No se siguen enlaces simbólicos, junctions ni puntos de redirección. No se eliminan
+directorios, registros, medios activos ni versiones. Ejecutar la limpieza durante
+una ventana sin importaciones o migraciones de medios que reutilicen rutas antiguas;
+las cargas ordinarias generan rutas nuevas y quedan protegidas por la antigüedad.
+La comprobación final de referencias no sustituye esa coordinación con operaciones
+externas de importación. Este comando **no se ejecutó con `--apply` en producción**.
+
+Con almacenamiento S3, el comando ofrece inventario de solo lectura mediante el
+listado del bucket privado y rechaza `--apply`: la purga remota no está implementada.
+El inventario requiere permiso `ListBucket`; nunca necesita permiso de borrado.
+
 ### Comprobaciones realizadas y pendientes
 
 - Verificados con pruebas automatizadas: integridad de manifiesto, detección de
   medios alterados, rechazo de traversal y credenciales fuera de argumentos.
-- El daemon y `pg_dump` requieren comprobación en el entorno desplegado con el cliente
-  instalado. Un test del verificador no equivale a una exportación PostgreSQL real.
-- La restauración completa a una base nueva y la copia a un bucket externo deben
-  quedar registradas como simulacro real antes de afirmar recuperación integral.
+- Simulacro real completado el **15 de septiembre de 2026, 23:34 UTC**: exportación
+  de Neon PostgreSQL 18.6 con `pg_dump` 18.6 y restauración mediante `pg_restore`
+  en la nueva base aislada `imc_restore_test`, dentro del mismo proyecto dedicado.
+  Coincidieron los conteos de las **34 tablas** con el snapshot del respaldo y los
+  hashes SHA-256 y tamaños de los **10 archivos** recuperados (5 originales y
+  5 vistas: JPEG, HEIC y MOV con sus conversiones). Duración: **128,67 segundos**.
+  El paquete privado pesó **757.087 bytes**. No se modificaron tablas de origen,
+  no se usó `--clean` ni se eliminó la base temporal; no tiene web ni worker activo.
+  La evidencia detallada y el paquete quedaron fuera de Git en el directorio privado
+  de trabajo. El cliente portable se obtuvo de los binarios oficiales EDB enlazados
+  por PostgreSQL, sin instalar un servidor local.
+- El respaldo del simulacro tiene estado `local_only`. La copia a un bucket externo
+  aún requiere configuración y comprobación; la recuperación local exitosa no
+  demuestra que un desastre que afecte al volumen deje disponible ese respaldo.
+- El daemon del hosting requiere comprobación en el entorno desplegado. El panel
+  `/operaciones/` muestra únicamente la fecha, el alcance local/externo, el tamaño y
+  el número de medios de `BACKUP_DIR/last-success.json`. Un registro ausente o inválido
+  aparece como «No comprobado», y una copia de más de 48 horas muestra una alerta.
+  Este resumen no expone nombres de archivos, rutas, buckets ni credenciales, y no
+  afirma que el proceso siga activo solo porque terminó una copia anterior.
 
 Referencias técnicas: [pg_dump y snapshots sincronizados](https://www.postgresql.org/docs/current/app-pgdump.html),
 [variables y credenciales de libpq](https://www.postgresql.org/docs/current/libpq-envars.html),

@@ -276,7 +276,7 @@ def _reservation(image_count, mode):
     return 9000 if mode == "description" else 9000 + image_count * 3200
 
 
-def enqueue_analysis(machine, user, asset_ids=None, mode="analysis"):
+def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None):
     _check_editor(machine, user)
     consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at").first()
     if not consent or not consent.granted:
@@ -332,6 +332,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis"):
                                         asset_ids=[str(a.pk) for a in assets], mode=mode,
                                         fingerprint=fingerprint, model=model, prompt_version=PROMPT_VERSION,
                                         reserved_tokens=reserve,
+                                        analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
                                         result={"input_snapshot": {"title": machine.title,
                                                 "data": {k: v for k, v in machine.data.items()
                                                          if k in AI_KEYS | {"description", "condition", "attachments"}}}})
@@ -461,6 +462,8 @@ def _claim_job():
             stale.input_tokens += min(stale.reserved_tokens, per_attempt)
             stale.reserved_tokens = max(0, stale.reserved_tokens - per_attempt) if stale.status == "queued" else 0
             stale.finished_at = now if stale.status == "failed" else None
+            if stale.status == "failed":
+                stale.analytics_context = {}
             stale.save()
         if not limits.ai_enabled or not option("OPENAI_API_KEY", ""):
             return None
@@ -471,6 +474,7 @@ def _claim_job():
         if job.attempts >= limits.ai_max_attempts:
             job.status, job.error, job.finished_at = "failed", "Se alcanzó el límite de intentos.", now
             job.reserved_tokens = 0
+            job.analytics_context = {}
             job.save()
             return None
         # CAS also protects development SQLite, which has no SELECT FOR UPDATE.
@@ -503,6 +507,9 @@ def process_next_job():
             locked.locked_at = None
             locked.error = ""
             locked.save()
+            # Read the current locked context: consent can be revoked while the API runs.
+            from .analytics import record_job_completion
+            record_job_completion(locked)
             audit(job.requested_by, "analysis.completed", job, {"model": job.model, "attempts": job.attempts})
     except Exception as exc:
         from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
@@ -520,6 +527,8 @@ def process_next_job():
             locked.reserved_tokens = max(0, locked.reserved_tokens - per_attempt) if retry else 0
             locked.locked_at = timezone.now() + timedelta(seconds=min(300, 15 * 2 ** locked.attempts)) if retry else None
             locked.finished_at = None if retry else timezone.now()
+            if not retry:
+                locked.analytics_context = {}
             locked.save()
             # Error class only: no provider body, credentials, image or user input in logs/audit.
             audit(job.requested_by, "analysis.retry" if retry else "analysis.failed", job,

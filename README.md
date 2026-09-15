@@ -4,7 +4,24 @@ Aplicación complementaria para preparar solicitudes de maquinaria desde fotogra
 
 Repositorio: [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`. El sitio principal [imcmexico.com.mx](https://www.imcmexico.com.mx/) no se modifica ni se reemplaza. No hay pagos, subastas, financiación, comisiones ni publicación automática en ese sitio.
 
-**Estado de entrega:** aplicación implementada, **90 pruebas locales aprobadas** y un recorrido HTTPS real de acceso, MFA, medios, revisión, PDF y difusión controlada. La verificación completa del despliegue final, recepción de correo y apertura pública siguen pendientes. El registro permanece cerrado hasta validar documentos y autorizar su apertura. El detalle comprobable y sus límites están en [Aceptación y evidencias](docs/acceptance.md).
+**Estado operativo verificado al 15 de septiembre de 2026:** servicio publicado en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), commit `535c6c6`, con **117 pruebas locales aprobadas sin omisiones** y **72 comprobaciones HTTPS aprobadas**. Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue y recepción de invitación/recuperación en Gmail. El registro público permanece cerrado: faltan validación legal, apertura operativa y activación personal del titular. La ampliación de analítica opcional está validada localmente y en PostgreSQL, y pendiente del siguiente despliegue. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
+
+## Servicio y acceso actuales
+
+| Elemento | Estado comprobado |
+|---|---|
+| Sitio y acceso | [Portal](https://imc-mexico.seenode.app) · [Iniciar sesión](https://imc-mexico.seenode.app/iniciar-sesion/) |
+| Administración | `/operaciones/` y `/admin/`, con rol autorizado y MFA |
+| Cuenta del titular | `gabolaurav@gmail.com`; invitación y recuperación recibidas en Spam de Gmail, enlace válido en producción; el titular debe establecer su contraseña y configurar TOTP |
+| Seenode | Servicio `974953`, `imc-mexico`; Basic 512 MB, una réplica |
+| Almacenamiento | Volumen privado persistente de 5 GB en `/data`; medios en `/data/media` |
+| Coste contratado | Servicio US$4/mes + volumen US$2.50/mes = **US$6.50/mes**, sin incluir consumos de proveedores externos |
+| Base de datos | Neon Free independiente, Frankfurt, PostgreSQL 18; migraciones `0001`–`0005` aplicadas |
+| IA | OpenAI `gpt-4.1-mini`; clave exclusiva de producción y credencial anterior revocada |
+| Correo | Resend SMTP con credencial de envío validada; recepción en Gmail confirmada, dominio/remitente general pendiente |
+| Respaldo | Restauración real de PostgreSQL y 10 archivos en `imc_restore_test` aprobada; ejecución programada en el volumen en verificación, destino externo pendiente |
+
+El intento de recarga de US$10 fue rechazado y no hay cobro confirmado. La mejora opcional a Standard 1 GB (US$7/mes + US$2.50 de volumen = US$9.50/mes) **no está activa** y requiere pago. El plan actual no acredita capacidad bajo carga ni la conversión de videos al límite máximo permitido.
 
 ## Qué contiene
 
@@ -106,7 +123,7 @@ No subas `.env`, claves, cadenas de conexión, medios privados ni copias de base
 | `DIRECT_URL` | Conexión directa PostgreSQL para el bloqueo de despliegue y las migraciones; si falta, se usa `DATABASE_URL` |
 | `PORT` | Puerto del proceso, igual al campo Port de Seenode; por defecto `8000` |
 | `WEB_WORKERS`, `WEB_THREADS` | Procesos/hilos de Gunicorn; inicialmente uno de cada uno, ajustables al recurso contratado |
-| `MEDIA_ROOT` | Carpeta privada persistente; propuesta Seenode: `/data/media` |
+| `MEDIA_ROOT` | Carpeta privada persistente; valor actual en Seenode: `/data/media` |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Credencial de servidor y modelo de imagen/salida estructurada |
 | `OPENAI_TIMEOUT` | Tiempo máximo de la llamada a OpenAI; inicialmente 90 segundos |
 | `AI_JOB_STALE_SECONDS` | Recuperación de trabajos interrumpidos; inicialmente 600 segundos |
@@ -147,13 +164,13 @@ python manage.py check
 
 La suite usa SQLite en memoria para que no altere Neon ni ejecute las llamadas externas de OpenAI/SMTP. Instala ffmpeg/ffprobe para que se ejecute también la prueba real de conversión de video; si no están disponibles, esa prueba se omite y no debe presentarse como aprobada. Las variables de los binarios permiten usar una instalación específica.
 
-La primera etapa registró **71 pruebas aprobadas sin omisiones**; la suite ampliada y su resultado más reciente se registran en [docs/acceptance.md](docs/acceptance.md). También se realizaron dos llamadas reales de OpenAI, QA visual de un PDF de dos páginas y una comprobación transaccional específica en PostgreSQL. Los simuladores de la suite prueban fallos y contratos, no la entrega de correos ni la disponibilidad de proveedores.
+La última suite confirmada registra **117 pruebas aprobadas sin omisiones**, incluidas 19 de privacidad de analítica. Cinco comprobaciones transaccionales adicionales de analítica en PostgreSQL también pasaron, con rollback. Además se completaron cuatro trabajos reales de OpenAI (dos locales y dos en el hosting), QA visual de un PDF de dos páginas, pruebas transaccionales de workflow en PostgreSQL, 72 comprobaciones HTTPS y revisión de interfaz pública en escritorio y móvil. Los simuladores prueban fallos y contratos; entrega de correo, persistencia y restauración se acreditan por sus pruebas externas separadas en [docs/acceptance.md](docs/acceptance.md).
 
-## Despliegue previsto en Seenode
+## Despliegue en Seenode
 
-La aplicación debe ser **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. Ya se ejecutó un recorrido HTTP contra un despliegue de esta aplicación; aún debe confirmarse el commit final y completar persistencia tras redespliegue, correo y recuperación.
+La aplicación es **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. El commit verificado del servicio público es `535c6c6`. Se comprobaron salud HTTP 200, medios y resultados de IA anteriores después de su redespliegue. La migración `0005_optional_acquisition_analytics` ya está aplicada en Neon y pasó comprobaciones transaccionales; el código de esa ampliación está pendiente del siguiente despliegue.
 
-Configuración propuesta:
+Configuración del servicio:
 
 | Campo | Valor / criterio |
 |---|---|
@@ -166,13 +183,13 @@ Configuración propuesta:
 | Réplicas | **Una**, mientras se utilice el volumen local |
 | Volumen | Persistente en `/data`; `MEDIA_ROOT=/data/media` |
 | Salud | `GET /salud/`: comprueba una consulta PostgreSQL y responde 200/503 |
-| HTTPS | URL asignada por Seenode configurada como `PUBLIC_URL` y origen CSRF |
+| HTTPS | `https://imc-mexico.seenode.app`, configurada como `PUBLIC_URL` y origen CSRF |
 
-`build.sh` instala ffmpeg, fuentes y herramientas PostgreSQL, instala dependencias Python, recoge estáticos y ejecuta comprobaciones de producción. Requiere que el entorno permita instalar esos paquetes del sistema; debe verificarse en el build real.
+`build.sh` instala ffmpeg, fuentes y herramientas PostgreSQL, instala dependencias Python, recoge estáticos y ejecuta comprobaciones de producción. La conversión real de HEIC/MOV y la generación de PDF se comprobaron en el servicio publicado.
 
 `start.py` ejecuta una migración serializada y después supervisa Gunicorn escuchando en `0.0.0.0:PORT`, `runworker` y el daemon `backup_private`. Comparten el volumen del mismo contenedor. Si un proceso esencial termina inesperadamente, el supervisor termina el contenedor para que el hosting lo reinicie. No se depende de la computadora del desarrollador. No crear otro worker con una carpeta local aislada: no compartiría esos archivos.
 
-`deploy.py` utiliza `DIRECT_URL`, obtiene un bloqueo asesor de PostgreSQL, ejecuta `migrate --noinput` y `seed`, y libera el bloqueo. Así dos arranques coincidentes no migran a la vez. No borra tablas ni reinicia datos. La conexión debe conservar SSL y las opciones suministradas por Neon. El proyecto Neon independiente tiene comprobadas las migraciones iniciales; el código incluye `0003` (plantillas/permisos) y `0004` (registro cerrado), que el despliegue debe aplicar antes de abrir tráfico. Si `ADMIN_EMAIL` está configurado para el correo expresamente autorizado, el despliegue prepara su invitación mediante `invite_admin`; no eleva cuentas normales existentes.
+`deploy.py` utiliza `DIRECT_URL`, obtiene un bloqueo asesor de PostgreSQL, ejecuta `migrate --noinput` y `seed`, y libera el bloqueo. Así dos arranques coincidentes no migran a la vez. No borra tablas ni reinicia datos. La conexión debe conservar SSL y las opciones suministradas por Neon. El proyecto Neon independiente tiene aplicadas las migraciones `0001`–`0005`, incluidas plantillas/permisos, cierre del registro y estructura de analítica opcional. Si `ADMIN_EMAIL` está configurado para el correo expresamente autorizado, el despliegue prepara su invitación mediante `invite_admin`; no eleva cuentas normales existentes.
 
 La conversión de video es síncrona y puede usar hasta 180 segundos más la inspección inicial. Gunicorn tiene un timeout de 240 segundos; verificar también el límite del proxy de Seenode. Una prueba de dos segundos no acredita el máximo de 120 segundos bajo carga.
 
@@ -186,13 +203,13 @@ La conversión de video es síncrona y puede usar hasta 180 segundos más la ins
 
 ### Recuperación
 
-El daemon `backup_private` prepara una copia conjunta de PostgreSQL y medios con manifiesto e integridad. Su almacenamiento inicial en el mismo volumen no cubre la pérdida total de ese volumen: configurar y verificar un destino externo. Probar restauración en un entorno separado; nunca restaurar sobre un proyecto ajeno. Los comandos, variables, compatibilidad de `pg_dump` y límites están en [Operación y recuperación](docs/operations.md).
+El daemon `backup_private` prepara una copia conjunta de PostgreSQL y medios con manifiesto e integridad. Se completó una restauración real en la base aislada `imc_restore_test`, con verificación de 10 archivos. El estado del daemon programado sobre el volumen sigue en verificación. Su almacenamiento en el mismo volumen no cubre la pérdida de ese volumen; **el destino externo S3 todavía no está configurado ni verificado**. Los comandos, variables, compatibilidad de `pg_dump` y límites están en [Operación y recuperación](docs/operations.md).
 
-Para revertir código, desplegar el último commit validado **sólo si es compatible con el esquema vigente**. No revertir ni borrar migraciones a ciegas. Una migración destructiva necesita una estrategia de restauración o una corrección hacia adelante; ninguna forma parte del arranque habitual. El supervisor y las leases recuperan trabajos interrumpidos hasta el límite de intentos. No se han verificado aún backups ni recuperación del hosting de producción.
+Para revertir código, desplegar el último commit validado **sólo si es compatible con el esquema vigente**. No revertir ni borrar migraciones a ciegas. Una migración destructiva necesita una estrategia de restauración o una corrección hacia adelante; ninguna forma parte del arranque habitual. El supervisor y las leases recuperan trabajos interrumpidos hasta el límite de intentos. La restauración aislada no equivale a una prueba de recuperación integral ante pérdida del servicio o volumen de producción.
 
 ## Operación
 
-La IA conserva trabajos, intentos, modelo, prompt y consumo. Los límites iniciales son 10 trabajos por usuario/día, 100 globales y 200000 tokens reservados/consumidos por día. No son una garantía de coste monetario; no se modifican recargas automáticas de OpenAI. [Procesamiento](docs/processing.md) explica reservas, errores, reintentos y limitaciones.
+La IA conserva trabajos, intentos, modelo, prompt y consumo. Los límites **configurados en producción** son 10 trabajos por usuario/día, 50 globales/día, 100000 tokens reservados/consumidos al día y dos intentos por trabajo. Pueden diferir de los valores iniciales del seed y se administran en `PlatformSettings`. No son una garantía de coste monetario; no se modifican recargas automáticas de OpenAI. [Procesamiento](docs/processing.md) explica reservas, errores, reintentos y limitaciones.
 
 Para diagnosticar un lote de trabajo:
 
@@ -200,7 +217,7 @@ Para diagnosticar un lote de trabajo:
 python manage.py runworker --once
 ```
 
-El estado de correo `sent` significa aceptación SMTP, no recepción. La prueba actual de Resend usa su remitente de prueba y sólo el destinatario propietario permitido. Falta verificar un dominio/remitente apto para destinatarios generales y comprobar recepción real de activación y recuperación antes de abrir el servicio al público.
+El estado de correo `sent` significa aceptación SMTP. Por separado, Resend confirmó `delivered` para la invitación y recuperación de `gabolaurav@gmail.com`, y ambos mensajes se localizaron directamente en **Spam de Gmail**. El enlace de invitación respondió correctamente en producción. El titular todavía debe establecer su contraseña y configurar TOTP; debe buscar los mensajes también en Spam. El envío actual usa el remitente de prueba y el destinatario propietario permitido; falta verificar un dominio/remitente apto para destinatarios generales antes de abrir el servicio al público. La presencia de los mensajes en el buzón no acredita lectura o activación por el titular.
 
 Las direcciones del dominio `.invalid` de los ensayos nunca se envían a SMTP; quedan marcadas como envío de prueba suprimido, no como correo enviado. Los logs sanitizan los tokens de activación/recuperación. Los accesos web no registran esas rutas completas en Gunicorn.
 
@@ -217,6 +234,10 @@ python manage.py retention --apply
 ```
 
 `--apply` elimina sesiones vencidas, contadores de intentos de más de 31 días y analítica anterior a `retention_days` (mínimo 30). Redacta el contenido de avisos de acceso cuyo enlace ya venció y marca como fallidos los que seguían pendientes. Nunca elimina maquinaria, versiones, auditoría ni medios. El inventario local de archivos sin referencia sólo informa candidatos; no borra archivos y no atribuye automáticamente un archivo a abandono. No se programó una purga automática.
+
+La ampliación pendiente incluye `python manage.py audit_media` para auditar referencias, integridad de rutas y archivos sin referencia. Es de sólo lectura por defecto; la limpieza local exige `--apply --older-than 7`, comprobaciones de antigüedad/referencias y revisión operativa. No se ejecutó esa limpieza en producción. Con S3 únicamente se admite inventario, sin eliminación remota. La guía completa está en [operations.md](docs/operations.md).
+
+La analítica opcional de esa ampliación está desactivada por defecto. Cuando se habilita con consentimiento, las preferencias se ofrecen en el pie de página y rechazarlas no cambia el acceso. La captura evita identidad, IP sin procesar, URL completa y referrer. El modo agregado no usa identificadores de sesión; con consentimiento, la sesión analítica dura 30 minutos. `retention --apply` limpia hashes vencidos y contexto de trabajos expirado, además de los plazos anteriores. Las pruebas locales y PostgreSQL están aprobadas; resta verificar el despliegue público.
 
 Los avisos legales son borradores pendientes de validación del responsable de IMC México. El indicador `legal_validated` registra esa revisión; no acredita cumplimiento legal por sí mismo. Las solicitudes de exportación/eliminación/corrección quedan en administración para atenderlas de forma controlada.
 

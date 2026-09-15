@@ -22,6 +22,7 @@ from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, 
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings
 from .security import throttle
 from .services import audit
+from .analytics import attach_consent_to_account,record_event
 
 def auth_render(request,form,title,submit_label,**extra):
     return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,**extra})
@@ -47,6 +48,8 @@ def register(request):
                 activation_email(user,'verify')
                 audit(user,'account.register',user)
             login(request,user)
+            attach_consent_to_account(request,user)
+            record_event(request,'register_completed',page='register')
             messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')
             return redirect('/panel/')
     return auth_render(request,form,'Empieza con tu maquinaria','Crear mi cuenta')

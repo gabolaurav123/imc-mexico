@@ -62,6 +62,18 @@
     } catch (error) { toast(error.message, true); button.disabled = false; }
   }));
 
+  let beforePreferencesReload = null;
+  $$('[data-analytics-consent]').forEach(button => button.addEventListener('click', async () => {
+    const buttons = $$('[data-analytics-consent]'); buttons.forEach(item => { item.disabled = true; });
+    try {
+      const result = await api('/preferencias/analitica/', { consent: button.dataset.analyticsConsent === 'true' });
+      $('#analytics-preferences').dataset.consent = result.consent;
+      $('#analytics-consent-status').textContent = result.enabled === false ? 'La analítica está desactivada en la plataforma.' : result.consent === 'granted' ? 'Has permitido la analítica opcional. Puedes cambiar tu elección aquí.' : 'Has desactivado la analítica opcional. Puedes cambiar tu elección aquí.';
+      if (beforePreferencesReload && !(await beforePreferencesReload())) toast('Preferencia guardada. Conservamos esta página hasta que termines de guardar y cargar tus archivos.');
+      else location.reload();
+    } catch (error) { toast(error.message, true); }
+    finally { buttons.forEach(item => { item.disabled = false; }); }
+  }));
   const compare = $('#version-compare');
   if (compare) {
     let versions = [];
@@ -161,6 +173,10 @@
     if (uploadCount) return problem('Espera a que termine la carga de tus archivos antes de salir.');
     try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep the unsaved form visible. */ }
   });
+  beforePreferencesReload = async () => {
+    if (uploadCount) return false;
+    try { await save(); return true; } catch { return false; }
+  };
   function displayStep(step, scroll = true) {
     currentStep = Math.min(5, Math.max(1, Number(step) || 1));
     $$('[data-step-panel]', wizard).forEach(panel => { panel.hidden = Number(panel.dataset.stepPanel) !== currentStep; });
