@@ -114,7 +114,9 @@ para desarrollo local con un worker.
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
 - Reserva conservadora por intento: 9000 tokens más 3200 por imagen; descripción
-  reserva 9000. La investigación añade 20000 por intento. Se reserva por adelantado
+  reserva 9000. La investigación añade 20000 por intento. Los nuevos trabajos de
+  descripción con investigación omiten la redacción preliminar y reservan únicamente
+  20000; el marcador de estrategia conserva la reserva anterior de trabajos existentes. Se reserva por adelantado
   para los intentos que caben en la capacidad disponible, hasta el máximo configurado;
   si sólo cabe uno, el trabajo conserva ese tope y no reintenta sin reserva.
   La reserva no es una predicción de tokens ni un precio. La API devuelve consumo

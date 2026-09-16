@@ -276,8 +276,10 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
             preview.close()
 
 
-def _reservation(image_count, mode, research=False):
+def _reservation(image_count, mode, research=False, *, research_description_only=False):
     # A conservative operational reservation, not a token prediction or price quote.
+    if mode == "description" and research and research_description_only:
+        return RESEARCH_RESERVATION
     return (9000 if mode == "description" else 9000 + image_count * 3200) + (RESEARCH_RESERVATION if research else 0)
 
 
@@ -341,6 +343,11 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
                     "category_names": category_names, "research": research}
+        research_description_only = mode == "description" and research
+        if research_description_only:
+            # Separate the two-call strategy from older three-call jobs. Keep
+            # each queued/running job's reservation and execution consistent.
+            material["research_description_only"] = True
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         existing = AnalysisJob.objects.select_for_update().filter(fingerprint=fingerprint).first()
         if existing:
@@ -361,7 +368,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
             raise ValidationError("Alcanzaste el límite diario de análisis. Puedes enviar la ficha con la información disponible.")
         if jobs.count() >= limits.ai_global_daily_limit:
             raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes enviar la ficha con la información disponible o intentarlo mañana.")
-        per_attempt = _reservation(len(assets), mode, research)
+        per_attempt = _reservation(len(assets), mode, research,
+                                   research_description_only=research_description_only)
         # Include unfinished prior-day work and any work completed today, so a
         # midnight rollover cannot bypass the reservation budget.
         budget_jobs = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
@@ -380,7 +388,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         auto_apply=auto_apply,
                                         application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
-                                        result={"attempt_limit": attempt_limit, "research_requested": research, "category_names": category_names,
+                                        result={"attempt_limit": attempt_limit, "research_requested": research,
+                                                "research_description_only": research_description_only, "category_names": category_names,
                                                 "input_snapshot": {"title": machine.title,
                                                 "provenance": {k: v for k, v in machine.provenance.items() if k in {"brand", "model", "serial"}},
                                                 "data": {k: v for k, v in machine.data.items()
@@ -480,18 +489,26 @@ def process_analysis(job):
                     timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
     usage = UsageTotals()
     try:
-        response = client.responses.parse(
-            model=job.model, instructions=SYSTEM_PROMPT,
-            input=[{"role": "user", "content": content}],
-            text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
-            max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
-        )
-        usage.add(response.usage)
-        if response.output_parsed is None or response.status != "completed":
-            raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
-        result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode)
         research_requested = job.result.get("research_requested") is True
+        research_description_only = (job.mode == "description" and research_requested
+                                     and job.result.get("research_description_only") is True)
+        if research_description_only:
+            # Web research already composes its final description from accepted
+            # facts below. No preliminary description or new OCR is necessary.
+            result = normalize_analysis(DescriptionAnalysis(description="", warnings=[], questions=[]), [], "description")
+        else:
+            response = client.responses.parse(
+                model=job.model, instructions=SYSTEM_PROMPT,
+                input=[{"role": "user", "content": content}],
+                text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
+                max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
+            )
+            usage.add(response.usage)
+            if response.output_parsed is None or response.status != "completed":
+                raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
+            result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode)
         result["research_requested"] = research_requested
+        result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         if research_requested:
             def research_allowed():
@@ -549,7 +566,8 @@ def _claim_job():
             stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Puedes enviar la ficha con la información disponible."
             stale.locked_at = None
             # Unknown remote outcome: reserve conservative consumption instead of claiming zero.
-            per_attempt = _reservation(len(stale.asset_ids), stale.mode, stale.result.get("research_requested") is True)
+            per_attempt = _reservation(len(stale.asset_ids), stale.mode, stale.result.get("research_requested") is True,
+                                       research_description_only=stale.result.get("research_description_only") is True)
             stale.input_tokens += min(stale.reserved_tokens, per_attempt)
             stale.reserved_tokens = max(0, stale.reserved_tokens - per_attempt) if stale.status == "queued" else 0
             stale.finished_at = now if stale.status == "failed" else None
@@ -626,7 +644,8 @@ def process_next_job():
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
                             "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
-            per_attempt = _reservation(len(locked.asset_ids), locked.mode, locked.result.get("research_requested") is True)
+            per_attempt = _reservation(len(locked.asset_ids), locked.mode, locked.result.get("research_requested") is True,
+                                       research_description_only=locked.result.get("research_description_only") is True)
             accounted = getattr(exc, "accounted_usage", None)
             if accounted is not None:
                 locked.input_tokens += accounted.input_tokens

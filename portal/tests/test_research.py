@@ -168,6 +168,55 @@ class ResearchValidationTests(SimpleTestCase):
         year.source_url = URL
         self.assertEqual(normalized([year], {**identity, "serial": "OTHER123"}, text)["fields"], [])
 
+    def test_mislabeled_exact_serial_is_safely_demoted_to_cited_model_reference(self):
+        identity = {**IDENTITY, "serial": "IMC-QA-SERIAL-0001"}
+        for matched_serial in (None, "", identity["serial"]):
+            candidate = fact(scope="exact_serial", matched_serial=matched_serial)
+            research = normalized([candidate], identity)
+            with self.subTest(matched_serial=matched_serial):
+                self.assertEqual(research["status"], "completed")
+                self.assertEqual(research["basis"], "exact_serial")
+                self.assertEqual(research["match"], "model")
+                self.assertEqual(research["fields"][0]["scope"], "model")
+                self.assertIsNone(research["fields"][0]["matched_serial"])
+                self.assertEqual(research["diagnostics"]["scope_adjusted_to_model"], 1)
+                merged = merge_research(vision(), research)
+                self.assertTrue(is_validated_web_field(merged, "power", "70 kW", merged["provenance"]["power"]))
+        year_text = "Caterpillar 420F2: año 2018."
+        year = fact(key="year", value="2018", scope="exact_serial", matched_serial=identity["serial"], evidence=year_text)
+        self.assertEqual(normalized([year], identity, year_text)["fields"], [])
+
+    def test_scope_fallback_rejects_other_units_and_missing_model_identity(self):
+        identity = {**IDENTITY, "serial": "REQUESTED123"}
+        for candidate in (fact(scope="exact_serial", matched_serial="OTHER999"),
+                          fact(scope="exact_serial", matched_serial=identity["serial"], matched_model="420F2IT"),
+                          fact(scope="exact_serial", matched_serial=identity["serial"], matched_brand="Komatsu")):
+            self.assertEqual(normalized([candidate], identity)["fields"], [])
+        other_text = "Caterpillar 420F2 serie OTHER999: potencia 70 kW."
+        candidate = fact(scope="exact_serial", matched_serial=identity["serial"], evidence=other_text)
+        research = normalized([candidate], identity, other_text)
+        self.assertEqual(research["fields"], [])
+        self.assertEqual(research["diagnostics"]["rejection_counts"], {"different_unit": 1})
+        no_model = "Potencia 70 kW."
+        candidate = fact(scope="exact_serial", matched_serial=identity["serial"], evidence=no_model)
+        self.assertEqual(normalized([candidate], identity, no_model)["fields"], [])
+
+    def test_model_scope_requires_literal_brand_or_recognized_alias_in_same_evidence(self):
+        identity = {**IDENTITY, "serial": "REQUESTED123"}
+        for scope in ("model", "exact_serial"):
+            text = "Komatsu 420F2: potencia 70 kW."
+            candidate = fact(scope=scope, matched_serial=identity["serial"], evidence=text)
+            research = normalized([candidate], identity, text)
+            self.assertEqual(research["fields"], [])
+            self.assertEqual(research["diagnostics"]["rejection_counts"], {"brand_not_literal": 1})
+        for declared, literal in (("Caterpillar", "CAT"), ("CAT", "Caterpillar"),
+                                  ("John Deere", "Deere"), ("Deere", "John Deere"),
+                                  ("Volvo", "Volvo CE")):
+            text = f"{literal} 420F2: potencia 70 kW."
+            candidate = fact(scope="exact_serial", matched_brand=declared, matched_serial="REQUESTED123", evidence=text)
+            research = normalized([candidate], {**identity, "brand": declared}, text)
+            self.assertEqual(research["fields"][0]["scope"], "model")
+
     def test_exact_serial_rejects_longer_prefix_matches_but_accepts_internal_formatting(self):
         identity = {**IDENTITY, "serial": "ABC123"}
         for literal in ("ABC1234", "XABC123", "ABC123-4"):

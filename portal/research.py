@@ -106,6 +106,13 @@ def _contains_identifier(text, identifier):
     return bool(re.search(pattern, str(text), re.I))
 
 
+def _contains_brand(text, brand):
+    aliases = {"caterpillar": ("Caterpillar", "CAT"),
+               "johndeere": ("John Deere", "Deere"),
+               "volvo": ("Volvo", "Volvo CE")}
+    return any(_contains_identifier(text, alias) for alias in aliases.get(_brand_key(brand), (brand,)))
+
+
 def _identifier(value, serial=False):
     if not isinstance(value, str):
         return None
@@ -325,13 +332,24 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if identity.get("serial") and identifier_key(identity["serial"]) in identifier_key(item.value):
             reject("private_identifier")
             continue
-        if item.scope == "exact_serial":
-            if (basis != "exact_serial" or not identity.get("serial")
-                    or identifier_key(item.matched_serial) != identifier_key(identity["serial"])
-                    or not _contains_identifier(evidence, identity["serial"])):
-                reject("serial_not_matched")
-                continue
-        else:
+        # The provider proposes a scope, but only the cited passage determines
+        # it. A query's serial in model output is not proof of a unit match.
+        if item.matched_serial and (not identity.get("serial")
+                or identifier_key(item.matched_serial) != identifier_key(identity["serial"])):
+            reject("different_unit")
+            continue
+        # A passage explicitly naming a different/unknown unit cannot be
+        # repurposed as a general model reference, even if the extractor copied
+        # the requested serial into matched_serial incorrectly.
+        explicit_unit = re.search(r"\b(?:serie|serial|s/n|pin|vin)\b", evidence, re.I)
+        if explicit_unit and not _contains_identifier(evidence, identity.get("serial")):
+            reject("different_unit")
+            continue
+        exact_match = (item.scope == "exact_serial" and basis == "exact_serial" and identity.get("serial")
+                       and identifier_key(item.matched_serial) == identifier_key(identity["serial"])
+                       and _contains_identifier(evidence, identity["serial"]))
+        scope = "exact_serial" if exact_match else "model"
+        if scope == "model":
             if not identity.get("brand") or not identity.get("model"):
                 reject("model_identity_missing")
                 continue
@@ -341,6 +359,11 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             if not _contains_identifier(evidence, identity["model"]):
                 reject("model_not_literal")
                 continue
+            if not _contains_brand(evidence, identity["brand"]):
+                reject("brand_not_literal")
+                continue
+            if item.scope == "exact_serial":
+                diagnostics["scope_adjusted_to_model"] = diagnostics.get("scope_adjusted_to_model", 0) + 1
         if identity.get("brand") and item.key == "brand" and _brand_key(item.value) != _brand_key(identity["brand"]):
             reject("brand_conflict")
             continue
@@ -348,16 +371,16 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             reject("model_conflict")
             continue
         authoritative = _authority(url, identity.get("brand") or item.matched_brand)
-        if item.key == "year" and (item.scope != "exact_serial" or not authoritative
+        if item.key == "year" and (scope != "exact_serial" or not authoritative
                                    or not re.fullmatch(r"(?:19|20)\d{2}", item.value.strip())
                                    or int(item.value) > timezone.now().year + 1):
             reject("year_not_authoritative")
             continue
-        field = {"key": item.key, "value": item.value.strip(), "scope": item.scope,
+        field = {"key": item.key, "value": item.value.strip(), "scope": scope,
                  "source_url": url, "source_title": by_url[url]["title"],
                  "source_date": timezone.localdate().isoformat(), "evidence": evidence,
                  "authority_validated": authoritative,
-                 "matched_serial": identity["serial"] if item.scope == "exact_serial" else None}
+                 "matched_serial": identity["serial"] if scope == "exact_serial" else None}
         if item.key in accepted and accepted[item.key]["value"] != field["value"]:
             conflicts.add(item.key)
         elif item.key not in accepted:
