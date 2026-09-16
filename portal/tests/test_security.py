@@ -96,7 +96,7 @@ class WebSecurityTests(TestCase):
         self.assertEqual(self.client.get("/admin/").status_code,302)
 
     def test_admin_login_uses_central_rate_limited_login(self):
-        self.assertRedirects(self.client.get("/admin/login/"),"/iniciar-sesion/?next=/admin/",fetch_redirect_response=False)
+        self.assertRedirects(self.client.get("/admin/login/"),"/administracion/",fetch_redirect_response=False)
 
     def test_activation_tokens_not_visible_in_admin_notifications(self):
         self.verified_login(self.admin)

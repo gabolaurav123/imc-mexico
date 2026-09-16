@@ -9,7 +9,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from portal.models import AnalysisJob,AnalyticsEvent,Asset,Notification,PlatformSettings,RateLimit
+from portal.models import AccountAccess,AnalysisJob,AnalyticsEvent,Asset,Notification,PlatformSettings,RateLimit
 from portal.services import audit
 
 
@@ -29,11 +29,13 @@ class Command(BaseCommand):
         analytics=AnalyticsEvent.objects.filter(created_at__lt=now-timedelta(days=retention_days))
         expired_hashes=AnalyticsEvent.objects.filter(created_at__lt=now-timedelta(minutes=30)).exclude(session_hash='')
         expired_contexts=AnalysisJob.objects.filter(analytics_context___expires_at__lte=now.timestamp())
+        expired_accesses=AccountAccess.objects.filter(expires_at__lte=now)
         expired_auth=Notification.objects.filter(kind__in=["activation","admin_activation","verify","recovery"],created_at__lt=now-timedelta(seconds=settings.PASSWORD_RESET_TIMEOUT)).exclude(body="Enlace de acceso vencido. Contenido eliminado por política de conservación.")
         report={"mode":"apply" if options["apply"] else "report_only","retention_days":retention_days,
                 "expired_sessions":sessions.count(),"rate_limits_older_31_days":rate_limits.count(),
                 "expired_analytics":analytics.count(),"expired_auth_messages_to_redact":expired_auth.count(),
                 "analytics_session_hashes_to_clear":expired_hashes.count(),"expired_analysis_contexts_to_clear":expired_contexts.count(),
+                "expired_account_accesses":expired_accesses.count(),
                 "media_deleted":0,"machines_deleted":0,"versions_deleted":0}
         if options["inspect_media"]:
             if getattr(settings,"PRIVATE_S3_BUCKET",""):
@@ -55,6 +57,7 @@ class Command(BaseCommand):
                 analytics.delete()
                 expired_hashes.update(session_hash='')
                 expired_contexts.update(analytics_context={})
+                expired_accesses.delete()
                 expired_auth.filter(status="pending").update(status="failed",error="El enlace venció antes de ser enviado. Solicita otro enlace.")
                 expired_auth.update(body="Enlace de acceso vencido. Contenido eliminado por política de conservación.")
                 if platform:

@@ -20,7 +20,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings
-from .security import throttle, login_destination, safe_next_url, management_home
+from .security import throttle, login_destination, safe_next_url, management_home, is_management_user
 from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
@@ -62,18 +62,30 @@ def register(request):
             return redirect('/panel/')
     return auth_render(request,form,'Empieza con tu maquinaria','Crear mi cuenta')
 
-def sign_in(request):
-    if request.user.is_authenticated and request.method=='GET':
-        return redirect(login_destination(request,request.GET.get('next')))
+def sign_in(request,management_only=False):
+    if request.user.is_authenticated and request.method=='GET' and (not management_only or is_management_user(request.user)):
+        return redirect(login_destination(request,None if management_only else request.GET.get('next')))
     form=LoginForm(request,data=request.POST or None)
     if request.method=='POST':
-        if not throttle(request,'login',15,900) or not throttle(request,'login-account',12,900,request.POST.get('username','').lower()):
+        if not throttle(request,'login',15,900) or not throttle(request,'login-account',12,900,request.POST.get('username','').strip().lower()):
             form.add_error(None,'Se alcanzó el límite de intentos. Inténtalo de nuevo en 15 minutos.')
         elif form.is_valid():
-            login(request,form.get_user())
-            audit(request.user,'account.login',request.user)
-            return redirect(login_destination(request,request.GET.get('next')))
+            if management_only and not is_management_user(form.get_user()):
+                form.add_error(None,'Esta cuenta no tiene acceso administrativo. Usa el correo de tu cuenta del equipo IMC México o entra al acceso general para anunciantes.')
+            else:
+                login(request,form.get_user())
+                audit(request.user,'account.login',request.user)
+                return redirect(login_destination(request,None if management_only else request.GET.get('next')))
+    if management_only:
+        intro='Ingresa con el correo de tu cuenta administrativa. Después verificarás tu acceso en dos pasos.'
+        if request.user.is_authenticated and not is_management_user(request.user):
+            intro='Tu sesión actual no tiene permisos administrativos. Ingresa con una cuenta del equipo IMC México para continuar; el nombre mostrado no determina tus permisos.'
+        return auth_render(request,form,'Acceso administrativo','Entrar a administración',admin_access=True,intro=intro)
     return auth_render(request,form,'Qué bueno verte de nuevo','Entrar a mi cuenta')
+
+
+def administration_sign_in(request):
+    return sign_in(request,management_only=True)
 
 @require_POST
 def sign_out(request):
@@ -157,6 +169,8 @@ def security(request):
                     device.confirmed=True;device.save(update_fields=['confirmed'])
             if valid:
                 otp_login(request,device)
+                from .access_tracking import record_access
+                record_access(request,request.user,'mfa_verified')
                 messages.success(request,'Segundo factor verificado. Ya puedes acceder a la administración.')
                 return redirect(login_destination(request,next_url))
             otp_form.add_error('token','El código no es válido o ya fue utilizado.')

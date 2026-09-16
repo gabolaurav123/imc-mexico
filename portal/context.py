@@ -13,7 +13,7 @@ def site_context(request):
     management_user=is_management_user(request.user)
     advertiser_mode=management_user and (
         (request.path=='/panel/' and request.GET.get('modo')=='anunciante')
-        or request.path.startswith(('/panel/maquinarias/','/panel/solicitudes/','/panel/mensajes/')))
+        or request.path.startswith(('/panel/maquinarias/','/panel/solicitudes/','/panel/mensajes/','/panel/notificaciones/')))
     return {'settings_context':platform_settings,'public_url':settings.PUBLIC_URL,'debug':settings.DEBUG,'analytics_settings':request.analytics_settings,
             'is_management_user':management_user,'management_url':management_home(request.user),
             'needs_management_mfa':needs_management_mfa(request.user),'is_advertiser_mode':advertiser_mode}

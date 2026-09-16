@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand
 from django.db import close_old_connections
 
 from portal.processing import process_next_job, process_notifications
+from portal.access_tracking import purge_expired_accesses
 
 
 class Command(BaseCommand):
@@ -16,6 +17,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         self.stopping = False
+        next_access_cleanup = 0
 
         def stop(signum, frame):
             self.stopping = True
@@ -28,6 +30,9 @@ class Command(BaseCommand):
             try:
                 processed = process_next_job()
                 accepted = process_notifications()
+                if time.monotonic() >= next_access_cleanup:
+                    purge_expired_accesses()
+                    next_access_cleanup = time.monotonic() + 3600
                 if options["once"]:
                     self.stdout.write(f"Análisis procesado: {int(processed)}. Avisos aceptados por backend: {accepted}.")
                     break

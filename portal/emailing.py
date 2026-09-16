@@ -125,6 +125,9 @@ def notification_context(notice):
                 cta_label = "Ver mis maquinarias"
         elif notice.kind == "reassignment":
             path = "/panel/maquinarias/"
+        elif notice.kind == "manual":
+            path = "/panel/notificaciones/"
+            cta_label = "Ver mi notificación"
         cta_url = base + path
     reply_to = _reply_to()
     return {

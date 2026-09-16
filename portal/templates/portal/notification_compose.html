@@ -1,0 +1,14 @@
+{% extends 'portal/panel_base.html' %}
+{% block title %}Enviar notificación · IMC México{% endblock %}
+{% block panel_content %}
+<a class="back-link" href="/operaciones/">← Panel administrativo</a>
+<div class="page-heading"><div><p class="eyebrow">COMUNICACIÓN INDIVIDUAL</p><h1>Enviar notificación</h1><p>Contacta a una cuenta para pedir información o dar seguimiento.</p></div>{% if perms.portal.view_notification or perms.portal.change_notification %}<a class="button button-outline" href="/admin/portal/notification/">Ver estados de envío →</a>{% endif %}</div>
+<section class="surface">
+<form method="post">{% csrf_token %}
+{{ form.request_token }}{% for error in form.request_token.errors %}<p class="error-text" role="alert">{{ error }}</p>{% endfor %}
+{% for error in form.non_field_errors %}<p class="error-text" role="alert">{{ error }}</p>{% endfor %}
+{% for field in form.visible_fields %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<p class="error-text" role="alert">{{ error }}</p>{% endfor %}</div>{% endfor %}
+<p class="small muted">El aviso aparecerá en la cuenta del destinatario y el correo quedará en cola. El historial muestra si el backend aceptó el correo o si falló; no confirma su lectura ni entrega. El proveedor de correo debe admitir al destinatario.</p>
+<button class="button button-navy" type="submit">Enviar a esta cuenta →</button>
+</form></section>
+{% endblock %}

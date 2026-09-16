@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from string import Template
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 from .storage import PrivateStorage
 
@@ -390,6 +392,31 @@ class AuditEvent(ImmutableModel):
         ordering = ["-created_at"]
         verbose_name = "evento de auditoría"
         verbose_name_plural = "auditoría"
+
+
+def account_access_expiry():
+    return timezone.now() + timedelta(days=90)
+
+
+class AccountAccess(models.Model):
+    """Short-lived security history for authenticated accounts, not analytics."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="access_history", verbose_name="cuenta")
+    event = models.CharField("evento", max_length=20, choices=[("login", "Inicio de sesión"), ("session", "Sesión activa"), ("mfa_verified", "Segundo factor verificado")])
+    connection_ip = models.GenericIPAddressField("IP de conexión", null=True, blank=True, help_text="Dirección observada por el servidor; puede corresponder al proxy del alojamiento.")
+    forwarded_ip = models.GenericIPAddressField("IP declarada por la cabecera de red", null=True, blank=True, help_text="Dato no verificado de X-Forwarded-For. No se usa para autorizar ni identifica una ubicación física.")
+    device = models.CharField("tipo de dispositivo", max_length=10, choices=[("desktop", "Computadora"), ("mobile", "Celular"), ("tablet", "Tableta"), ("unknown", "Sin identificar")], default="unknown")
+    created_at = models.DateTimeField("fecha", auto_now_add=True)
+    expires_at = models.DateTimeField("eliminar después de", default=account_access_expiry, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "acceso de cuenta"
+        verbose_name_plural = "accesos e IP de cuentas"
+        default_permissions = ("view",)
+        indexes = [models.Index(fields=["user", "created_at"], name="account_access_user_date")]
+
+    def __str__(self):
+        return f"{self.user.email} · {self.get_event_display()}"
 
 
 class Lead(models.Model):

@@ -21,6 +21,7 @@ function pass(name) { checks++; console.log(`PASS ${name}`); }
   assert.equal(button.getAttribute('aria-controls'), input.id);
   assert.equal(button.getAttribute('aria-pressed'), 'false');
   assert.equal(button.getAttribute('aria-label'), 'Mostrar contraseña');
+  assert.equal(button.querySelector('.password-visibility-caption').textContent, 'Mostrar');
   assert.equal(input.type, 'password');
   assert.equal(second.type, 'password');
   assert.equal(doc.getElementById('otp').parentElement, form);
@@ -39,6 +40,7 @@ function pass(name) { checks++; console.log(`PASS ${name}`); }
   assert.equal(input.selectionDirection, 'backward');
   assert.equal(button.getAttribute('aria-pressed'), 'true');
   assert.equal(button.getAttribute('aria-label'), 'Ocultar contraseña');
+  assert.equal(button.querySelector('.password-visibility-caption').textContent, 'Ocultar');
   assert.equal(new w.FormData(form).get('password'), 'Synthetic-selection-123!');
   assert.equal(second.type, 'password');
   assert.equal(edits, 0); assert.equal(submits, 0);
@@ -92,6 +94,16 @@ function pass(name) { checks++; console.log(`PASS ${name}`); }
   assert.equal(doc.activeElement, button, 'keyboard activation keeps normal button focus');
   assert.equal(input.hasAttribute('autofocus'), false);
   pass('pointer caret retention and accessible keyboard button focus');
+
+  const restricted = doc.createElement('input'); restricted.type = 'password';
+  Object.defineProperty(restricted, 'selectionStart', {get(){throw new Error('Selection API unavailable');}});
+  form.append(restricted); await pause();
+  const restrictedButton = restricted.parentElement.querySelector('.password-visibility-toggle');
+  assert.ok(restrictedButton); assert.equal(restricted.type, 'password');
+  restrictedButton.click(); assert.equal(restricted.type, 'text');
+  assert.equal(restrictedButton.textContent, 'Ocultar');
+  restrictedButton.click(); assert.equal(restricted.type, 'password');
+  pass('restricted selection APIs do not prevent initializing or toggling a masked password');
   dom.window.close();
   console.log(`Password visibility DOM: ${checks} groups PASS`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

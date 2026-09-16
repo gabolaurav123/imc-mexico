@@ -10,7 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q, Count, Sum
+from django.db.models import Q, Count, Sum, F
 from django.http import JsonResponse, HttpResponse, FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -69,6 +69,8 @@ def public_page(request,slug):
         sections=[*sections,('Analítica opcional','La analítica está desactivada inicialmente. Si se habilita, puedes permitirla o rechazarla desde el pie de página. La elección es independiente de los mensajes comerciales. Se cuentan pasos del portal, el tipo general de dispositivo y etiquetas de campaña limitadas; no se guardan IP, direcciones completas, datos de contacto ni identificadores de cuenta o maquinaria en estos eventos. Con aceptación se usa una huella aleatoria de navegador durante 30 minutos, sin relacionar dispositivos. La preferencia se conserva hasta 180 días. Si el responsable configura contadores sin consentimiento, estos no llevan cookies ni huella de sesión; tu rechazo también los detiene. Retirar la aceptación elimina la huella de la sesión actual. Los eventos agregados se conservan según la política indicada; no se convierten en contactos comerciales.')]
     content=SiteContent.objects.filter(key=slug,active=True).first()
     if content:title=content.title or title;sections=[('',content.body)]
+    if slug=='privacidad':
+        sections=[*sections,('Seguridad de cuentas y accesos','Al iniciar sesión se registra la cuenta, fecha, tipo general de dispositivo e IP de conexión. También se conserva, separada y como dato no verificado, la IP declarada por la cabecera de red. Se registra una muestra periódica de actividad de sesiones existentes y la verificación del segundo factor. Este historial privado sirve para revisar accesos y atender incidencias; sólo puede consultarlo el personal con permiso específico. No incluye contraseñas, códigos temporales, contenido de formularios ni ubicación física. Los registros caducan a los 90 días y se eliminan en la limpieza periódica del servicio. Es independiente de la analítica opcional de visitas.')]
     return render(request,'portal/page.html',{'title':title,'intro':intro,'sections':[{'title':a,'body':b} for a,b in sections],'slug':slug})
 
 def example(request):
@@ -441,6 +443,11 @@ def operations(request):
         'can_view_machines':allowed('view_machine','change_machine'),
         'can_view_publications':allowed('view_publication','change_publication','publish_machine'),
         'can_view_settings':allowed('view_platformsettings','change_platformsettings'),
+        'can_view_messages':allowed('view_message','change_message'),
+        'can_view_notifications':allowed('view_notification','change_notification'),
+        'can_view_accesses':allowed('view_accountaccess'),
+        'can_compose_notifications':allowed('add_notification') and allowed('view_user','change_user'),
+        'can_send_messages':allowed('add_message') and allowed('view_machine','change_machine'),
     }
     qs=(Submission.objects.filter(machine__deleted_at__isnull=True) if capabilities['can_view_submissions'] else Submission.objects.none()).select_related('machine','machine__owner','version')
     q=request.GET.get('q','').strip()[:100]
@@ -453,6 +460,9 @@ def operations(request):
     live_jobs=AnalysisJob.objects.filter(requested_by__is_test=False)
     visible_leads=Lead.objects.filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)) if capabilities['can_view_leads'] else Lead.objects.none()
     visible_jobs=AnalysisJob.objects.filter(machine__deleted_at__isnull=True) if capabilities['can_view_jobs'] else AnalysisJob.objects.none()
+    visible_messages=Message.objects.filter(machine__deleted_at__isnull=True) if capabilities['can_view_messages'] else Message.objects.none()
+    visible_notifications=(Notification.objects.exclude(kind__in=['activation','admin_activation','verify','recovery'])
+        if capabilities['can_view_notifications'] else Notification.objects.none())
     counts={
         'users':User.objects.filter(is_test=False).count() if capabilities['can_view_users'] else None,
         'pending':live.filter(status__in=['submitted','in_review']).count() if capabilities['can_view_submissions'] else None,
@@ -463,12 +473,42 @@ def operations(request):
         'failed_jobs':live_jobs.filter(machine__deleted_at__isnull=True,status='failed').count() if capabilities['can_view_jobs'] else None,
         'tokens':(live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0) if capabilities['can_view_jobs'] else None,
         'leads':visible_leads.filter(status='new',is_test=False).count() if capabilities['can_view_leads'] else None,
+        'pending_emails':visible_notifications.filter(channel='email',status='pending',user__is_test=False).count() if capabilities['can_view_notifications'] else None,
+        'failed_emails':visible_notifications.filter(channel='email',status='failed',user__is_test=False).count() if capabilities['can_view_notifications'] else None,
     }
     page=Paginator(qs,20).get_page(request.GET.get('page'))
     return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,
         'jobs':visible_jobs.select_related('machine').order_by('-created_at')[:10],
         'leads':visible_leads.order_by('-created_at')[:10],'q':q,
+        'recent_users':User.objects.filter(is_test=False).order_by(F('last_login').desc(nulls_last=True),'-date_joined')[:8] if capabilities['can_view_users'] else User.objects.none(),
+        'recent_machines':live.select_related('owner').order_by('-updated_at')[:8] if capabilities['can_view_machines'] else Machine.objects.none(),
+        'recent_messages':visible_messages.select_related('machine','sender').order_by('-created_at')[:8],
+        'recent_notifications':visible_notifications.select_related('user').order_by('-created_at')[:8],
         'backup_status':get_backup_status() if capabilities['can_view_settings'] else None,**capabilities})
+
+
+@login_required
+@require_GET
+def notification_list(request):
+    notices=Notification.objects.filter(user=request.user,channel='in_app').exclude(
+        kind__in=['activation','admin_activation','verify','recovery']).order_by('-created_at')
+    page=Paginator(notices,20).get_page(request.GET.get('page'))
+    return render(request,'portal/notification_list.html',{'notifications':page,'page_obj':page})
+
+
+@operator_required('portal.add_notification')
+def notification_compose(request):
+    from .communications import ManualNotificationForm,can_compose_notifications,queue_manual_notification
+    if not can_compose_notifications(request.user):raise PermissionDenied
+    form=ManualNotificationForm(request.POST if request.method=='POST' else None,actor=request.user)
+    if request.method=='POST' and form.is_valid():
+        try:
+            created=queue_manual_notification(actor=request.user,recipient=form.cleaned_data['recipient'],
+                subject=form.cleaned_data['subject'],body=form.cleaned_data['body'],request_id=form.cleaned_data['request_token'])
+            flash.success(request,'Notificación guardada en la plataforma y correo en cola. Consulta el estado del correo en Notificaciones.' if created else 'Este envío ya quedó registrado. No se ha duplicado.')
+            return redirect('notification_compose')
+        except ValidationError as exc:form.add_error(None,exc)
+    return render(request,'portal/notification_compose.html',{'form':form})
 
 @operator_required('portal.review_submission')
 def review(request,pk):

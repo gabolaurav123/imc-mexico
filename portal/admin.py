@@ -25,10 +25,13 @@ admin.site.index_title = "Operación de la plataforma"
 
 def central_admin_login(request,extra_context=None):
     # Keep all password checks behind the same account/IP throttle and audit trail.
-    return redirect("/iniciar-sesion/?next=/admin/")
+    return redirect("/administracion/")
 
 
 admin.site.login=central_admin_login
+
+
+from .models import AccountAccess
 
 
 class ReasonActionForm(ActionForm):
@@ -62,6 +65,20 @@ class HistoricalAdmin(AuditedAdmin):
         return False
 
 
+@admin.register(AccountAccess)
+class AccountAccessAdmin(HistoricalAdmin):
+    change_list_template = "admin/portal/accountaccess/change_list.html"
+    list_display = ("user", "event", "connection_ip", "forwarded_ip", "device", "created_at")
+    list_filter = ("event", "device", "created_at")
+    search_fields = ("user__email", "user__first_name", "user__last_name", "connection_ip", "forwarded_ip")
+    list_select_related = ("user",)
+    date_hierarchy = "created_at"
+
+    def get_queryset(self, request):
+        from django.utils import timezone
+        return super().get_queryset(request).filter(expires_at__gt=timezone.now())
+
+
 class SafeUserCreationForm(UserCreationForm):
     class Meta(UserCreationForm.Meta):
         model = User
@@ -78,7 +95,7 @@ class SafeUserChangeForm(UserChangeForm):
 class UserAdmin(BaseUserAdmin):
     form = SafeUserChangeForm
     add_form = SafeUserCreationForm
-    list_display = ("email", "first_name", "phone", "advertiser_status", "email_verified", "is_active", "is_staff", "is_test")
+    list_display = ("email", "first_name", "phone", "advertiser_status", "last_login", "email_verified", "is_active", "is_staff", "is_test")
     list_filter = ("advertiser_status", "email_verified", "is_staff", "is_active", "is_test")
     search_fields = ("email", "first_name", "last_name", "phone", "company")
     ordering = ("-date_joined",)
@@ -456,20 +473,45 @@ class PublicationAdmin(AuditedAdmin):
         return response
 
 
+class StaffMessageForm(forms.ModelForm):
+    body = forms.CharField(label="Mensaje", max_length=5000, widget=forms.Textarea,
+        help_text="Si es externo, el anunciante lo verá en Mensajes y recibirá un aviso en la plataforma y un correo en cola.")
+
+    class Meta:
+        model = Message
+        fields = ("machine", "body", "internal")
+        help_texts = {"internal": "Marca esta opción para una nota privada del equipo, sin avisar al anunciante."}
+
+    def clean(self):
+        data = super().clean()
+        machine = data.get("machine")
+        if machine and not data.get("internal") and not machine.owner.is_active:
+            raise ValidationError("La cuenta del destinatario está inactiva.")
+        return data
+
+
 @admin.register(Message)
 class MessageAdmin(AuditedAdmin):
+    form = StaffMessageForm
     list_display = ("machine", "sender", "internal", "created_at")
     list_filter = ("internal", "created_at")
     search_fields = ("body", "machine__title", "sender__email")
     readonly_fields = ("sender", "created_at")
 
+    def has_add_permission(self, request):
+        return (super().has_add_permission(request) and
+                (request.user.has_perm("portal.view_machine") or request.user.has_perm("portal.change_machine")))
+
     def get_readonly_fields(self, request, obj=None):
         return ("sender", "created_at", "machine", "body", "internal") if obj else self.readonly_fields
 
     def save_model(self, request, obj, form, change):
-        if not change:
-            obj.sender = request.user
-        super().save_model(request, obj, form, change)
+        if change:
+            return
+        from .communications import save_staff_message
+        save_staff_message(obj, request.user)
+        self.message_user(request, "Nota interna guardada sin notificar al anunciante." if obj.internal else
+                          "Mensaje guardado, aviso disponible en la plataforma y correo en cola.", messages.SUCCESS)
 
 
 @admin.register(Consent)

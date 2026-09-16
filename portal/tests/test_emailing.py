@@ -95,7 +95,8 @@ class TransactionalEmailTests(TestCase):
         paths = {"submission": "/panel/solicitudes/", "review": "/panel/solicitudes/",
                  "reply": f"/panel/mensajes/?maquinaria={self.machine.pk}",
                  "reminder": f"/panel/maquinarias/{self.machine.pk}/",
-                 "reassignment": "/panel/maquinarias/", "advertiser": "/panel/", "unknown": "/panel/"}
+                 "reassignment": "/panel/maquinarias/", "manual": "/panel/notificaciones/",
+                 "advertiser": "/panel/", "unknown": "/panel/"}
         for kind, path in paths.items():
             with self.subTest(kind=kind):
                 notice = self.notice(kind, "Mensaje aprobado por el equipo, conservado literalmente.")
@@ -103,6 +104,8 @@ class TransactionalEmailTests(TestCase):
                 self.assertEqual(context["cta_url"], "https://portal.example.com" + path)
                 self.assertEqual(context["paragraphs"], [notice.body])
                 self.assertNotIn("publicada", context["preheader"])
+                if kind == "manual":
+                    self.assertEqual(context["cta_label"], "Ver mi notificación")
 
     def test_deleted_or_reassigned_machine_does_not_get_an_inaccessible_detail_button(self):
         for deleted in (True, False):

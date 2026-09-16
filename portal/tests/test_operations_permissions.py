@@ -66,8 +66,9 @@ class OperationsPermissionTests(TestCase):
         self.assertEqual(list(response.context["jobs"]), [])
         for key in ("leads", "failed_jobs", "tokens"):
             self.assertIsNone(response.context["counts"][key])
-        for value in (self.lead.name, self.lead.email, self.job_machine.title, self.job.error):
+        for value in (self.lead.name, self.lead.email, self.job.error):
             self.assertNotContains(response, value)
+        self.assertContains(response, self.job_machine.title)  # Its ficha is readable, its job is not.
         self.assertIsNone(response.context["backup_status"])
 
     def test_commercial_staff_can_read_leads_but_not_submissions_or_jobs(self):
@@ -79,7 +80,9 @@ class OperationsPermissionTests(TestCase):
         self.assertEqual(list(response.context["jobs"]), [])
         self.assertEqual(response.context["counts"]["leads"], 1)
         self.assertContains(response, self.lead.email)
-        self.assertNotContains(response, self.machine.title)
+        # Machine read permission now exposes the separate recent-fichas list,
+        # while the submission dataset remains unavailable to this role.
+        self.assertContains(response, self.machine.title)
         self.assertNotContains(response, self.job.error)
 
     def test_view_change_and_workflow_permissions_enable_only_their_datasets(self):

@@ -1,5 +1,6 @@
 """All authentication templates load the same progressive password controls."""
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
 from django.contrib.auth.forms import SetPasswordForm
 from django.contrib.auth.tokens import default_token_generator
@@ -9,6 +10,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 
 from portal.models import PlatformSettings, User
+from portal.forms import LoginForm
 
 
 class Inputs(HTMLParser):
@@ -73,3 +75,25 @@ class PasswordVisibilityTemplateTests(TestCase):
         self.assertNotIn(second, html)
         self.assertEqual(html.count('class="password-field"'), 2)
         self.assertIn('role="alert"', html)
+
+    def test_common_login_explains_shared_access_and_links_administration(self):
+        response = self.client.get("/iniciar-sesion/")
+        self.assertContains(response, "ACCESO A IMC MÉXICO")
+        self.assertContains(response, 'href="/administracion/"')
+        self.assertContains(response, "Este acceso sirve para anunciantes y para el equipo de IMC")
+
+    def test_dedicated_admin_template_uses_management_copy_and_masked_credentials(self):
+        html = render_to_string("portal/auth.html", {"admin_access": True, "title": "Acceso administrativo",
+            "submit_label": "Entrar a administración", "form": LoginForm(),
+            "request": SimpleNamespace(path="/administracion/"), "csrf_token": "a" * 64})
+        self.assertIn("ADMINISTRACIÓN IMC MÉXICO", html)
+        self.assertIn("Entrar a administración", html)
+        self.assertIn("código de tu aplicación de autenticación", html)
+        self.assertIn('href="/recuperar-acceso/"', html)
+        self.assertNotIn("Todo empieza", html)
+        self.assertNotIn("Sube tus fotos", html)
+        self.assertNotIn("PORTAL DE ANUNCIANTES", html)
+        self.assertNotIn("Anunciar mi maquinaria", html)
+        passwords = [field for field in Inputs(html).inputs if field.get("type") == "password"]
+        self.assertEqual(len(passwords), 1)
+        self.assertFalse(passwords[0].get("value"))

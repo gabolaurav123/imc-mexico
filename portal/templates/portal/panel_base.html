@@ -17,6 +17,7 @@
     </nav>
     </details>
     <nav class="management-account-nav" aria-label="Mi cuenta y vistas">
+      <a href="/panel/notificaciones/" {% if request.path == '/panel/notificaciones/' %}aria-current="page"{% endif %}>Mis notificaciones</a>
       <a href="/panel/seguridad/" {% if request.path == '/panel/seguridad/' %}aria-current="page"{% endif %}>Seguridad</a>
       <a href="/panel/perfil/" {% if request.path == '/panel/perfil/' %}aria-current="page"{% endif %}>Mi cuenta</a>
       <a href="/panel/?modo=anunciante" {% if is_advertiser_mode %}aria-current="page"{% endif %}>Vista de anunciante</a>
@@ -29,6 +30,7 @@
       <a href="/panel/maquinarias/" {% if '/panel/maquinarias/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▱</span> Mis maquinarias</a>
       <a href="/panel/solicitudes/" {% if '/panel/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Mis solicitudes</a>
       <a href="/panel/mensajes/" {% if '/panel/mensajes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">☷</span> Mensajes</a>
+      {% if not is_management_user %}<a href="/panel/notificaciones/" {% if request.path == '/panel/notificaciones/' %}aria-current="page"{% endif %}><span aria-hidden="true">◉</span> Notificaciones</a>{% endif %}
       {% if not is_management_user %}<a href="/panel/perfil/" {% if '/panel/perfil/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">◎</span> Mi cuenta</a><a href="/panel/seguridad/" {% if request.path == '/panel/seguridad/' %}aria-current="page"{% endif %}>Seguridad</a>{% endif %}
     </nav>
     {% endif %}

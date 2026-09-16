@@ -1,0 +1,18 @@
+{% extends 'portal/panel_base.html' %}{% load static %}
+{% block title %}Mis notificaciones · IMC México{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'portal/notifications.css' %}">{% endblock %}
+{% block panel_content %}
+<div class="notification-inbox">
+  <div class="page-heading"><div><p class="eyebrow">AVISOS DE TU CUENTA</p><h1>Mis notificaciones</h1><p class="muted">Actualizaciones y avisos de IMC México, disponibles aquí para consultarlos.</p></div></div>
+  <div class="notification-inbox-tools"><p class="small muted">Los avisos más recientes aparecen primero.</p><a class="text-link" href="/panel/mensajes/">Mis mensajes →</a></div>
+  {% if notifications %}
+  <ol class="notification-inbox-list" aria-label="Notificaciones de mi cuenta">
+    {% for notice in notifications %}<li><article class="surface notification-card"><header><h2>{{ notice.subject }}</h2><time datetime="{{ notice.created_at|date:'c' }}">{{ notice.created_at|date:'d/m/Y · H:i' }}</time></header><div class="notification-body">{{ notice.body|linebreaks }}</div></article></li>{% endfor %}
+  </ol>
+  {% include 'portal/pagination.html' %}
+  {% else %}
+  <div class="surface empty-state"><p class="eyebrow">TODO EN UN MISMO LUGAR</p><h2>Aún no tienes notificaciones.</h2><p>Aquí aparecerán los avisos que IMC México envíe a tu cuenta.</p><a class="button button-outline" href="/panel/">Volver a mi panel →</a></div>
+  {% endif %}
+  <p class="notification-inbox-help small muted">¿Necesitas ayuda con un aviso? <a href="/contacto/">Contacta al equipo de IMC México</a>.</p>
+</div>
+{% endblock %}

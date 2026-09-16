@@ -7,6 +7,9 @@ admin.site.site_header='IMC México · Administración'
 admin.site.site_title='IMC México'
 admin.site.index_title='Operación de la plataforma'
 urlpatterns=[
+ path('administracion/',a.administration_sign_in,name='administration_login'),
+ path('operaciones/notificaciones/nueva/',v.notification_compose,name='notification_compose'),
+ path('panel/notificaciones/',v.notification_list,name='notification_list'),
  path('preferencias/analitica/',analytics_preferences,name='analytics_preferences'),
  path('',v.home,name='home'),path('salud/',v.health,name='health'),
  path('como-funciona/',v.public_page,{'slug':'como-funciona'}),path('guia-de-fotos/',v.public_page,{'slug':'guia-de-fotos'}),path('preguntas-frecuentes/',v.public_page,{'slug':'preguntas-frecuentes'}),path('privacidad/',v.public_page,{'slug':'privacidad'}),path('terminos/',v.public_page,{'slug':'terminos'}),path('ejemplo-de-ficha/',v.example,name='example'),path('contacto/',v.contact,name='contact'),

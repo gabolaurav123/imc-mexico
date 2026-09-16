@@ -7,7 +7,7 @@
   let nextId = 0;
 
   function enhance(input) {
-    if (!(input instanceof HTMLInputElement)) return;
+    if (!(input instanceof HTMLInputElement) || !input.parentElement) return;
     if (enhanced.has(input)) {
       enhanced.get(input).button.disabled = input.disabled;
       return;
@@ -33,11 +33,15 @@
     button.setAttribute('aria-controls', input.id);
     button.disabled = input.disabled;
     button.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/><path class="password-eye-slash" d="m3 3 18 18"/></svg>';
+    const caption = document.createElement('span');
+    caption.className = 'password-visibility-caption';
+    caption.setAttribute('aria-hidden', 'true');
+    button.append(caption);
 
     function setVisible(visible) {
-      const start = input.selectionStart;
-      const end = input.selectionEnd;
-      const direction = input.selectionDirection;
+      let start = null, end = null, direction = 'none';
+      try { start = input.selectionStart; end = input.selectionEnd; direction = input.selectionDirection; }
+      catch (_) { /* A restricted selection API must not prevent the visibility control. */ }
       input.type = visible ? 'text' : 'password';
       if (start !== null && end !== null) {
         try { input.setSelectionRange(start, end, direction || 'none'); }
@@ -47,6 +51,7 @@
       button.setAttribute('aria-pressed', String(visible));
       button.setAttribute('aria-label', label);
       button.title = label;
+      caption.textContent = visible ? 'Ocultar' : 'Mostrar';
     }
 
     button.addEventListener('pointerdown', event => {

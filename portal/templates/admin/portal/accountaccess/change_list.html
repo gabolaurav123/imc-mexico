@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+<div class="module"><h2>Accesos de cuentas · últimos 90 días</h2><div style="padding:12px 16px"><p>Registra inicios de sesión, verificación del segundo factor y una muestra periódica de actividad de sesiones existentes. No es un contador de cada visita. El historial comienza al instalar esta función.</p><p><strong>IP de conexión:</strong> dirección observada por el servidor; puede ser un proxy del alojamiento. <strong>IP declarada:</strong> dirección de una cabecera de red <strong>sin verificar</strong>; no acredita identidad ni ubicación física y no se usa para conceder acceso.</p><p>No se registran contraseñas, códigos de verificación ni contenido de formularios. Los registros caducan a los 90 días.</p></div></div>
+{{ block.super }}
+{% endblock %}

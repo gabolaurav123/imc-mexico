@@ -49,6 +49,36 @@ class ManagementRoutingTests(TestCase):
         self.assertFalse(response.context['is_advertiser_mode'])
         self.assertEqual(self.client.get('/operaciones/').status_code, 403)
 
+    def test_email_login_is_case_insensitive_and_display_name_cannot_select_a_role(self):
+        User.objects.filter(pk__in=[self.admin.pk, self.owner.pk]).update(first_name='Nombre compartido')
+        for user in (self.admin, self.owner):
+            with self.subTest(staff=user.is_staff):
+                self.client.logout()
+                response = self.client.post('/iniciar-sesion/', {
+                    'username': '  ' + user.email.upper() + '  ', 'password': self.password})
+                self.assertEqual(self.client.session['_auth_user_id'], str(user.pk))
+                if user.is_staff:
+                    self.assert_mfa_destination(response, '/operaciones/')
+                else:
+                    self.assertRedirects(response, '/panel/', fetch_redirect_response=False)
+                    panel = self.client.get('/panel/')
+                    self.assertFalse(panel.context['is_management_user'])
+                    self.assertEqual(self.client.get('/operaciones/').status_code, 403)
+
+    def test_return_to_owned_resource_keeps_administration_visible_and_mfa_required(self):
+        destination = '/panel/maquinarias/'
+        self.assertRedirects(self.login_password(self.admin, destination), destination,
+                             fetch_redirect_response=False)
+        response = self.client.get(destination)
+        self.assertTrue(response.context['is_management_user'])
+        self.assertTrue(response.context['is_advertiser_mode'])
+        self.assertTrue(response.context['needs_management_mfa'])
+        self.assertContains(response, 'href="/operaciones/"')
+        self.assertContains(response, 'href="/admin/portal/lead/"')
+        self.assertContains(response, 'Vista de anunciante')
+        self.assert_mfa_destination(self.client.get('/operaciones/'), '/operaciones/')
+        self.assert_mfa_destination(self.client.get('/admin/portal/lead/'), '/admin/portal/lead/')
+
     def test_password_login_and_plain_panel_take_admin_to_focused_mfa_onboarding(self):
         self.assert_mfa_destination(self.login_password(self.admin), '/operaciones/')
         self.assert_mfa_destination(self.client.get('/panel/'), '/operaciones/')
@@ -130,8 +160,10 @@ class ManagementRoutingTests(TestCase):
         response = self.client.get('/admin/', follow=True)
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(len(response.redirect_chain), 4)
-        self.assertEqual(response.redirect_chain[-1][0], '/panel/')
+        self.assertEqual(response.redirect_chain[-1][0], '/administracion/')
         self.assertFalse(response.context['is_management_user'])
+        self.assertTrue(response.context['admin_access'])
+        self.assertContains(response, 'Tu sesión actual no tiene permisos administrativos')
         self.owner.refresh_from_db()
         self.assertFalse(self.owner.is_staff)
         self.client.logout()
