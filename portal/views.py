@@ -367,13 +367,17 @@ def machine_pdf(request,pk):
     context=sheet_context(machine,version)
     response=HttpResponse(build_pdf(context['machine'],context['data'],context['assets'],False,version),content_type='application/pdf')
     response['Content-Disposition']=f'attachment; filename="{machine.folio}.pdf"'
+    response['Cache-Control']='private, no-store'
+    response['X-Robots-Tag']='noindex, nofollow'
     return response
 
 def public_pdf(request,token):
     from .pdf import build_pdf
     pub=public_record(token);context=sheet_context(pub.machine,pub.version,True,token)
     response=HttpResponse(build_pdf(context['machine'],context['data'],context['assets'],True,pub.version),content_type='application/pdf')
-    response['Content-Disposition']=f'attachment; filename="{pub.machine.folio}.pdf"';response['Cache-Control']='no-store'
+    response['Content-Disposition']=f'attachment; filename="{pub.machine.folio}.pdf"'
+    response['Cache-Control']='private, no-store'
+    response['X-Robots-Tag']='noindex, nofollow'
     return response
 
 @require_GET

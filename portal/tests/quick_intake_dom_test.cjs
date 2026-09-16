@@ -25,6 +25,10 @@ function setup(fetcher,options={}){
 }
 function input(ctx,id,value){const node=ctx.doc.getElementById(id);assert.ok(node,'input '+id);node.value=value;node.dispatchEvent(new ctx.w.Event(node.tagName==='SELECT'?'change':'input',{bubbles:true}));}
 function click(ctx,id){ctx.doc.getElementById(id).click();}
+function captureDownloads(w,downloads){
+ const original=w.HTMLAnchorElement.prototype.click;
+ w.HTMLAnchorElement.prototype.click=function(){if(this.hasAttribute('download')&&this.id!=='download-draft-pdf'){downloads.push({url:this.href,filename:this.download});return;}return original.call(this);};
+}
 function completed(state,extra={},metadata={}){return {id:'job',status:'completed',result:{data:extra,provenance:{},warnings:[],questions:[]},machine:{...state,revision:state.revision+1,data:{...state.data,...extra}},auto_apply:{requested:true,status:'applied',applied_fields:Object.keys(extra),skipped_fields:[],revision_before:state.revision,revision_after:state.revision+1,...metadata}};}
 (async()=>{
  let saves=[],release;
@@ -116,6 +120,37 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
  let categoryContext;
  categoryContext=setup(async()=>{await pause(1);const job=completed(categoryContext.state,{description:'Se observa maquinaria en la fotografía.'});job.result.research={status:'general_context',basis:'category',match:'category',fields:[],context:{category:'Excavadora',label:'Referencias generales; no identifican esta unidad'},sources:[{url:'https://manufacturer.example/equipment/excavators',title:'Información general de excavadoras'}],warnings:[]};return response(200,job);},{job:{id:'job',status:'completed'}});
  await pause(40);assert.match(categoryContext.doc.querySelector('#research-brief').textContent,/Referencias generales.*no identifican esta unidad/);assert.match(categoryContext.doc.querySelector('#analysis-results').textContent,/Tipo consultado: Excavadora/);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-field-list').length,0);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-source-list a').length,1);assert.equal(categoryContext.doc.querySelector('#submit-machine').disabled,false);categoryContext.close();pass('category research is labeled general context with sources, never unit specifications');
+
+
+ let pdfSaves=[],pdfRelease;const pdfDownloads=[];
+ const pdf=setup(async(url,o)=>{assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);pdfSaves.push(body);if(pdfSaves.length===1)await new Promise(resolve=>pdfRelease=resolve);return response(200,{revision:body.revision+1});},{before(w){captureDownloads(w,pdfDownloads);}});
+ const pdfLink=pdf.doc.querySelector('#download-draft-pdf');assert.equal(pdfLink.closest('[data-step-panel]').dataset.stepPanel,'2');assert.equal(pdfLink.closest('details'),null);assert.equal(pdfLink.textContent,'Descargar ficha PDF ↓');assert.match(pdf.doc.querySelector('#draft-pdf-note').textContent,/PDF interno.*datos privados/);
+ input(pdf,'model','Primer modelo');click(pdf,'download-draft-pdf');click(pdf,'download-draft-pdf');await pause(15);assert.equal(pdfSaves.length,1);assert.equal(pdfDownloads.length,0);assert.equal(pdfLink.getAttribute('aria-busy'),'true');assert.equal(pdf.doc.querySelector('#submit-machine').disabled,true);
+ input(pdf,'model','Último modelo');pdfRelease();await pause(45);assert.equal(pdfSaves.length,2);assert.deepEqual(pdfSaves[1].data,{model:'Último modelo'});assert.equal(pdfSaves[1].revision,2);assert.equal(pdfDownloads.length,1);assert.match(pdfDownloads[0].url,/\/panel\/maquinarias\/[^/]+\/pdf\/$/);assert.equal(pdfDownloads[0].filename,'');assert.equal(pdfLink.getAttribute('aria-busy'),'false');assert.equal(pdf.doc.querySelector('#model').value,'Último modelo');assert.equal(pdf.doc.querySelector('#submit-machine').disabled,false);assert.equal(pdf.doc.querySelectorAll('[data-step-panel]').length,2);
+ const pdfLeave=new pdf.w.Event('beforeunload',{cancelable:true});pdf.w.dispatchEvent(pdfLeave);assert.equal(pdfLeave.defaultPrevented,false);pdf.close();pass('PDF action beside preview flushes latest in-flight edits, deduplicates downloads and keeps two-step draft open');
+
+ for(const rejectedStatus of [400,409]){
+   const rejectedDownloads=[];let rejectedCalls=0;
+   const rejectedPdf=setup(async()=>{rejectedCalls++;return response(rejectedStatus,{error:'No se pudo guardar la revisión',revision:7});},{before(w){captureDownloads(w,rejectedDownloads);}});
+   input(rejectedPdf,'serial','SERIE-PRIVADA-SIN-PERDER');click(rejectedPdf,'download-draft-pdf');await pause(30);assert.equal(rejectedDownloads.length,0);assert.equal(rejectedPdf.doc.querySelector('#serial').value,'SERIE-PRIVADA-SIN-PERDER');assert.match(rejectedPdf.doc.querySelector('#draft-pdf-status').textContent,/No se descargó.*Conservamos/);assert.equal(rejectedPdf.doc.querySelector('#download-draft-pdf').getAttribute('aria-busy'),'false');assert.equal(rejectedPdf.doc.querySelector('#wizard-errors').hidden,false);
+   const unsaved=new rejectedPdf.w.Event('beforeunload',{cancelable:true});rejectedPdf.w.dispatchEvent(unsaved);assert.equal(unsaved.defaultPrevented,true);
+   if(rejectedStatus===409){click(rejectedPdf,'download-draft-pdf');await pause(15);assert.equal(rejectedCalls,1);assert.equal(rejectedDownloads.length,0);}
+   rejectedPdf.close();
+ }
+ pass('rejected or conflicting save never downloads a stale PDF and retains dirty private fields');
+
+ let pdfUploadFinish;const uploadDownloads=[];
+ const pdfUpload=setup(async()=>{throw Error('Unexpected request');},{before(w){captureDownloads(w,uploadDownloads);w.XMLHttpRequest=class extends w.EventTarget{constructor(){super();this.upload=new w.EventTarget();}open(){}setRequestHeader(){}send(){pdfUploadFinish=()=>{this.status=200;this.responseText=JSON.stringify({id:'pdf-photo',kind:'image',purpose:'general',revision:2});this.dispatchEvent(new w.Event('load'));};}};}});
+ const pdfGallery=pdfUpload.doc.querySelector('#gallery-input');Object.defineProperty(pdfGallery,'files',{value:[new pdfUpload.w.File(['photo'],'pdf.jpg',{type:'image/jpeg'})]});pdfGallery.dispatchEvent(new pdfUpload.w.Event('change'));click(pdfUpload,'download-draft-pdf');await pause(20);assert.equal(uploadDownloads.length,0);assert.equal(typeof pdfUploadFinish,'function');
+ const lateDrop=new pdfUpload.w.Event('drop',{bubbles:true,cancelable:true});Object.defineProperty(lateDrop,'dataTransfer',{value:{files:[new pdfUpload.w.File(['late'],'late.jpg',{type:'image/jpeg'})]}});pdfUpload.doc.querySelector('#drop-zone').dispatchEvent(lateDrop);assert.equal(pdfUpload.doc.querySelector('#upload-queue').children.length,1);
+ pdfUploadFinish();await pause(40);assert.equal(uploadDownloads.length,1);assert.ok(pdfUpload.doc.querySelector('[data-asset-id="pdf-photo"]'));pdfUpload.close();pass('PDF waits for queued uploads and blocks additional drops until the download is requested');
+
+ let assetSaveRelease,assetChangeRelease,assetPdfCalls=[];const assetDownloads=[];
+ const assetPdf=setup(async(url,o)=>{assetPdfCalls.push(url);if(url.endsWith('guardar/')){await new Promise(resolve=>assetSaveRelease=resolve);return response(200,{revision:2});}if(url.includes('/api/archivos/')){await new Promise(resolve=>assetChangeRelease=resolve);return response(200,{revision:3});}throw Error(url);},{before(w){captureDownloads(w,assetDownloads);}});
+ input(assetPdf,'brand','Marca guardada');assetPdf.doc.querySelector('[data-asset-action="cover"]').click();click(assetPdf,'download-draft-pdf');await pause(20);assert.equal(assetDownloads.length,0);assetSaveRelease();await pause(20);assert.equal(assetPdfCalls.length,2);assert.equal(assetDownloads.length,0);assetChangeRelease();await pause(35);assert.equal(assetDownloads.length,1);assetPdf.close();pass('PDF waits for a file mutation that was still waiting for a field save');
+
+ const readonlyDownloads=[];
+ const readonlyPdf=setup(async()=>{throw Error('Read-only PDF should not save');},{readonly:true,before(w){captureDownloads(w,readonlyDownloads);}});click(readonlyPdf,'download-draft-pdf');await pause(20);assert.equal(readonlyDownloads.length,1);assert.equal(readonlyPdf.doc.querySelector('#brand').disabled,true);readonlyPdf.close();pass('read-only owner sheet can download its saved PDF without any mutation');
 
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

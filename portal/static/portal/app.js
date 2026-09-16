@@ -104,9 +104,9 @@
   state.data ||= {}; state.provenance ||= {};
   const base = `/api/maquinarias/${wizard.dataset.machine}/`;
   let editable = wizard.dataset.editable === 'true';
-  const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set();
+  const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set(), assetTasks = new Set();
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
-  let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false;
+  let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false;
   let analysisOutcome = null;
   let activeJob = null, pollTimer, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
@@ -213,12 +213,12 @@
   addEventListener('beforeunload',event => { if (pending.size || saving || uploadCount || uploadFailures.size || submitting) { event.preventDefault(); event.returnValue = ''; } });
   $('#save-exit').addEventListener('click',async event => {
     event.preventDefault();
-    if (submitting) return problem('Espera a que termine el envío de tu ficha.');
+    if (submitting || downloading) return problem('Espera a que termine el envío o la preparación del PDF.');
     if (uploadCount || uploadFailures.size) return problem('Termina la carga o descarta los archivos que no pudieron subir antes de salir.');
     try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep local corrections visible. */ }
   });
   beforePreferencesReload = async () => {
-    if (submitting || uploadCount || uploadFailures.size) return false;
+    if (submitting || downloading || uploadCount || uploadFailures.size) return false;
     try { await save(); return true; } catch { return false; }
   };
   function displayStep(step,scroll=true) {
@@ -233,7 +233,13 @@
   $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => displayStep(button.dataset.stepTo)));
   $('#step-prev').addEventListener('click',() => displayStep(1));
   function updateRevision(result) { if (result.revision !== undefined) state.revision = Math.max(Number(state.revision),Number(result.revision)); }
-  async function mutateAsset(action) {
+  function mutateAsset(action) {
+    const task = performAssetMutation(action);
+    assetTasks.add(task);
+    task.then(() => assetTasks.delete(task),() => assetTasks.delete(task));
+    return task;
+  }
+  async function performAssetMutation(action) {
     while (assetMutation) await assetMutation;
     await save();
     while (assetMutation) await assetMutation;
@@ -247,7 +253,7 @@
   }
   function assetActionButtons(card) {
     $$('[data-asset-action]',card).forEach(button => { button.disabled = !editable || submitting; button.addEventListener('click',async () => {
-      if (!editable || preparing || submitting || button.disabled) return;
+      if (!editable || preparing || submitting || downloading || button.disabled) return;
       const action = button.dataset.assetAction;
       if (action === 'delete' && !confirm('¿Eliminar este archivo del borrador?')) return;
       button.disabled = true;
@@ -264,7 +270,7 @@
     const select = el('select','asset-purpose'); select.setAttribute('aria-label','Tipo de archivo'); select.disabled = !editable || submitting;
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
-      const previous = card.dataset.purpose; if (preparing || submitting) { select.value = previous; return; } select.disabled = true;
+      const previous = card.dataset.purpose; if (preparing || submitting || downloading) { select.value = previous; return; } select.disabled = true;
       try { await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); renderPreview(); }
       catch (error) { select.value = previous; problem(error.message); }
       finally { select.disabled = !editable || submitting; }
@@ -297,7 +303,7 @@
   }
   function queueFiles(files) {
     if (!editable) return;
-    if (preparing || submitting) return problem('Espera a que termine la preparación o el envío antes de agregar más archivos.');
+    if (preparing || submitting || downloading) return problem('Espera a que termine la preparación, el envío o el PDF antes de agregar más archivos.');
     for (const file of files) {
       const purpose = $('#upload-purpose').value;
       const row = el('div','upload-item'), top = el('div','upload-item-top'), message = el('span','upload-message','En espera de carga…'), progress = el('progress');
@@ -317,15 +323,45 @@
       retry.addEventListener('click',enqueue); enqueue();
     }
   }
-  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting) $(`#${button.dataset.fileOpen}`).click(); }));
+  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting && !downloading) $(`#${button.dataset.fileOpen}`).click(); }));
   for (const input of [$('#gallery-input'),$('#camera-input')]) input.addEventListener('change',() => { queueFiles([...input.files]); input.value = ''; });
   const drop = $('#drop-zone');
   for (const name of ['dragenter','dragover']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.add('drag-over'); });
   for (const name of ['dragleave','drop']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.remove('drag-over'); });
   drop.addEventListener('drop',event => queueFiles([...event.dataTransfer.files]));
-  async function uploadsReady() { while (uploadCount) await fileChain; if (assetMutation) await assetMutation; if (uploadFailures.size) throw new Error('Hay archivos que no pudieron subir. Reinténtalos o descártalos para continuar.'); }
+  async function uploadsReady() {
+    while (uploadCount || assetTasks.size) {
+      await fileChain;
+      if (assetTasks.size) await Promise.all([...assetTasks]);
+    }
+    if (uploadFailures.size) throw new Error('Hay archivos que no pudieron subir. Reinténtalos o descártalos para continuar.');
+  }
+
+  const pdfDownload = $('#download-draft-pdf'), pdfStatus = $('#draft-pdf-status');
+  function pdfLabel() {
+    pdfDownload.setAttribute('aria-disabled',String(downloading || submitting || preparing || jobPending || polling));
+    pdfDownload.setAttribute('aria-busy',String(downloading));
+    pdfDownload.textContent = downloading ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
+  }
+  pdfDownload.addEventListener('click',async event => {
+    event.preventDefault();
+    if (downloading) return;
+    if (submitting || preparing || jobPending || polling) return problem('Espera a que termine la preparación o el envío de la ficha para descargarla.');
+    downloading = true; clearProblem(); prepareLabel();
+    pdfStatus.hidden = false; pdfStatus.textContent = 'Terminando cargas y guardando tus cambios…';
+    try {
+      await uploadsReady(); await save();
+      if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios; recarga la versión actual antes de descargar.');
+      // The native download uses the server's filename and keeps this draft open.
+      const link = el('a'); link.href = pdfDownload.href; link.download = ''; link.hidden = true;
+      document.body.append(link); link.click(); link.remove();
+      pdfStatus.textContent = 'Descarga solicitada. Tus cambios están guardados.';
+    } catch (error) {
+      problem(error.message); pdfStatus.textContent = 'No se descargó el PDF. Conservamos tus cambios para que puedas reintentar.';
+    } finally { downloading = false; prepareLabel(); }
+  });
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
@@ -366,7 +402,7 @@
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analyze-button').addEventListener('click',async () => {
-    if (!editable || preparing || jobPending || polling || submitting) return;
+    if (!editable || preparing || jobPending || polling || submitting || downloading) return;
     preparing = true; clearProblem(); prepareLabel();
     try {
       await uploadsReady(); await save();
@@ -453,8 +489,8 @@
     for (const [label,text] of [['Marca',value.data.brand],['Modelo',value.data.model],['Año',value.data.year],['Horas',value.data.hours]]) if (!missing(text)) { const row = el('div'); row.append(el('dt','',label),el('dd','',String(text))); specs.append(row); }
   }
   $('#submit-machine').addEventListener('click',async () => {
-    if (!editable || submitting) return;
-    submitting = true; clearProblem(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
+    if (!editable || submitting || downloading) return;
+    submitting = true; clearProblem(); pdfLabel(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
     frozenControls.forEach(([control]) => { control.disabled = true; });
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
     try {

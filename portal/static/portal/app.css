@@ -102,3 +102,14 @@
 .quick-intake .quick-serial input{max-width:100%}
 .quick-intake .quick-serial .field-help{font-size:12px;line-height:1.6;display:block;margin-top:8px}
 @media(max-width:600px){.quick-intake .quick-serial{padding:16px 15px}.quick-intake .quick-serial label{line-height:1.6}}
+
+/* Download the saved internal sheet alongside the preview. */
+.quick-intake .quick-pdf-row{display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px;margin:0 0 18px;min-width:0}
+.quick-intake .quick-pdf-row .button{min-height:48px;white-space:normal;text-align:center}
+.quick-intake .quick-pdf-row p{margin:0;line-height:1.5;flex:1 1 210px}
+.quick-intake #draft-pdf-status{flex-basis:100%}
+.quick-intake #download-draft-pdf[aria-disabled="true"]{opacity:.6;cursor:wait}
+.machine-card-pdf{display:flex;flex-wrap:wrap;gap:4px 12px;padding-top:14px;margin-top:14px;border-top:1px solid var(--line)}
+.machine-card-pdf a{display:inline-flex;align-items:center;min-height:36px}
+.machine-card-pdf>span{flex-basis:100%;font-size:11px}
+@media(max-width:600px){.quick-intake .quick-pdf-row>.button{width:100%}.quick-intake .quick-pdf-row p{font-size:11px}}
