@@ -1,0 +1,9 @@
+/* Colors observed in the original IMC logo and public website. */
+:root,html[data-theme="light"]{--primary:#000033;--secondary:#142453;--accent:#e38c1a;--header-bg:#000033;--header-color:#fff;--header-link-color:#fff;--breadcrumbs-bg:#142453;--breadcrumbs-fg:#e9edf5;--link-fg:#006493;--link-hover-color:#000033;--button-bg:#000033;--button-hover-bg:#142453;--default-button-bg:#e38c1a;--default-button-hover-bg:#cd7912;--selected-row:#fff2dc}
+html[data-theme="dark"]{--primary:#0095d9;--secondary:#142453;--accent:#e38c1a;--header-bg:#000033;--header-color:#fff;--header-link-color:#fff;--breadcrumbs-bg:#142453;--breadcrumbs-fg:#e9edf5;--link-fg:#83d2f5;--link-hover-color:#e38c1a;--button-bg:#000033;--button-hover-bg:#142453;--default-button-bg:#e38c1a;--default-button-hover-bg:#efaa50;--selected-row:#333342}
+#header{border-bottom:3px solid #e38c1a;gap:18px}
+#site-name .imc-admin-brand{display:flex;align-items:center;gap:14px;color:#fff;font-size:21px;letter-spacing:.08em;line-height:1.2;text-decoration:none}
+.imc-admin-brand img{display:block;object-fit:contain;flex-shrink:0;background:#fff;border:4px solid #fff;border-radius:3px}
+.imc-admin-brand small{display:block;letter-spacing:0;font-size:12px;margin-top:5px;font-weight:400}
+.button.default,input[type="submit"].default,.submit-row input.default{color:#231f20}
+@media(max-width:767px){#site-name .imc-admin-brand{font-size:18px;gap:11px}.imc-admin-brand img{width:48px;height:48px}.imc-admin-brand small{font-size:10px}}

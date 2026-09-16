@@ -326,7 +326,7 @@ class ProcessingTests(TestCase):
         self.assertIsNone(notice.sent_at)
 
     def test_pdf_requires_public_version_and_excludes_private_fields(self):
-        from portal.pdf import build_pdf
+        from portal.pdf import LOGO_PATH, build_pdf
         from pypdf import PdfReader
         asset = ingest_asset(self.machine, self.user, photo())
         asset.public_authorized = True
@@ -355,7 +355,16 @@ class ProcessingTests(TestCase):
         self.assertNotIn("PRIVATE-NOTE", text)
         self.assertNotIn("PRIVATE-CONTACT", text)
         self.assertNotIn("NONCONSENTED", text)
-        self.assertEqual(sum(len(page.images) for page in public.pages), 1)
+        logo = Image.open(LOGO_PATH).convert("RGBA")
+        embedded = [picture.image for page in public.pages for picture in page.images]
+        logos = [picture for picture in embedded if picture.size == logo.size]
+        self.assertEqual(len(logos), len(public.pages))
+        for picture in logos:
+            self.assertEqual(picture.convert("RGBA").tobytes(), logo.tobytes())
+        photographs = [picture for picture in embedded if picture.size != logo.size]
+        self.assertEqual(len(photographs), 1)
+        with asset.preview.open("rb") as preview:
+            self.assertEqual(photographs[0].convert("RGB").tobytes(), Image.open(preview).convert("RGB").tobytes())
         self.assertNotIn("Unreviewed", text)
         internal = PdfReader(io.BytesIO(build_pdf(self.machine, values, [asset], version=version)))
         internal_text = " ".join(page.extract_text() for page in internal.pages)

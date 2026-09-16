@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "source_url": "https://www.imcmexico.com.mx/",
+  "observed_at": "2026-09-16T00:09:38.310300+00:00",
+  "source_sha256": "c6ae26427dec9a5b9551e4beb00e8ceeb1dc28959071611984d14113db63bf22",
+  "purpose": "Sugerencias editables de tipo, marca y modelo. No es inventario ni una fuente de especificaciones técnicas o disponibilidad.",
+  "web_reference_notice": "La referencia identifica una página del sitio; nunca se usa como número de serie.",
+  "categories": [
+    {
+      "slug": "plataformas-elevadoras",
+      "name": "Plataformas elevadoras",
+      "fields": [
+        "capacity",
+        "dimensions",
+        "weight",
+        "power"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-plataformas-elevadoras"
+    },
+    {
+      "slug": "pavimentadoras",
+      "name": "Pavimentadoras",
+      "fields": [
+        "power",
+        "weight",
+        "dimensions",
+        "engine"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-pavimentadoras"
+    },
+    {
+      "slug": "zanjadoras",
+      "name": "Zanjadoras",
+      "fields": [
+        "power",
+        "dimensions",
+        "weight",
+        "attachments"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-zanjadora"
+    },
+    {
+      "slug": "perforadoras",
+      "name": "Perforadoras",
+      "fields": [
+        "power",
+        "dimensions",
+        "engine"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-perforadoras"
+    },
+    {
+      "slug": "compresores",
+      "name": "Compresores",
+      "fields": [
+        "power",
+        "capacity",
+        "engine",
+        "fuel"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-compresores"
+    },
+    {
+      "slug": "minicargadores",
+      "name": "Minicargadores",
+      "fields": [
+        "power",
+        "capacity",
+        "weight",
+        "attachments"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-minicargadores"
+    },
+    {
+      "slug": "trituradoras",
+      "name": "Trituradoras",
+      "fields": [
+        "power",
+        "capacity",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-trituradoras"
+    },
+    {
+      "slug": "cribas",
+      "name": "Cribas",
+      "fields": [
+        "capacity",
+        "dimensions",
+        "power"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-cribas"
+    },
+    {
+      "slug": "manipuladores-telescopicos",
+      "name": "Manipuladores telescópicos",
+      "fields": [
+        "capacity",
+        "dimensions",
+        "power",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-manipulador-telescopico"
+    },
+    {
+      "slug": "maquinaria-agricola",
+      "name": "Maquinaria agrícola",
+      "fields": [
+        "power",
+        "weight",
+        "attachments",
+        "engine"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-agricultura-maquinas"
+    },
+    {
+      "slug": "maquinaria-forestal",
+      "name": "Maquinaria forestal",
+      "fields": [
+        "power",
+        "weight",
+        "attachments",
+        "engine"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-forestales-maquinas"
+    }
+  ],
+  "models": [
+    {
+      "brand": "Caterpillar",
+      "name": "320DL",
+      "category_slug": "excavadoras",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-excavadoras-hidraulicas-caterpillar-320dl-1782410705122071",
+      "source_kind": "public_equipment_card",
+      "web_reference": "1782410705122071"
+    },
+    {
+      "brand": "Komatsu",
+      "name": "PC200 L",
+      "category_slug": "excavadoras",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-excavadoras-hidraulicas-komatsu-pc200-l-1782412064971384",
+      "source_kind": "public_equipment_card",
+      "web_reference": "1782412064971384"
+    },
+    {
+      "brand": "JLG",
+      "name": "E450AJ",
+      "category_slug": "plataformas-elevadoras",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-plataformas-elevadoras-jlg-e450aj-1782846072230411",
+      "source_kind": "public_equipment_card",
+      "web_reference": "1782846072230411"
+    },
+    {
+      "brand": "Tadano",
+      "name": "GR150",
+      "category_slug": "gruas",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-gruas-tadano-gr150-1782753956794700",
+      "source_kind": "public_equipment_card",
+      "web_reference": "1782753956794700"
+    },
+    {
+      "brand": "Case",
+      "name": "845 B",
+      "category_slug": "motoniveladoras",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-motoconformadoras-case-845-b",
+      "source_kind": "public_catalog_navigation",
+      "web_reference": null
+    },
+    {
+      "brand": "Bobcat",
+      "name": "B100",
+      "category_slug": "retroexcavadoras",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-retroexcavadoras-bobcat-b100",
+      "source_kind": "public_catalog_navigation",
+      "web_reference": null
+    },
+    {
+      "brand": "Bomag",
+      "name": "BW100",
+      "category_slug": "compactadores",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-compactadora-vibratoria-bomag-bw100",
+      "source_kind": "public_catalog_navigation",
+      "web_reference": null
+    },
+    {
+      "brand": "Atlas Copco",
+      "name": "ST710",
+      "category_slug": "cargadores",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-cargadoras-sobre-ruedas-atlas-copco-st710",
+      "source_kind": "public_catalog_navigation",
+      "web_reference": null
+    },
+    {
+      "brand": "Altec",
+      "name": "A77TE93",
+      "category_slug": "gruas",
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-gruas-altec-a77te93",
+      "source_kind": "public_catalog_navigation",
+      "web_reference": null
+    }
+  ]
+}

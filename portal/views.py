@@ -129,7 +129,9 @@ def machine_wizard(request,pk):
     try:step=max(1,min(5,int(request.GET.get('paso',request.GET.get('step',1)))))
     except ValueError:step=1
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
-    return render(request,'portal/wizard.html',{'machine':machine,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':{'id':str(machine.id),'revision':machine.revision,'title':machine.title,'category':machine.category_id,'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status}})
+    models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
+    catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
+    return render(request,'portal/wizard.html',{'machine':machine,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':{'id':str(machine.id),'revision':machine.revision,'title':machine.title,'category':machine.category_id,'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status}})
 
 @login_required
 def requests_list(request):

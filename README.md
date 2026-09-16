@@ -4,7 +4,15 @@ Aplicación complementaria para preparar solicitudes de maquinaria desde fotogra
 
 Repositorio: [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`. El sitio principal [imcmexico.com.mx](https://www.imcmexico.com.mx/) no se modifica ni se reemplaza. No hay pagos, subastas, financiación, comisiones ni publicación automática en ese sitio.
 
-**Estado operativo verificado al 15 de septiembre de 2026:** servicio activo en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), último código funcional verificado `389c1a997012a888885e9b4d1183ed9da64328bb`, con **117 pruebas locales aprobadas sin omisiones** y **106 comprobaciones registradas de aplicación aprobadas** (HTTPS, base de datos y repeticiones; 88 etiquetas distintas). Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue, recepción de invitación/recuperación en Gmail y último respaldo local de producción. El registro público permanece cerrado: faltan validación legal, apertura operativa y activación personal del titular. La analítica está desplegada y apagada, sin eventos ni cookies de analítica. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
+**Estado operativo verificado al 15 de septiembre de 2026:** servicio activo en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), flujo inicial verificado en `389c1a997012a888885e9b4d1183ed9da64328bb`, con **117 pruebas locales aprobadas sin omisiones** y **106 comprobaciones registradas de aplicación aprobadas** (HTTPS, base de datos y repeticiones; 88 etiquetas distintas). Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue, recepción de invitación/recuperación en Gmail y último respaldo local de producción. El registro público permanece cerrado: faltan validación legal, apertura operativa y activación personal del titular. La analítica está desplegada y apagada, sin eventos ni cookies de analítica. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
+
+## Identidad y referencias de maquinaria
+
+Se incorpora el logotipo original publicado por IMC México, con naranja `#E38C1A`, azul `#0095D9`, gris metálico y azul oscuro del sitio principal. Está presente en el portal, administración y PDF; el archivo original conserva su contenido y proporción. [Fuentes de identidad](docs/reference-review.md).
+
+El formulario incluye sugerencias editables de nueve marcas y nueve modelos observados en el sitio principal, además de once categorías adicionales (23 categorías iniciales en total). Filtra modelos por marca y tipo, permite escribir otros valores y conserva lo que el usuario haya declarado. No completa automáticamente especificaciones ni importa anuncios como inventario. [Fuentes y alcance del catálogo](docs/machinery-reference.md).
+
+Esta ampliación pasó **121 pruebas sin omisiones**, la prueba DOM del catálogo y la revisión visual de un PDF de dos páginas. No requiere nuevas migraciones.
 
 ## Servicio y acceso actuales
 
@@ -170,7 +178,7 @@ La última suite confirmada registra **117 pruebas aprobadas sin omisiones**, in
 
 ## Despliegue en Seenode
 
-La aplicación es **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. El último código funcional verificado es `389c1a997012a888885e9b4d1183ed9da64328bb`, activo en Seenode. Se comprobaron salud HTTP 200, medios y resultados de IA anteriores después de su redespliegue, registro bloqueado por POST y operaciones accesibles con MFA. La migración `0005_optional_acquisition_analytics` está aplicada y su código desplegado. La analítica apagada no crea eventos ni cookies y rechaza activación por preferencia mientras siga deshabilitada. El SHA de una publicación posterior que sólo actualice documentación se registra por separado en el informe de entrega.
+La aplicación es **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. El recorrido de aceptación inicial se verificó sobre `389c1a997012a888885e9b4d1183ed9da64328bb`. Se comprobaron salud HTTP 200, medios y resultados de IA anteriores después de su redespliegue, registro bloqueado por POST y operaciones accesibles con MFA. La migración `0005_optional_acquisition_analytics` está aplicada y su código desplegado. La analítica apagada no crea eventos ni cookies y rechaza activación por preferencia mientras siga deshabilitada. El SHA de una publicación posterior que sólo actualice documentación se registra por separado en el informe de entrega.
 
 Configuración del servicio:
 

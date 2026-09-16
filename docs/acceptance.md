@@ -2,12 +2,22 @@
 
 Estado comprobado al **15 de septiembre de 2026**. La aplicación está publicada y tiene recorridos reales verificados. El registro público sigue cerrado y existen pendientes de operación; este documento no declara completada toda la entrega.
 
+## Ampliación de identidad y catálogo
+
+La identidad usa el PNG y el icono originales del sitio principal, conservados byte por byte. La paleta deriva de ese logo y de su CSS publicado. El PDF incorpora el mismo logo y mantiene la exclusión de fotografías/datos privados en difusión. La administración usa la misma identidad. Las fuentes están en [reference-review.md](reference-review.md).
+
+El catálogo auxiliar suma once categorías, nueve marcas y nueve modelos con procedencia pública documentada; no crea registros de maquinaria ni autocompleta especificaciones. El seed conserva cambios administrativos existentes. El formulario permite valores libres y no borra datos al cambiar de marca/tipo. Las referencias y validaciones están en [machinery-reference.md](machinery-reference.md).
+
+Validación de esta ampliación: **121 pruebas aprobadas sin omisiones**, DOM de sugerencias y sintaxis JavaScript correctos, sin migraciones pendientes, PDF de dos páginas inspeccionado y archivo del logo conservado exactamente.
+
+Las evidencias siguientes corresponden a la aceptación inicial y siguen indicando su commit de referencia. La verificación del despliegue de esta ampliación se registra en el informe de actualización entregado.
+
 ## Servicio publicado
 
 | Elemento | Estado comprobado |
 |---|---|
 | URL | [imc-mexico.seenode.app](https://imc-mexico.seenode.app) |
-| Código | [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`; último código funcional verificado `389c1a997012a888885e9b4d1183ed9da64328bb`, activo en Seenode |
+| Código | [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`; código de aceptación inicial `389c1a997012a888885e9b4d1183ed9da64328bb`, activo en Seenode |
 | Seenode | Servicio `974953`, nombre `imc-mexico`, una réplica; independiente del servicio Puerto Cancún |
 | Recursos contratados | Basic 512 MB: US$4/mes; volumen persistente 5 GB en `/data`: US$2.50/mes; **total actual US$6.50/mes** |
 | Opción no activa | Standard 1 GB: US$7/mes + US$2.50 de volumen = US$9.50/mes; pendiente de pago |

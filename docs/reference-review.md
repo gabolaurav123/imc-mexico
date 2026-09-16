@@ -1,28 +1,42 @@
-# Revisión pública de referencia · 15 de septiembre de 2026
+# Identidad y referencias públicas de IMC México
 
-## Identidad y alcance comprobado
+## Fuente y alcance
 
-La referencia facilitada es [imcmexico.com.mx](https://www.imcmexico.com.mx/). Se consultaron resultados públicos indexados de este dominio, evitando empresas con nombres similares. La petición directa de la portada devolvió un timeout; no se afirma haber realizado una inspección visual completa de la página ni de su administración. No se accedió a bases de datos, credenciales, administración o integraciones del sitio principal.
+Se revisó directamente el [sitio principal de IMC México](https://www.imcmexico.com.mx/), su HTML, sus hojas de estilo y su presentación en el navegador. Esta revisión sustituye la revisión inicial basada en resultados indexados. La integración de identidad y referencias de maquinaria responde a la instrucción expresa del titular.
 
-La portada indexada presenta maquinaria de construcción y equipos agrícolas, mineros y forestales. Entre sus categorías figuran excavadoras, tractores, cargadoras, retroexcavadoras, motoconformadoras, grúas, compactadoras, montacargas, camiones, generadores, perforadoras y compresores. Las tarjetas incluyen referencia, marca, modelo, año y horas. La búsqueda permite elegir tipo, marca y modelo. No se copió el inventario ni se reproducen cifras comerciales. Fuente: [portada oficial](https://www.imcmexico.com.mx/).
+No se accedió a la administración, bases de datos ni API privada del sitio principal. Las lecturas son públicas; no existe sincronización de inventario. El portal complementario conserva su flujo de fotografías, revisión humana y autorización de difusión.
 
-El [catálogo de perforadoras](https://www.imcmexico.com.mx/catalogo-de-perforadoras) muestra ordenamiento por año, horas y precio, con fotografías, texto técnico y distinción de disponibilidad. Esto orienta la estructura de la ficha complementaria, sin crear otro catálogo de venta.
+## Logotipo auténtico
 
-## Registro, contacto y permisos
+- Fuente: [IMC_Logo.png](https://www.imcmexico.com.mx/images/IMC_Logo.png).
+- Original PNG RGBA, 1102 × 1102 píxeles, 255653 bytes.
+- SHA-256: `c1a78af58a0a5f3fe0aa183d1d52afc9024692bf4715f292f55b0e70a674e722`.
+- Copia local: `portal/static/portal/imc-logo.png`.
+- Se conserva proporción y contenido; no se redibuja, recorta ni recolorea. El nombre IMC MÉXICO y la leyenda del portal son texto independiente.
+- Aplicación: cabecera, pie, ficha ilustrativa, administración, icono del navegador y PDF. Los correos son texto plano y conservan el nombre del remitente.
 
-El [registro público](https://www.imcmexico.com.mx/formulario-de-registro) contiene datos de contacto, campos empresariales y aceptación de documentos. En este proyecto el registro se reduce a lo solicitado por el usuario: datos básicos, contacto preferido y consentimientos separados. No se importan domicilios, políticas ni condiciones comerciales de la web principal como si fueran documentos legales ya aprobados para esta aplicación.
+## Colorimetría observada
 
-Las [preguntas frecuentes oficiales](https://www.imcmexico.com.mx/preguntas-frecuentes) distinguen el contacto de oficinas en ciertos anuncios. La nueva plataforma conserva el control de qué contacto puede difundirse, con autorización separada; no promete los servicios comerciales allí descritos.
+| Color | Valor | Evidencia y aplicación |
+|---|---|---|
+| Naranja | `#E38C1A` | Color opaco predominante del logo; acentos y acciones con texto oscuro |
+| Azul | `#0095D9` | Color opaco del logo; acentos secundarios |
+| Gris metálico | `#BCBDBF` | Color opaco del logo; referencia neutral |
+| Carbón | `#231F20` | Contornos del logo; texto |
+| Azul oscuro | `#000033` | Presente en [estilos_pc.css](https://www.imcmexico.com.mx/css/estilos_pc.css); fondos y contraste |
 
-Una [ficha pública de referencia](https://www.imcmexico.com.mx/catalogo-de-retroexcavadoras-deere-410j-1390235759599932) identifica el contacto IMCMEXICO, el correo ventas@imcmexico.com.mx y los teléfonos (55) 5208 4123 y (55) 6835 9200. Es información pública de referencia, pendiente de confirmación operativa para la nueva plataforma; los datos visibles se administran desde PlatformSettings y no se han fijado como destinatarios automáticos en el frontend.
+Son valores observados en los recursos publicados, no equivalencias Pantone/CMYK ni un manual de marca no proporcionado. Los degradados y sombras del logo permanecen en el archivo original. Error, éxito y aviso conservan colores semánticos distinguibles. El naranja usa texto oscuro para mantener legibilidad.
 
-## Decisiones de interfaz
+## Información de maquinaria
 
-- Azul marino, rojo y blanco cálido conforme al encargo. No se afirma que sean valores de color oficiales verificados.
-- Marca tipográfica IMC MÉXICO; no se descargó ni se sustituyó un logotipo oficial.
-- Ilustración vectorial original y explícitamente esquemática para explicar el proceso; no es una fotografía de inventario.
-- La ficha demostrativa no contiene un equipo en venta, especificaciones ficticias, testimonios ni cifras de ventas.
-- Galerías reales exclusivamente con archivos del anunciante y controles de autorización en la revisión.
-- Portada enfocada en subir fotografías, revisar datos y enviar a IMC México; sin pagos, subastas o catálogo duplicado.
+El catálogo público aporta categorías, marcas y modelos para orientar la captura. Las sugerencias admiten texto libre y no sustituyen la revisión del anunciante. Las fuentes y fecha de consulta se conservan junto a las referencias incluidas.
 
-La correspondencia con una integración privada del portal principal queda fuera de esta revisión pública. La exportación y los estados por destino son independientes de una publicación efectiva.
+No se crean anunciantes, maquinaria en venta ni solicitudes a partir de esas páginas. Año, horas, precio, ubicación, serie y disponibilidad de un anuncio no se convierten en valores predeterminados de otra máquina. La referencia del sitio principal no se trata como número de serie de fabricante.
+
+Descripciones como «lista para trabajar» o «sin fallas» no se trasladan a la IA como hechos comprobados. Las fotos de anuncios no se importan a galerías privadas de usuarios. La ficha demostrativa sigue identificada como ilustrativa.
+
+## Contacto y límites de integración
+
+Los contactos comerciales públicos no se fijan como destinatarios automáticos ni se consideran un dominio verificado de Resend. El remitente, los documentos legales y la apertura de registros mantienen sus controles independientes.
+
+La exportación editorial requiere una operación posterior en el sitio principal. Obtener un ZIP o utilizar su identidad visual no acredita publicación de una máquina allí.

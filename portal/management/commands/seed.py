@@ -1,8 +1,10 @@
 from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand
 from django.db import transaction
+import json
+from pathlib import Path
 
-from portal.models import Category, PlatformSettings, SiteContent, Unit, NotificationTemplate
+from portal.models import Brand, Category, EquipmentModel, PlatformSettings, SiteContent, Unit, NotificationTemplate
 
 
 class Command(BaseCommand):
@@ -10,6 +12,7 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        reference=json.loads((Path(__file__).resolve().parents[2]/'data'/'machinery_reference.json').read_text(encoding='utf-8'))
         categories = {
             "excavadoras": ("Excavadoras", ["power", "weight", "capacity", "attachments"]),
             "retroexcavadoras": ("Retroexcavadoras", ["power", "weight", "attachments"]),
@@ -24,8 +27,15 @@ class Command(BaseCommand):
             "montacargas": ("Montacargas", ["capacity", "fuel", "weight"]),
             "otros": ("Otra maquinaria", []),
         }
+        categories.update({item['slug']:(item['name'],item['fields']) for item in reference['categories']})
         for slug, (name, fields) in categories.items():
             Category.objects.get_or_create(slug=slug, defaults={"name": name, "fields": fields})
+        for item in reference['models']:
+            # Preserve staff choices, including inactive records and capitalization.
+            brand=Brand.objects.filter(name__iexact=item['brand']).first()
+            if brand is None:brand=Brand.objects.create(name=item['brand'])
+            if not EquipmentModel.objects.filter(brand=brand,name__iexact=item['name']).exists():
+                EquipmentModel.objects.create(brand=brand,name=item['name'],category=Category.objects.get(slug=item['category_slug']))
         PlatformSettings.load()
         for name,symbol,dimension in [("Horas","h","Uso"),("Kilómetros","km","Uso"),("Kilogramos","kg","Masa"),("Toneladas","t","Masa"),("Metros","m","Longitud"),("Milímetros","mm","Longitud"),("Kilovatios","kW","Potencia"),("Caballos de potencia","hp","Potencia"),("Metros cúbicos","m³","Volumen"),("Litros","L","Volumen")]:
             Unit.objects.get_or_create(symbol=symbol,defaults={"name":name,"dimension":dimension})

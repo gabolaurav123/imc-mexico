@@ -1,5 +1,6 @@
 """Generate internal/public PDFs from the same immutable sheet snapshot."""
 from io import BytesIO
+from pathlib import Path
 from xml.sax.saxutils import escape
 
 from django.utils import timezone
@@ -7,13 +8,18 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate,
                                Spacer, Table, TableStyle)
 
-NAVY = colors.HexColor("#142938")
-RED = colors.HexColor("#bd382d")
-MUTED = colors.HexColor("#596a74")
-LIGHT = colors.HexColor("#f0f3f4")
+NAVY = colors.HexColor("#000033")
+ORANGE = colors.HexColor("#E38C1A")
+BLUE = colors.HexColor("#0095D9")
+SILVER = colors.HexColor("#BCBDBF")
+CHARCOAL = colors.HexColor("#231F20")
+MUTED = CHARCOAL
+LIGHT = colors.Color(0.97, 0.97, 0.975)
+LOGO_PATH = Path(__file__).resolve().parent / "static" / "portal" / "imc-logo.png"
 LABELS = {
     "brand": "Marca", "model": "Modelo", "year": "Año", "serial": "Número de serie",
     "hours": "Horas de uso", "location": "Ubicación", "condition": "Condición declarada",
@@ -54,8 +60,12 @@ def build_pdf(machine, data, assets, public=False, version=None):
         asset_list = [a for a in asset_list if a.purpose != "document"]
     asset_list.sort(key=lambda a: (not a.is_cover, a.position, str(a.pk)))
     output = BytesIO()
+    # Use the unmodified official file; the canvas preserves its original ratio
+    # and alpha channel. Source assets ship with the application, independently
+    # of static URL hashing or storage permissions for user-uploaded photographs.
+    brand_logo = ImageReader(str(LOGO_PATH))
     document = SimpleDocTemplate(output, pagesize=A4, rightMargin=19 * mm, leftMargin=19 * mm,
-                                 topMargin=20 * mm, bottomMargin=21 * mm,
+                                 topMargin=44 * mm, bottomMargin=21 * mm,
                                  title=f"{machine.folio} - {title}", author="IMC México",
                                  pageCompression=1)
     styles = getSampleStyleSheet()
@@ -64,7 +74,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     styles.add(ParagraphStyle(name="IMCHeading", fontName="Helvetica-Bold", fontSize=12,
                               leading=16, textColor=NAVY, spaceBefore=15, spaceAfter=8, keepWithNext=True))
     styles.add(ParagraphStyle(name="IMCBody", fontName="Helvetica", fontSize=10,
-                              leading=15, textColor=NAVY, spaceAfter=8, wordWrap="CJK"))
+                              leading=15, textColor=CHARCOAL, spaceAfter=8, wordWrap="CJK"))
     styles.add(ParagraphStyle(name="IMCSmall", fontName="Helvetica", fontSize=8,
                               leading=11, textColor=MUTED, spaceAfter=5, wordWrap="CJK"))
     styles.add(ParagraphStyle(name="IMCLabel", parent=styles["IMCSmall"], fontName="Helvetica-Bold"))
@@ -75,8 +85,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         return Paragraph(escape(clean).replace("\n", "<br/>"), styles[style])
 
     now = timezone.localtime(version.created_at if version else timezone.now())
-    story = [para("IMC MÉXICO  /  FICHA DE MAQUINARIA", "IMCLabel"),
-             Spacer(1, 4 * mm), para(title, "IMCTitle"),
+    story = [para(title, "IMCTitle"),
              para(f"{machine.folio}  ·  Versión {version.number if version else machine.revision}  ·  {now:%d/%m/%Y}", "IMCSmall")]
     draft = not public and (not version or getattr(machine, "approved_version_id", None) != getattr(version, "pk", None))
     state = "FICHA PARA DIFUSIÓN" if public else "VERSIÓN INTERNA - DATOS PRIVADOS"
@@ -84,7 +93,8 @@ def build_pdf(machine, data, assets, public=False, version=None):
         state += "  /  PENDIENTE DE REVISIÓN"
     status_table = Table([[para(state, "IMCLabel")]], colWidths=[172 * mm])
     status_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), LIGHT),
-                                      ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d9dfe2")),
+                                      ("BOX", (0, 0), (-1, -1), 0.5, SILVER),
+                                      ("LINEBEFORE", (0, 0), (0, -1), 2.5, BLUE),
                                       ("LEFTPADDING", (0, 0), (-1, -1), 10),
                                       ("TOPPADDING", (0, 0), (-1, -1), 9),
                                       ("BOTTOMPADDING", (0, 0), (-1, -1), 5)]))
@@ -191,9 +201,21 @@ def build_pdf(machine, data, assets, public=False, version=None):
     def page(canvas, doc):
         canvas.saveState()
         width, height = A4
-        canvas.setStrokeColor(RED)
+        canvas.drawImage(brand_logo, 19 * mm, height - 34 * mm,
+                         width=24 * mm, height=24 * mm, preserveAspectRatio=True,
+                         anchor="c", mask="auto")
+        canvas.setFillColor(NAVY)
+        canvas.setFont("Helvetica-Bold", 15)
+        canvas.drawString(49 * mm, height - 20 * mm, "IMC MÉXICO")
+        canvas.setFillColor(CHARCOAL)
+        canvas.setFont("Helvetica", 8)
+        canvas.drawString(49 * mm, height - 27 * mm, "FICHA DE MAQUINARIA")
+        canvas.setStrokeColor(ORANGE)
         canvas.setLineWidth(2)
-        canvas.line(19 * mm, height - 12 * mm, width - 19 * mm, height - 12 * mm)
+        canvas.line(19 * mm, height - 38 * mm, width - 19 * mm, height - 38 * mm)
+        canvas.setStrokeColor(SILVER)
+        canvas.setLineWidth(0.5)
+        canvas.line(19 * mm, 17 * mm, width - 19 * mm, 17 * mm)
         canvas.setFillColor(MUTED)
         canvas.setFont("Helvetica", 8)
         canvas.drawString(19 * mm, 12 * mm, f"IMC México  |  {machine.folio}")
