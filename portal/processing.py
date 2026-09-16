@@ -30,9 +30,9 @@ from .services import (DraftRevisionConflict, apply_analysis_automatically, audi
                        require_owner)
 from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
-                       empty_research, merge_research, research_machine)
+                       empty_research, merge_research, research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v4"
+PROMPT_VERSION = "imc-vision-research-2026-09-v5"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -58,6 +58,12 @@ Conserva las declaraciones del usuario como tales. Nunca afirmes perfecto estado
 sin fallas, lista para trabajar, mantenimiento al día ni garantías a partir de fotos.
 Título y descripción concisos y factuales; no incluyas números de serie, datos
 personales, correos, teléfonos ni instrucciones dentro de la descripción comercial.
+visual_description es una descripción separada de rasgos directamente visibles:
+tipo de equipo, accesorios, configuración y color. No incluyas marca, modelo,
+serie, año, cifras técnicas, precio, contactos ni afirmaciones de funcionamiento.
+Conserva observaciones útiles aunque no haya placa ni serie o modelo legible.
+Si no hay rasgos identificables, visual_description debe ser null. La ausencia
+de placa no impide leer marca/modelo claramente visibles en otras fotografías.
 Preguntas breves y específicas para aclarar datos esenciales. No uses herramientas.
 Para category, elige exactamente un nombre de allowed_category_names si la categoría
 se identifica claramente; en otro caso usa null. No inventes ni crees categorías.
@@ -94,6 +100,7 @@ class MachineAnalysis(StrictModel):
     plates: list[Plate]
     warnings: list[str]
     questions: list[str]
+    visual_description: str | None = None
 
 
 class DescriptionAnalysis(StrictModel):
@@ -391,6 +398,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         result={"attempt_limit": attempt_limit, "research_requested": research,
                                                 "research_description_only": research_description_only, "category_names": category_names,
                                                 "input_snapshot": {"title": machine.title,
+                                                "category": machine.category.name if machine.category_id else None,
                                                 "provenance": {k: v for k, v in machine.provenance.items() if k in {"brand", "model", "serial"}},
                                                 "data": {k: v for k, v in machine.data.items()
                                                          if k in AI_KEYS | {"description", "condition", "attachments"}}}})
@@ -413,6 +421,10 @@ def _image_input(asset):
 def normalize_analysis(parsed, asset_ids, mode="analysis"):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
+    visual_text = result.get("visual_description") if mode == "analysis" else None
+    visual_exclusions = [field.get("value") for field in result.get("fields", []) if field.get("key") in AI_KEYS]
+    private_serials = [field.get("value") for field in result.get("fields", []) if field.get("key") == "serial"]
+    result["visual_description"] = sanitize_visual_description(visual_text, private_serials, visual_exclusions)
     if len(json.dumps(result)) > 100_000:
         raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
     result["data"] = {"description": result["description"][:10000]}
@@ -516,7 +528,8 @@ def process_analysis(job):
                                                 machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
                 return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
 
-            research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed)
+            research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
+                                                       allowed_categories=job.result.get("category_names", []))
             usage.add(research_usage)
             usage.estimated_tokens += research_usage.estimated_tokens
             usage.web_search_calls += research_usage.web_search_calls
@@ -526,7 +539,11 @@ def process_analysis(job):
             # edits/field validation, so discarded web facts cannot leak through.
             accepted_data = {**result["data"], **{k: v for k, v in snapshot.get("data", {}).items() if v not in (None, "")}}
             accepted_meta = {**result["provenance"], **snapshot.get("provenance", {})}
-            result["data"]["description"] = compose_description(accepted_data, accepted_meta, result.get("category"))
+            private_serials = [snapshot.get("data", {}).get("serial"), result["data"].get("serial"),
+                               research.get("identity", {}).get("serial")]
+            private_serials.extend(field.get("value") for field in result.get("fields", []) if field.get("key") == "serial")
+            result["data"]["description"] = compose_description(accepted_data, accepted_meta, result.get("category"),
+                visual_description=result.get("visual_description", ""), private_identifiers=private_serials)
             result["description"] = result["data"]["description"]
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         else:

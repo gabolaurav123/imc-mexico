@@ -96,3 +96,9 @@
 .research-source-list li{margin-block:8px;overflow-wrap:anywhere}
 .research-source-list a,.research-field-list a{overflow-wrap:anywhere;white-space:normal}
 .sheet-web-references{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}
+
+.quick-intake .quick-serial{margin-top:18px;padding:16px 18px;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}
+.quick-intake .quick-serial .form-field{margin-bottom:0}
+.quick-intake .quick-serial input{max-width:100%}
+.quick-intake .quick-serial .field-help{font-size:12px;line-height:1.6;display:block;margin-top:8px}
+@media(max-width:600px){.quick-intake .quick-serial{padding:16px 15px}.quick-intake .quick-serial label{line-height:1.6}}

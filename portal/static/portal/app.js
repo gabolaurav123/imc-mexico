@@ -397,6 +397,7 @@
     if (!research || typeof research !== 'object') return;
     const fields = Array.isArray(research.fields) ? research.fields : [];
     const summaries = {
+      general_context:'Referencias generales del tipo de maquinaria; no identifican esta unidad ni confirman sus especificaciones.',
       no_results:'No se encontraron especificaciones verificables en la búsqueda. Conservamos la información de tus fotos.',
       insufficient_identifiers:'No se identificaron datos suficientemente claros para buscar especificaciones. Conservamos la información de tus fotos.',
       degraded:'No se pudo completar la búsqueda web. Conservamos la información disponible.',
@@ -411,6 +412,7 @@
     const brief = $('#research-brief');
     if (brief) { brief.textContent = summary; brief.hidden = research.status === 'disabled'; }
     target.append(el('p','research-summary',summary));
+    if (research.status === 'general_context' && typeof research.context?.category === 'string') target.append(el('p','small',`Tipo consultado: ${research.context.category}`));
     const list = el('dl','research-field-list');
     for (const field of fields) {
       if (!field || typeof field !== 'object' || missing(field.value)) continue;

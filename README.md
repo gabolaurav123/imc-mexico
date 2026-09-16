@@ -20,6 +20,8 @@ El recorrido se reduce a **Fotos → Ficha y envío**. La IA completa el borrado
 
 La preparación también busca referencias por **serie o modelo**, incorpora especificaciones con sus fuentes y genera la descripción. Ubicación, precio y datos desconocidos no bloquean el envío. Las referencias del modelo se distinguen de los datos de una unidad concreta. [Búsqueda, procedencia y límites](docs/research.md).
 
+La serie puede escribirse de forma opcional junto a las fotos, antes de preparar la ficha. Sin placa ni serie, se investigan la marca y el modelo legibles en fotos generales; si sólo se identifica el tipo, se consultan referencias generales sin atribuir especificaciones a la unidad. La descripción conserva los rasgos visibles, incluso sin identificación exacta.
+
 ## Servicio y acceso actuales
 
 | Elemento | Estado comprobado |

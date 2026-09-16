@@ -1,8 +1,14 @@
-# Ficha preparada con búsqueda por serie o modelo
+# Ficha preparada con serie escrita o fotografías
 
 ## Experiencia
 
 La acción «Preparar mi ficha» identifica los datos de las fotografías, consulta referencias web a partir de la serie o del modelo identificado y prepara la descripción. El resultado se guarda automáticamente en el borrador. Enviar a IMC no exige completar ubicación, precio ni especificaciones que no se conozcan. Se pueden editar desde secciones opcionales.
+
+La serie es un campo opcional visible en el primer paso: se guarda antes de encolar el análisis, incluso si el usuario acaba de corregirla. No hace falta una foto de placa. Sin serie, una marca y un modelo claramente legibles en fotos generales permiten la misma investigación de modelo.
+
+Si sólo se reconoce el tipo de equipo, se consulta una referencia general de esa categoría. Debe coincidir exactamente con el catálogo permitido; la consulta no utiliza narraciones privadas. El resultado `general_context`, con alcance `category`, conserva enlaces realmente citados, pero `fields` permanece vacío: no se adivinan modelo, medidas ni capacidades. Se muestra en los detalles del análisis, sin convertirlo en especificaciones de la ficha ni de sus exportaciones.
+
+La lectura de fotos devuelve una narración independiente `visual_description`, limitada a configuración, accesorios, color y otros rasgos observables. La descripción final combina esa narración con los campos aceptados. El servidor descarta frases con series, contactos, cifras técnicas o afirmaciones de funcionamiento; además protege correcciones humanas durante el trabajo. No reutiliza la descripción anterior como sustituto de esa narración visual. Si la imagen no permite identificar nada, conserva un texto neutro y permite enviar las fotos.
 
 La información encontrada en una ficha de modelo se presenta como referencia del modelo. No demuestra la configuración, estado, uso o ubicación actual de una unidad concreta. Una serie de motor no se utiliza como serie de toda la máquina. Si faltan identificadores legibles, no se elige un modelo por semejanza para rellenar especificaciones. El servidor decide el alcance a partir de la evidencia: una etiqueta incorrecta de «serie exacta» sólo puede convertirse en referencia de modelo si la marca y el modelo completos coinciden. Los datos de otra serie se descartan; una frase que niega haber encontrado la serie no constituye una coincidencia. El año sigue requiriendo serie exacta y fabricante.
 

@@ -198,6 +198,36 @@ def _clear_automatic_field(job, key, value, meta):
     return True
 
 
+def _visual_description_for_completion(machine, job):
+    """Use only the separate visual narrative, never the precomposed web text.
+
+    The processing boundary strips technical and private values. Recheck against
+    the saved draft here because a human correction may have arrived meanwhile.
+    """
+    text = job.result.get("visual_description")
+    if job.mode != "analysis" or not isinstance(text, str) or not text.strip():
+        return ""
+    research = job.result.get("research", {})
+    if isinstance(research, dict) and isinstance(research.get("identity"), dict):
+        scope = "exact_serial" if research["identity"].get("serial") else "model"
+        if not _web_identity_unchanged(machine, job, scope):
+            return ""
+    description_key = _reference_text(text)
+    for key, value in job.result.get("data", {}).items():
+        if key not in AUTOMATIC_DATA_FIELDS - {"description"} or value in (None, ""):
+            continue
+        if (_reference_text(value) in description_key
+                and _reference_text(value) != _reference_text(machine.data.get(key))):
+            # An uncertain/rejected value must not sneak back through prose.
+            return ""
+    category = job.result.get("category")
+    if category and _human_provenance(machine, "category"):
+        current = machine.category
+        if not current or _reference_text(category) not in {_reference_text(current.name), _reference_text(current.slug)}:
+            return ""
+    return text.strip()
+
+
 @transaction.atomic
 def apply_analysis_automatically(machine, user, job, expected_revision=None, *, from_worker=False):
     """Fill only untouched gaps, once. Completing a private draft never approves it."""
@@ -272,7 +302,8 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         # The old form marked untouched blanks as user-confirmed. At the exact
         # legacy revision, allow those empty placeholders once, but never an
         # accepted AI field or any correction made after that analysis.
-        legacy_blank = legacy and isinstance(meta, dict) and meta.get("source") == "user" and not meta.get("analysis_id")
+        legacy_blank = (legacy and key != "serial" and isinstance(meta, dict)
+                        and meta.get("source") == "user" and not meta.get("analysis_id"))
         if _human_provenance(machine, key) and not legacy_blank:
             skip(key, "human_correction")
             return False
@@ -331,8 +362,14 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             skip("category", "no_exact_category")
     if compose_after_research and can_fill("description"):
         from .research import compose_description
+        private_identifiers = [machine.data.get("serial"), candidates.get("serial"),
+                               research.get("identity", {}).get("serial")]
+        private_identifiers.extend(field.get("value") for field in job.result.get("fields", [])
+                                   if isinstance(field, dict) and field.get("key") == "serial")
         description = compose_description(machine.data, machine.provenance,
-                                          machine.category.name if machine.category_id else None)
+                                          machine.category.name if machine.category_id else None,
+                                          visual_description=_visual_description_for_completion(machine, job),
+                                          private_identifiers=private_identifiers)
         if description:
             add_validated("description", description, {"source": "system", "review": "needs_review"})
     if result["applied_fields"]:
