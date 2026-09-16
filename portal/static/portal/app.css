@@ -113,3 +113,15 @@
 .machine-card-pdf a{display:inline-flex;align-items:center;min-height:36px}
 .machine-card-pdf>span{flex-basis:100%;font-size:11px}
 @media(max-width:600px){.quick-intake .quick-pdf-row>.button{width:100%}.quick-intake .quick-pdf-row p{font-size:11px}}
+
+/* Drafts move to a recoverable trash view. */
+.machine-list-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.machine-list-actions .button{min-height:44px}
+.draft-delete{color:var(--danger);min-height:44px;text-align:left}
+.machine-card .draft-delete{display:block;margin-top:10px;font-size:12px}
+.machine-action-error{margin:12px 0 0;overflow-wrap:anywhere}
+.draft-delete-row{display:flex;align-items:center;flex-wrap:wrap;gap:4px 18px;padding-top:15px;margin-top:22px;border-top:1px solid var(--line)}
+.draft-delete-row .small{font-size:11px}
+.machine-card-trash .machine-cover{height:155px}
+.machine-card-trash .machine-cover .no-photo{font-size:13px}
+@media(max-width:600px){.machine-list-actions{width:100%}.machine-list-actions .button{font-size:12px;padding-inline:15px}.draft-delete-row{gap:0 12px}.draft-delete-row .small{flex-basis:100%}}

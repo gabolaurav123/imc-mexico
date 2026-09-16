@@ -45,7 +45,7 @@ def api(fn):
         except ValidationError as exc:return JsonResponse({'error':' '.join(exc.messages)},status=400)
         except (ValueError,TypeError,KeyError):return JsonResponse({'error':'Revisa los datos enviados.'},status=400)
         except PermissionDenied:return JsonResponse({'error':'No tienes permiso para realizar esta acción.'},status=403)
-        except Http404:return JsonResponse({'error':'El registro no está disponible.'},status=404)
+        except (Http404,Machine.DoesNotExist):return JsonResponse({'error':'El registro no está disponible.'},status=404)
     return wrapper
 
 def event(request,name,machine=None):
@@ -101,11 +101,13 @@ def contact(request):
 def panel(request):
     qs=request.user.machines.all()
     counts={'total':qs.count(),'drafts':qs.filter(status='draft').count(),'pending':qs.filter(status__in=['submitted','in_review']).count(),'approved':qs.filter(approved_version__isnull=False).count(),'corrections':qs.filter(status='changes_requested').count()}
-    return render(request,'portal/dashboard.html',{'machines':qs.prefetch_related('assets')[:6],'counts':counts,'recent_messages':Message.objects.filter(machine__owner=request.user,internal=False).select_related('machine','sender')[:5]})
+    return render(request,'portal/dashboard.html',{'machines':qs.prefetch_related('assets')[:6],'counts':counts,'recent_messages':Message.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True,internal=False).select_related('machine','sender')[:5]})
 
 @login_required
 def machines(request):
-    qs=request.user.machines.prefetch_related('assets')
+    is_trash=request.GET.get('papelera')=='1'
+    trash=Machine.all_objects.filter(owner=request.user,deleted_at__isnull=False)
+    qs=(trash if is_trash else request.user.machines.all()).prefetch_related('assets','publications')
     q=request.GET.get('q','')[:100]
     if q:
         folio_query=q.removeprefix('IMC-').removeprefix('imc-').replace('-','')
@@ -113,7 +115,7 @@ def machines(request):
     state=request.GET.get('status',request.GET.get('estado',''))
     if state:qs=qs.filter(status=state)
     page=Paginator(qs,12).get_page(request.GET.get('page'))
-    return render(request,'portal/machines.html',{'machines':page,'page_obj':page,'q':q})
+    return render(request,'portal/machines.html',{'machines':page,'page_obj':page,'q':q,'is_trash':is_trash,'trash_count':trash.count()})
 
 @login_required
 def machine_create(request):
@@ -132,11 +134,11 @@ def machine_wizard(request,pk):
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
     models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
     catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
-    return render(request,'portal/wizard.html',{'machine':machine,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
+    return render(request,'portal/wizard.html',{'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
 
 @login_required
 def requests_list(request):
-    return render(request,'portal/requests.html',{'submissions':Paginator(Submission.objects.filter(machine__owner=request.user).select_related('machine','version'),20).get_page(request.GET.get('page'))})
+    return render(request,'portal/requests.html',{'submissions':Paginator(Submission.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True).select_related('machine','version'),20).get_page(request.GET.get('page'))})
 
 @login_required
 def messages_list(request):
@@ -149,7 +151,7 @@ def messages_list(request):
             flash.success(request,'Mensaje guardado para el equipo de IMC México.')
             return redirect('/panel/mensajes/')
         flash.error(request,'Escribe un mensaje de hasta 5 000 caracteres.')
-    qs=Message.objects.filter(machine__owner=request.user,internal=False).select_related('machine','sender')
+    qs=Message.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True,internal=False).select_related('machine','sender')
     selected=request.GET.get('maquinaria','')
     if selected:
         try:
@@ -283,7 +285,13 @@ def api_submit(request,pk):
 @require_POST
 @api
 def api_machine_action(request,pk):
-    machine=owned(request,pk);body=payload(request,allowed=['action','value'])
+    body=payload(request,allowed=['action','value','revision'])
+    if body.get('action') in {'delete_draft','restore_draft'}:
+        machine=get_object_or_404(Machine.all_objects,pk=pk,owner=request.user)
+        action=services.delete_draft if body['action']=='delete_draft' else services.restore_draft
+        machine=action(machine,request.user,body.get('revision'))
+        return JsonResponse({'ok':True,'url':'/panel/maquinarias/','revision':machine.revision})
+    machine=owned(request,pk)
     if body.get('action')=='duplicate':
         machine=services.duplicate_machine(machine,request.user)
         return JsonResponse({'id':str(machine.pk),'url':f'/panel/maquinarias/{machine.pk}/'})
@@ -297,7 +305,7 @@ def safe_public_data(snapshot):
     return data
 
 def public_record(token):
-    publication=get_object_or_404(Publication.objects.select_related('machine','version','machine__owner'),token=token,destination='share',enabled=True,status='published')
+    publication=get_object_or_404(Publication.objects.select_related('machine','version','machine__owner'),token=token,destination='share',enabled=True,status='published',machine__deleted_at__isnull=True)
     if not publication.version or publication.machine.owner.advertiser_status!='approved' or publication.version_id!=publication.machine.approved_version_id or publication.machine.availability=='withdrawn':raise Http404
     return publication
 
@@ -390,7 +398,7 @@ def health(request):
 
 @operator_required()
 def operations(request):
-    qs=Submission.objects.select_related('machine','machine__owner','version')
+    qs=Submission.objects.filter(machine__deleted_at__isnull=True).select_related('machine','machine__owner','version')
     q=request.GET.get('q','').strip()[:100]
     if q:
         folio_query=q.removeprefix('IMC-').removeprefix('imc-').replace('-','')
@@ -399,13 +407,13 @@ def operations(request):
     if state:qs=qs.filter(status=state)
     live=Machine.objects.filter(owner__is_test=False)
     live_jobs=AnalysisJob.objects.filter(requested_by__is_test=False)
-    counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':live_jobs.filter(status='failed').count(),'tokens':live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).count()}
+    counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False,machine__deleted_at__isnull=True).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':live_jobs.filter(machine__deleted_at__isnull=True,status='failed').count(),'tokens':live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)).count()}
     page=Paginator(qs,20).get_page(request.GET.get('page'))
-    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.order_by('-created_at')[:10],'q':q,'backup_status':get_backup_status()})
+    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.filter(machine__deleted_at__isnull=True).select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)).order_by('-created_at')[:10],'q':q,'backup_status':get_backup_status()})
 
 @operator_required('portal.review_submission')
 def review(request,pk):
-    sub=get_object_or_404(Submission.objects.select_related('machine','version','machine__owner'),pk=pk)
+    sub=get_object_or_404(Submission.objects.select_related('machine','version','machine__owner'),pk=pk,machine__deleted_at__isnull=True)
     machine=sub.machine
     if request.method=='POST':
         action=request.POST.get('action')

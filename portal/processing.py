@@ -325,6 +325,58 @@ def _attempt_limit(job, limits):
     return min(configured, reserved) if type(reserved) is int and reserved >= 1 else configured
 
 
+class DraftAnalysisCancelled(ValidationError):
+    """The draft was deleted before a provider request; known additional usage is zero."""
+    def __init__(self):
+        super().__init__("El borrador está en la papelera; este análisis no se reanudará.")
+        self.accounted_usage = UsageTotals()
+
+
+def _deleted_analysis(job, machine=None):
+    # The durable marker also covers delete -> restore while a request runs.
+    return (job.result.get("draft_deleted") is True
+            or (machine.deleted_at is not None if machine is not None else
+                Machine.all_objects.filter(pk=job.machine_id, deleted_at__isnull=False).exists()))
+
+
+def _mark_deleted_analysis(job, revision):
+    job.result = {**job.result, "draft_deleted": True}
+    job.analytics_context = {}
+    job.application_result = {"requested": job.auto_apply, "status": "skipped",
+        "applied_fields": [], "skipped_fields": [], "field_reasons": {},
+        "reason": "draft_deleted", "revision_before": revision, "revision_after": revision}
+    if job.status == "queued":
+        job.status = "failed"
+        job.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
+        job.reserved_tokens = 0
+        job.locked_at = None
+        job.finished_at = timezone.now()
+
+
+def cancel_deleted_draft_jobs(machine):
+    """Call inside deletion's transaction, with Machine locked before its jobs.
+
+    Queued work has no new remote cost. Running work keeps its lease and budget
+    until the worker accounts for the response or the lease expires. Restoring
+    the machine never clears these cancellation markers.
+    """
+    if not connection.in_atomic_block or machine.deleted_at is None:
+        raise ValidationError("La cancelación requiere un borrador eliminado y bloqueado.")
+    cancelled = 0
+    for job in AnalysisJob.objects.select_for_update().filter(
+            machine_id=machine.pk, status__in=["queued", "running"]).order_by("pk"):
+        _mark_deleted_analysis(job, machine.revision)
+        job.save()
+        cancelled += 1
+    return cancelled
+
+
+def _check_analysis_draft(job):
+    current = AnalysisJob.objects.get(pk=job.pk)
+    if _deleted_analysis(current):
+        raise DraftAnalysisCancelled()
+
+
 def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
                      auto_apply=False, expected_revision=None, authorize_ai=False, research=False):
     _check_editor(machine, user)
@@ -525,6 +577,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     from openai import OpenAI
+    _check_analysis_draft(job)
     consent = Consent.objects.filter(user=job.requested_by, machine=job.machine, kind="ai").order_by("-created_at").first()
     if not job.requested_by.is_active or not consent or not consent.granted:
         raise ValidationError("La autorización para el análisis ya no está vigente.")
@@ -545,6 +598,7 @@ def process_analysis(job):
                         _image_input(asset)])
     if sum(len(item.get("image_url", "")) for item in content) > 40 * 1024 * 1024:
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
+    _check_analysis_draft(job)
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
                     timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
     usage = UsageTotals()
@@ -572,6 +626,8 @@ def process_analysis(job):
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         if research_requested:
             def research_allowed():
+                if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):
+                    return False
                 latest = Consent.objects.filter(user=job.requested_by, user__is_active=True,
                                                 machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
                 return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
@@ -616,7 +672,11 @@ def process_analysis(job):
 
 
 def _lock_query(query):
-    return query.select_for_update(skip_locked=True) if connection.features.has_select_for_update_skip_locked else query.select_for_update()
+    options = {"of": ("self",)} if connection.features.has_select_for_update_of else {}
+    if connection.features.has_select_for_update_skip_locked:
+        options["skip_locked"] = True
+    # Joined eligibility filters must not acquire Machine locks after job locks.
+    return query.select_for_update(**options)
 
 
 def _claim_job():
@@ -624,11 +684,24 @@ def _claim_job():
     limits = platform_settings()
     stale_before = now - timedelta(seconds=max(300, int(option("AI_JOB_STALE_SECONDS", 600))))
     with transaction.atomic():
+        # Clean up deleted queued work even when analysis is administratively
+        # paused. Never acquire a Machine lock while holding a job lock here.
+        cancelled = _lock_query(AnalysisJob.objects.filter(status="queued").filter(
+            Q(machine__deleted_at__isnull=False) | Q(result__draft_deleted=True)).order_by("created_at"))
+        for pending in cancelled[:20]:
+            revision = Machine.all_objects.values_list("revision", flat=True).get(pk=pending.machine_id)
+            _mark_deleted_analysis(pending, revision)
+            pending.save()
         # A dead worker's lease has a bounded retry count. Never overwrite a newer lease.
         stale = _lock_query(AnalysisJob.objects.filter(status="running", locked_at__lt=stale_before)).first()
         if stale:
-            stale.status = "failed" if stale.attempts >= _attempt_limit(stale, limits) else "queued"
+            deleted = _deleted_analysis(stale)
+            if deleted:
+                _mark_deleted_analysis(stale, Machine.all_objects.values_list("revision", flat=True).get(pk=stale.machine_id))
+            stale.status = "failed" if deleted or stale.attempts >= _attempt_limit(stale, limits) else "queued"
             stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Puedes enviar la ficha con la información disponible."
+            if deleted:
+                stale.error = "El borrador se envió a la papelera; el análisis interrumpido no se reanudará."
             stale.locked_at = None
             # Unknown remote outcome: reserve conservative consumption instead of claiming zero.
             per_attempt = _reservation(len(stale.asset_ids), stale.mode, stale.result.get("research_requested") is True,
@@ -642,6 +715,8 @@ def _claim_job():
         if not limits.ai_enabled or not option("OPENAI_API_KEY", ""):
             return None
         job = _lock_query(AnalysisJob.objects.filter(status="queued").filter(
+            machine__deleted_at__isnull=True).filter(
+            Q(result__draft_deleted__isnull=True) | ~Q(result__draft_deleted=True)).filter(
             Q(locked_at__isnull=True) | Q(locked_at__lte=now)).order_by("created_at")).first()
         if not job:
             return None
@@ -669,10 +744,11 @@ def process_next_job():
     try:
         result, usage = process_analysis(job)
         with transaction.atomic():
-            machine = Machine.objects.select_for_update().get(pk=job.machine_id)
+            machine = Machine.all_objects.select_for_update().get(pk=job.machine_id)
             locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
             if locked.status != "running" or locked.locked_at != lease:
                 return True
+            deleted = _deleted_analysis(locked, machine)
             locked.result = result
             locked.status = "completed"
             locked.input_tokens += getattr(usage, "input_tokens", 0) or 0
@@ -681,8 +757,10 @@ def process_next_job():
             locked.finished_at = timezone.now()
             locked.locked_at = None
             locked.error = ""
+            if deleted:
+                _mark_deleted_analysis(locked, machine.revision)
             locked.save()
-            if locked.auto_apply:
+            if locked.auto_apply and not deleted:
                 try:
                     with transaction.atomic():
                         apply_analysis_automatically(machine, locked.requested_by, locked, from_worker=True)
@@ -696,19 +774,26 @@ def process_next_job():
                     audit(job.requested_by, "analysis.auto_apply_failed", locked, {"error_type": type(exc).__name__})
             # Read the current locked context: consent can be revoked while the API runs.
             from .analytics import record_job_completion
-            record_job_completion(locked)
+            if not deleted:
+                record_job_completion(locked)
             audit(job.requested_by, "analysis.completed", job, {"model": job.model, "attempts": job.attempts})
     except Exception as exc:
         from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
         transient = isinstance(exc, (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError))
         with transaction.atomic():
+            machine = Machine.all_objects.select_for_update().get(pk=job.machine_id)
             locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
             if locked.status != "running" or locked.locked_at != lease:
                 return True
-            retry = transient and locked.attempts < _attempt_limit(locked, platform_settings())
+            deleted = _deleted_analysis(locked, machine)
+            if deleted:
+                _mark_deleted_analysis(locked, machine.revision)
+            retry = not deleted and transient and locked.attempts < _attempt_limit(locked, platform_settings())
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
                             "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
+            if deleted:
+                locked.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
             per_attempt = _reservation(len(locked.asset_ids), locked.mode, locked.result.get("research_requested") is True,
                                        research_description_only=locked.result.get("research_description_only") is True)
             accounted = getattr(exc, "accounted_usage", None)

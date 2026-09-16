@@ -142,6 +142,11 @@ class WorkflowStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelada"
 
 
+class ActiveMachineManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class Machine(models.Model):
     Status = WorkflowStatus
 
@@ -163,8 +168,13 @@ class Machine(models.Model):
     approved_version = models.ForeignKey("MachineVersion", on_delete=models.PROTECT, null=True, blank=True, related_name="approved_machines", verbose_name="versión aprobada")
     created_at = models.DateTimeField("creada", auto_now_add=True)
     updated_at = models.DateTimeField("actualizada", auto_now=True)
+    deleted_at = models.DateTimeField("en papelera desde", null=True, blank=True, db_index=True, editable=False)
+    objects = ActiveMachineManager()
+    all_objects = models.Manager()
 
     class Meta:
+        default_manager_name = "objects"
+        base_manager_name = "all_objects"
         ordering = ["-updated_at"]
         verbose_name = "maquinaria"
         verbose_name_plural = "maquinarias"
@@ -177,7 +187,13 @@ class Machine(models.Model):
 
     @property
     def editable(self):
-        return self.status in {WorkflowStatus.DRAFT, WorkflowStatus.CHANGES_REQUESTED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED, WorkflowStatus.APPROVED}
+        return self.deleted_at is None and self.status in {WorkflowStatus.DRAFT, WorkflowStatus.CHANGES_REQUESTED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED, WorkflowStatus.APPROVED}
+
+    @property
+    def can_delete_draft(self):
+        return (self.deleted_at is None and self.status == WorkflowStatus.DRAFT
+                and self.approved_version_id is None
+                and not self.publications.filter(models.Q(enabled=True) | models.Q(status="published")).exists())
 
     def __str__(self):
         return f"{self.folio} · {self.title}"
@@ -291,6 +307,8 @@ class Publication(models.Model):
         verbose_name_plural = "publicaciones"
 
     def clean(self):
+        if self.machine_id and self.machine.deleted_at is not None:
+            raise ValidationError("La maquinaria está en la papelera.")
         if self.version_id and self.version.machine_id != self.machine_id:
             raise ValidationError("La versión no pertenece a esta maquinaria.")
         if self.enabled and (not self.version_id or self.machine.approved_version_id != self.version_id or self.machine.owner.advertiser_status != "approved"):

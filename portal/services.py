@@ -249,7 +249,7 @@ def _visual_description_for_completion(machine, job):
 def apply_analysis_automatically(machine, user, job, expected_revision=None, *, from_worker=False):
     """Fill gaps or refresh an unchanged AI description, once; never approve."""
     # Same lock order as save/submit and the worker completion path.
-    machine = Machine.objects.select_for_update().get(pk=machine.pk)
+    machine = Machine.all_objects.select_for_update().get(pk=machine.pk)
     user = User.objects.get(pk=user.pk)
     if not from_worker:
         require_owner(machine, user)
@@ -278,6 +278,8 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         job.save(update_fields=["auto_apply", "application_result"])
         return machine, result
 
+    if machine.deleted_at is not None or job.result.get("draft_deleted"):
+        return finish("draft_deleted")
     if machine.owner_id != job.requested_by_id or user.pk != job.requested_by_id or not user.is_active:
         return finish("owner_changed")
     if not machine.editable:
@@ -716,6 +718,47 @@ def review_submission(submission, actor, decision, reason=""):
     audit(actor, f"submission.{decision}", submission, {"reason": reason, "version": original_version.number, "approved_version": approved_version.number if approved_version else None})
     _notify(machine.owner, machine, "review", f"{machine.folio}: {submission.get_status_display()}", reason or "Consulta el estado actualizado de tu solicitud en el panel. La publicación requiere autorización independiente.",template_key="review_"+decision)
     return submission
+
+
+def _locked_owner_draft(machine, user, expected_revision):
+    machine = Machine.all_objects.select_for_update().get(pk=machine.pk)
+    if not user.is_authenticated or not user.is_active or machine.owner_id != user.pk or not User.objects.filter(pk=user.pk, is_active=True).exists():
+        raise PermissionDenied("Sólo el propietario puede gestionar su papelera.")
+    if type(expected_revision) is not int or expected_revision != machine.revision:
+        raise DraftRevisionConflict("El borrador cambió. Actualiza la página antes de continuar.")
+    if machine.status != WorkflowStatus.DRAFT or machine.approved_version_id is not None:
+        raise ValidationError("Sólo puedes eliminar o restaurar borradores sin una versión aprobada.")
+    if machine.publications.filter(Q(enabled=True) | Q(status="published")).exists():
+        raise ValidationError("La maquinaria tiene una publicación activa y no puede ir a la papelera.")
+    return machine
+
+
+@transaction.atomic
+def delete_draft(machine, user, expected_revision):
+    """Retain all files and history; only the owner can trash an unpublished draft."""
+    machine = _locked_owner_draft(machine, user, expected_revision)
+    if machine.deleted_at is not None:
+        raise ValidationError("El borrador ya está en la papelera.")
+    machine.deleted_at = timezone.now()
+    machine.revision += 1
+    machine.save(update_fields=["deleted_at", "revision", "updated_at"])
+    from .processing import cancel_deleted_draft_jobs
+    cancel_deleted_draft_jobs(machine)
+    audit(user, "machine.draft_deleted", machine, {"revision": machine.revision, "deleted_at": machine.deleted_at.isoformat()})
+    return machine
+
+
+@transaction.atomic
+def restore_draft(machine, user, expected_revision):
+    machine = _locked_owner_draft(machine, user, expected_revision)
+    if machine.deleted_at is None:
+        raise ValidationError("El borrador no está en la papelera.")
+    previous_deleted_at = machine.deleted_at
+    machine.deleted_at = None
+    machine.revision += 1
+    machine.save(update_fields=["deleted_at", "revision", "updated_at"])
+    audit(user, "machine.draft_restored", machine, {"revision": machine.revision, "deleted_at": previous_deleted_at.isoformat()})
+    return machine
 
 
 @transaction.atomic

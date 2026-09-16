@@ -208,7 +208,7 @@ class MachineForm(forms.ModelForm):
             if editable_fields.intersection(self.changed_data):
                 raise ValidationError("Solicita cambios antes de editar una maquinaria en revisión.")
         if self.instance.pk:
-            current=Machine.objects.get(pk=self.instance.pk)
+            current=Machine.all_objects.get(pk=self.instance.pk)
             if cleaned.get("expected_revision")!=current.revision:
                 raise ValidationError("La maquinaria cambió desde que abriste esta página. Recarga para revisar la última versión.")
             _validate_payload(current,{"title":cleaned.get("title",current.title),"category":getattr(cleaned.get("category"),"pk",None),"data":cleaned.get("data",{}),"provenance":cleaned.get("provenance",{})})
@@ -218,10 +218,10 @@ class MachineForm(forms.ModelForm):
 @admin.register(Machine)
 class MachineAdmin(AuditedAdmin):
     form = MachineForm
-    list_display = ("folio", "title", "owner", "category", "status", "availability", "revision", "updated_at")
-    list_filter = ("status", "availability", "category", "owner__is_test")
+    list_display = ("folio", "title", "owner", "category", "status", "availability", "revision", "deleted_at", "updated_at")
+    list_filter = ("deleted_at", "status", "availability", "category", "owner__is_test")
     search_fields = ("id", "title", "owner__email", "data__brand", "data__model", "data__location")
-    readonly_fields = ("id", "folio", "owner", "status", "availability", "revision", "approved_version", "created_at", "updated_at", "possible_duplicates")
+    readonly_fields = ("id", "folio", "owner", "status", "availability", "revision", "approved_version", "deleted_at", "created_at", "updated_at", "possible_duplicates")
     list_select_related = ("owner", "category")
     inlines = (AssetInline,)
     action_form=TransferActionForm
@@ -229,6 +229,19 @@ class MachineAdmin(AuditedAdmin):
 
     def has_add_permission(self, request):
         return False
+
+    def get_queryset(self, request):
+        queryset = Machine.all_objects.all()
+        ordering = self.get_ordering(request)
+        return queryset.order_by(*ordering) if ordering else queryset
+
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and (obj is None or obj.deleted_at is None)
+
+    def _active_queryset(self, request, queryset):
+        if queryset.filter(deleted_at__isnull=False).exists():
+            self.message_user(request, "Los borradores en la papelera se conservan sin cambios. Sólo su propietario puede restaurarlos.", messages.WARNING)
+        return queryset.filter(deleted_at__isnull=True)
 
     def get_object(self,request,object_id,from_field=None):
         obj=super().get_object(request,object_id,from_field)
@@ -245,7 +258,7 @@ class MachineAdmin(AuditedAdmin):
 
     @admin.action(description="Enviar recordatorio al anunciante (escribe el texto en Motivo)")
     def send_reminder(self,request,queryset):
-        for machine in queryset:
+        for machine in self._active_queryset(request, queryset):
             try:send_machine_reminder(machine,request.user,request.POST.get("reason",""))
             except (PermissionDenied,ValidationError) as exc:self.message_user(request,f"{machine.folio}: {exc}",messages.ERROR)
             else:self.message_user(request,f"{machine.folio}: recordatorio en cola.")
@@ -258,7 +271,7 @@ class MachineAdmin(AuditedAdmin):
         if not target:
             self.message_user(request,"Indica el correo de una cuenta de destino existente.",messages.ERROR)
             return
-        for machine in queryset:
+        for machine in self._active_queryset(request, queryset):
             try:
                 reassign_machine(machine,request.user,target,request.POST.get("reason",""))
             except ValidationError as exc:
@@ -273,7 +286,7 @@ class MachineAdmin(AuditedAdmin):
         obj.status = saved.status
 
     def _availability(self, request, queryset, value):
-        for obj in queryset:
+        for obj in self._active_queryset(request, queryset):
             set_availability(obj, request.user, value)
         self.message_user(request, "Disponibilidad actualizada.")
 
@@ -286,7 +299,7 @@ class MachineAdmin(AuditedAdmin):
         self._availability(request, queryset, "withdrawn")
 
     def _share(self, request, queryset, enabled):
-        for obj in queryset:
+        for obj in self._active_queryset(request, queryset):
             try:
                 set_publication(obj, request.user, enabled)
             except (ValidationError, PermissionDenied) as exc:
@@ -318,6 +331,9 @@ class AssetAdmin(AuditedAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return super().has_change_permission(request, obj) and (obj is None or obj.machine.deleted_at is None)
+
     def save_model(self, request, obj, form, change):
         if obj.purpose in {"plate", "document"}:
             obj.public_authorized = False
@@ -340,7 +356,9 @@ class SubmissionAdmin(HistoricalAdmin):
         return format_html('<a href="/operaciones/solicitudes/{}/">Abrir revisión</a>', obj.pk)
 
     def _review(self, request, queryset, decision):
-        for obj in queryset:
+        if queryset.filter(machine__deleted_at__isnull=False).exists():
+            self.message_user(request, "Se omitieron las solicitudes de borradores en la papelera. Su historial se conserva sin modificar.", messages.WARNING)
+        for obj in queryset.filter(machine__deleted_at__isnull=True):
             try:
                 review_submission(obj, request.user, decision, request.POST.get("reason", ""))
             except (ValidationError, PermissionDenied) as exc:
@@ -393,7 +411,7 @@ class PublicationAdmin(AuditedAdmin):
     def confirm_main_publication(self, request, queryset):
         if not request.user.has_perm("portal.publish_machine"):
             raise PermissionDenied
-        for item in queryset:
+        for item in queryset.filter(machine__deleted_at__isnull=True):
             with transaction.atomic():
                 machine=Machine.objects.select_for_update().select_related("owner").get(pk=item.machine_id)
                 obj=Publication.objects.select_for_update().get(pk=item.pk)
@@ -408,7 +426,7 @@ class PublicationAdmin(AuditedAdmin):
 
     @admin.action(description="Deshabilitar publicaciones seleccionadas")
     def disable(self, request, queryset):
-        for obj in queryset:
+        for obj in queryset.filter(machine__deleted_at__isnull=True):
             set_publication(obj.machine, request.user, False, obj.destination)
 
     @admin.action(description="Exportar fichas aprobadas para el portal principal (JSON)")
@@ -416,7 +434,7 @@ class PublicationAdmin(AuditedAdmin):
         if not request.user.has_perm("portal.publish_machine"):
             raise PermissionDenied
         records = []
-        for obj in queryset.select_related("machine__owner", "version"):
+        for obj in queryset.filter(machine__deleted_at__isnull=True).select_related("machine__owner", "version"):
             if not obj.version_id or obj.machine.owner.advertiser_status != "approved" or obj.version_id != obj.machine.approved_version_id:
                 continue
             snapshot_data = obj.version.data

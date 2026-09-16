@@ -50,16 +50,24 @@
     try { const result = await api('/api/maquinarias/', {}); location.assign(result.url || `/panel/maquinarias/${result.id}/`); }
     catch (error) { toast(error.message, true); creating = false; button.disabled = false; button.textContent = label; }
   }));
+  const deleteDraftConfirmation = '¿Eliminar este borrador? Podrás recuperarlo desde la papelera.';
   $$('[data-machine-action]').forEach(button => button.addEventListener('click', async () => {
+    if (button.disabled) return;
     const action = button.dataset.machineAction;
     const payload = { action };
+    if (action === 'delete_draft' && !confirm(deleteDraftConfirmation)) return;
+    if (action === 'delete_draft' || action === 'restore_draft') payload.revision = Number(button.dataset.machineRevision);
     if (action === 'availability') payload.value = $('#availability')?.value;
+    const label = button.textContent, message = button.closest('.machine-card')?.querySelector('[data-action-error]');
+    if (message) message.hidden = true;
     button.disabled = true;
+    if (action === 'delete_draft' || action === 'restore_draft') button.textContent = action === 'delete_draft' ? 'Moviendo a la papelera…' : 'Restaurando borrador…';
     try {
       const result = await api(`/api/maquinarias/${button.dataset.machineId}/accion/`, payload);
       if (action === 'duplicate') location.assign(result.url || `/panel/maquinarias/${result.id}/`);
+      else if (action === 'delete_draft' || action === 'restore_draft') location.assign(result.url || '/panel/maquinarias/');
       else location.reload();
-    } catch (error) { toast(error.message, true); button.disabled = false; }
+    } catch (error) { toast(error.message, true); if (message) { message.textContent = error.message; message.hidden = false; } button.disabled = false; button.textContent = label; }
   }));
 
   let beforePreferencesReload = null;
@@ -106,9 +114,9 @@
   let editable = wizard.dataset.editable === 'true';
   const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set(), assetTasks = new Set();
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
-  let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false;
+  let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
   let analysisOutcome = null;
-  let activeJob = null, pollTimer, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
+  let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
   const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión' };
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado' };
@@ -130,7 +138,7 @@
     return value;
   }
   function changed(event) {
-    if (!editable || submitting) return;
+    if (!editable || submitting || deleting) return;
     const input = event.target, key = input.dataset.field || input.dataset.topField;
     if (!key) return;
     pending.set(key,{value:readInput(input),sequence:++sequence});
@@ -170,13 +178,14 @@
   }
   async function save() {
     clearTimeout(saveTimer);
-    if (!editable || !pending.size) return;
+    if (!editable || deleting || !pending.size) return;
     if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios en esta pestaña.');
     if (assetMutation) await assetMutation;
+    if (deleting) return;
     if (saving) { await saving; if (pending.size) return save(); return; }
     saving = (async () => {
       let recovered = false;
-      while (pending.size) {
+      while (pending.size && !deleting) {
         const sent = new Map(pending), payload = {revision:state.revision,data:{},provenance:{}};
         for (const [key,entry] of sent) {
           if (key === 'title' || key === 'category') payload[key] = entry.value; else payload.data[key] = entry.value;
@@ -208,17 +217,17 @@
     try { await saving; } finally { saving = null; }
   }
   $$('[data-field],[data-top-field]',wizard).forEach(bindInput);
-  saveRetry.addEventListener('click',() => { clearProblem(); save().catch(() => {}); });
-  addEventListener('online',() => { if (pending.size && !conflict) save().catch(() => {}); });
-  addEventListener('beforeunload',event => { if (pending.size || saving || uploadCount || uploadFailures.size || submitting) { event.preventDefault(); event.returnValue = ''; } });
+  saveRetry.addEventListener('click',() => { if (deleting) return; clearProblem(); save().catch(() => {}); });
+  addEventListener('online',() => { if (pending.size && !conflict && !deleting) save().catch(() => {}); });
+  addEventListener('beforeunload',event => { if (!deleteComplete && (pending.size || saving || uploadCount || uploadFailures.size || submitting || deleting || assetTasks.size)) { event.preventDefault(); event.returnValue = ''; } });
   $('#save-exit').addEventListener('click',async event => {
     event.preventDefault();
-    if (submitting || downloading) return problem('Espera a que termine el envío o la preparación del PDF.');
+    if (submitting || downloading || deleting) return problem('Espera a que termine la operación en curso.');
     if (uploadCount || uploadFailures.size) return problem('Termina la carga o descarta los archivos que no pudieron subir antes de salir.');
     try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep local corrections visible. */ }
   });
   beforePreferencesReload = async () => {
-    if (submitting || downloading || uploadCount || uploadFailures.size) return false;
+    if (submitting || downloading || deleting || uploadCount || uploadFailures.size) return false;
     try { await save(); return true; } catch { return false; }
   };
   function displayStep(step,scroll=true) {
@@ -246,14 +255,14 @@
     let release;
     assetMutation = new Promise(resolve => { release = resolve; });
     try { const result = await action(); updateRevision(result); return result; }
-    finally { assetMutation = null; release(); if (pending.size && !conflict) saveTimer = setTimeout(() => save().catch(() => {}),0); }
+    finally { assetMutation = null; release(); if (pending.size && !conflict && !deleting) saveTimer = setTimeout(() => save().catch(() => {}),0); }
   }
   function assetSummary(card) {
     const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
   }
   function assetActionButtons(card) {
-    $$('[data-asset-action]',card).forEach(button => { button.disabled = !editable || submitting; button.addEventListener('click',async () => {
-      if (!editable || preparing || submitting || downloading || button.disabled) return;
+    $$('[data-asset-action]',card).forEach(button => { button.disabled = !editable || submitting || deleting; button.addEventListener('click',async () => {
+      if (!editable || preparing || submitting || downloading || deleting || button.disabled) return;
       const action = button.dataset.assetAction;
       if (action === 'delete' && !confirm('¿Eliminar este archivo del borrador?')) return;
       button.disabled = true;
@@ -265,15 +274,15 @@
         if (action === 'down' && card.nextElementSibling) card.parentNode.insertBefore(card.nextElementSibling,card);
         renderPreview(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
       } catch (error) { problem(error.message); }
-      finally { button.disabled = !editable || submitting; }
+      finally { button.disabled = !editable || submitting || deleting; }
     }); });
-    const select = el('select','asset-purpose'); select.setAttribute('aria-label','Tipo de archivo'); select.disabled = !editable || submitting;
+    const select = el('select','asset-purpose'); select.setAttribute('aria-label','Tipo de archivo'); select.disabled = !editable || submitting || deleting;
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
-      const previous = card.dataset.purpose; if (preparing || submitting || downloading) { select.value = previous; return; } select.disabled = true;
+      const previous = card.dataset.purpose; if (preparing || submitting || downloading || deleting) { select.value = previous; return; } select.disabled = true;
       try { await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); renderPreview(); }
       catch (error) { select.value = previous; problem(error.message); }
-      finally { select.disabled = !editable || submitting; }
+      finally { select.disabled = !editable || submitting || deleting; }
     });
     $('.asset-info',card).append(select);
   }
@@ -303,7 +312,7 @@
   }
   function queueFiles(files) {
     if (!editable) return;
-    if (preparing || submitting || downloading) return problem('Espera a que termine la preparación, el envío o el PDF antes de agregar más archivos.');
+    if (preparing || submitting || downloading || deleting) return problem('Espera a que termine la operación en curso antes de agregar más archivos.');
     for (const file of files) {
       const purpose = $('#upload-purpose').value;
       const row = el('div','upload-item'), top = el('div','upload-item-top'), message = el('span','upload-message','En espera de carga…'), progress = el('progress');
@@ -311,7 +320,7 @@
       const controls = el('div','button-row'), retry = el('button','link-button small','Reintentar'), omit = el('button','link-button small','Descartar'); retry.type = omit.type = 'button'; retry.hidden = omit.hidden = true;
       controls.append(retry,omit); top.append(el('strong','',file.name),controls); row.append(top,progress,message); $('#upload-queue').append(row);
       const isVideo = file.type.startsWith('video/') || /\.(mov|mp4)$/i.test(file.name), maxMb = Number(isVideo ? wizard.dataset.maxVideoMb : wizard.dataset.maxImageMb);
-      omit.addEventListener('click',() => { uploadFailures.delete(row); row.remove(); });
+      omit.addEventListener('click',() => { if (deleting) return; uploadFailures.delete(row); row.remove(); });
       if (file.size > maxMb * 1024 * 1024) { uploadFailures.add(row); message.textContent = `Supera ${maxMb} MB. Elige un archivo más pequeño o descártalo.`; row.classList.add('error-text'); progress.hidden = true; omit.hidden = false; continue; }
       async function attempt() {
         uploadFailures.delete(row); retry.hidden = omit.hidden = true; progress.hidden = false; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
@@ -319,11 +328,11 @@
         catch (error) { uploadFailures.add(row); message.textContent = error.message; row.classList.add('error-text'); retry.hidden = omit.hidden = false; progress.hidden = true; }
         finally { uploadCount--; }
       }
-      function enqueue() { uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); }
+      function enqueue() { if (deleting) return; uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); }
       retry.addEventListener('click',enqueue); enqueue();
     }
   }
-  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting && !downloading) $(`#${button.dataset.fileOpen}`).click(); }));
+  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting && !downloading && !deleting) $(`#${button.dataset.fileOpen}`).click(); }));
   for (const input of [$('#gallery-input'),$('#camera-input')]) input.addEventListener('change',() => { queueFiles([...input.files]); input.value = ''; });
   const drop = $('#drop-zone');
   for (const name of ['dragenter','dragover']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.add('drag-over'); });
@@ -339,14 +348,14 @@
 
   const pdfDownload = $('#download-draft-pdf'), pdfStatus = $('#draft-pdf-status');
   function pdfLabel() {
-    pdfDownload.setAttribute('aria-disabled',String(downloading || submitting || preparing || jobPending || polling));
+    pdfDownload.setAttribute('aria-disabled',String(downloading || submitting || preparing || jobPending || polling || deleting));
     pdfDownload.setAttribute('aria-busy',String(downloading));
     pdfDownload.textContent = downloading ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
   }
   pdfDownload.addEventListener('click',async event => {
     event.preventDefault();
     if (downloading) return;
-    if (submitting || preparing || jobPending || polling) return problem('Espera a que termine la preparación o el envío de la ficha para descargarla.');
+    if (submitting || preparing || jobPending || polling || deleting) return problem('Espera a que termine la operación en curso para descargar la ficha.');
     downloading = true; clearProblem(); prepareLabel();
     pdfStatus.hidden = false; pdfStatus.textContent = 'Terminando cargas y guardando tus cambios…';
     try {
@@ -361,7 +370,7 @@
     } finally { downloading = false; prepareLabel(); }
   });
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading; pdfLabel(); }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
@@ -372,19 +381,24 @@
   async function completedJob(job) {
     job = await syncSnapshot(job);
     // A previous, already consented analysis can fill blanks without a second AI call.
-    if (editable && !conflict && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
+    if (editable && !conflict && !deleting && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
       legacyAttempts.add(job.id);
-      try { await save(); const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
+      try { await save(); if (deleting) return; const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
     renderResults(job);
     const metadata = job.auto_apply || {}, count = metadata.applied_fields?.length || 0;
     const message = metadata.status === 'skipped' ? 'Conservamos tus datos. Las fotos o la ficha cambiaron durante la lectura; puedes editar la información o volver a prepararla con las fotos actuales.' : count ? `Ficha preparada. Completamos ${count} dato${count === 1 ? '' : 's'} disponible${count === 1 ? '' : 's'} y conservamos tus correcciones.` : 'Tu ficha está lista para revisar. Los datos que no se encontraron quedan sin indicar.';
     analysisStatus(message,'completed'); $('#ready-heading').textContent = 'Tu ficha está preparada.';
-    if (currentStep === 1 && !conflict) displayStep(2);
+    if (currentStep === 1 && !conflict && !deleting) displayStep(2);
   }
-  async function pollJob(id) {
-    if (polling) return;
+  function pollJob(id) {
+    if (polling || deleting) return Promise.resolve();
+    const task = runPollJob(id); pollTask = task;
+    task.finally(() => { if (pollTask === task) pollTask = null; });
+    return task;
+  }
+  async function runPollJob(id) {
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(`/api/analisis/${id}/`);
@@ -395,14 +409,14 @@
         jobPending = true;
         analysisStatus(job.status === 'running' ? 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.' : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
         if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
-        else pollTimer = setTimeout(() => pollJob(id),2500);
+        else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
     } catch (error) { jobPending = false; analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
     finally { polling = false; prepareLabel(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analyze-button').addEventListener('click',async () => {
-    if (!editable || preparing || jobPending || polling || submitting || downloading) return;
+    if (!editable || preparing || jobPending || polling || submitting || downloading || deleting) return;
     preparing = true; clearProblem(); prepareLabel();
     try {
       await uploadsReady(); await save();
@@ -489,7 +503,7 @@
     for (const [label,text] of [['Marca',value.data.brand],['Modelo',value.data.model],['Año',value.data.year],['Horas',value.data.hours]]) if (!missing(text)) { const row = el('div'); row.append(el('dt','',label),el('dd','',String(text))); specs.append(row); }
   }
   $('#submit-machine').addEventListener('click',async () => {
-    if (!editable || submitting || downloading) return;
+    if (!editable || submitting || downloading || deleting) return;
     submitting = true; clearProblem(); pdfLabel(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
     frozenControls.forEach(([control]) => { control.disabled = true; });
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
@@ -499,6 +513,37 @@
       const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
       pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
     } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a IMC México ↗'; }
+  });
+  $('#delete-draft')?.addEventListener('click',async () => {
+    if (!editable || deleting || preparing || submitting || downloading) return;
+    if (conflict) return problem('El borrador cambió en otra sesión. Conservamos tus correcciones; recarga la versión actual antes de eliminar.');
+    if (!confirm(deleteDraftConfirmation)) return;
+    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearProblem();
+    const button = $('#delete-draft'), frozen = $$('input,textarea,select,button',wizard).map(control => [control,control.disabled]);
+    frozen.forEach(([control]) => { control.disabled = true; });
+    button.textContent = 'Moviendo a la papelera…'; prepareLabel();
+    try {
+      // Finish only work already started. Unsaved corrections need not be saved to delete a draft.
+      while (saving || pollTask || uploadCount || assetTasks.size) {
+        const results = await Promise.allSettled([saving,pollTask,fileChain,...assetTasks].filter(Boolean));
+        const failed = results.find(result => result.status === 'rejected');
+        if (failed) throw failed.reason;
+      }
+      if (conflict) throw new Error('El borrador cambió en otra sesión. Tus correcciones siguen aquí; no se eliminó.');
+      const result = await api(`${base}accion/`,{action:'delete_draft',revision:state.revision});
+      deleteComplete = true; pending.clear(); uploadFailures.clear();
+      clearTimeout(saveTimer); clearTimeout(pollTimer);
+      location.assign(result.url || '/panel/maquinarias/');
+    } catch (error) {
+      deleting = false;
+      if (error.status === 409) { conflict = true; markSave('Conflicto de versión · cambios conservados','error'); }
+      problem(error.status === 409 ? 'El borrador cambió en otra sesión y no se eliminó. Tus correcciones siguen aquí; recarga la versión actual antes de reintentar.' : `${error.message} No se eliminó el borrador. Conservamos tus correcciones.`);
+      frozen.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; });
+      $$('input,textarea,select,button',wizard).forEach(control => { if (!frozen.some(([original]) => original === control) || control.matches('[data-asset-action],.asset-purpose')) control.disabled = !editable; });
+      button.textContent = 'Eliminar borrador'; prepareLabel();
+      if (pending.size && !conflict) saveTimer = setTimeout(() => save().catch(() => {}),850);
+      if (activeJob && !conflict) pollTimer = setTimeout(() => pollJob(activeJob),2500);
+    }
   });
   function categoryFields() {
     const target = $('#category-fields'), source = $('#category-data'); if (!target || !source) return;
@@ -511,7 +556,7 @@
       const field = typeof item === 'string' ? {key:item,label:keyLabels[item] || item} : item, key = field.key || field.name;
       if (!key || !/^[a-zA-Z0-9_]+$/.test(key) || $$('[data-field]',wizard).some(input => input.dataset.field === key)) continue;
       const group = el('div','form-field'), label = el('label','',`${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`), input = el('input');
-      label.htmlFor = `extra-${key}`; input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = (pending.has(key) ? pending.get(key).value : state.data[key]) ?? ''; input.disabled = !editable || submitting; input.maxLength = 500; if (input.type === 'number') input.step = 'any'; bindInput(input); group.append(label,input); target.append(group);
+      label.htmlFor = `extra-${key}`; input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = (pending.has(key) ? pending.get(key).value : state.data[key]) ?? ''; input.disabled = !editable || submitting || deleting; input.maxLength = 500; if (input.type === 'number') input.step = 'any'; bindInput(input); group.append(label,input); target.append(group);
     }
   }
   function lockEditing() { $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button,#submit-machine',wizard).forEach(control => { control.disabled = true; }); }
