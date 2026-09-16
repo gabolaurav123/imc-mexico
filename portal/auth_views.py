@@ -100,7 +100,7 @@ def activate(request,uidb64,token):
         login(request,user)
         return redirect('/panel/seguridad/' if user.is_staff else '/panel/')
     response=auth_render(request,form,'Establece tu contraseña','Guardar y entrar')
-    response['Referrer-Policy']='no-referrer'
+    response['Referrer-Policy']='same-origin'
     return response
 
 @login_required

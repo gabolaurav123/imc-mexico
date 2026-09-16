@@ -20,5 +20,7 @@ class SecurityHeadersMiddleware:
             response['Cache-Control']='private, no-store'
             response['X-Robots-Tag']='noindex, nofollow'
         if request.path.startswith(('/activar/','/recuperar-acceso/')):
-            response['Referrer-Policy']='no-referrer'
+            # Native form POSTs need their same-origin Origin/Referer for CSRF.
+            # Cross-origin navigations still receive no Referer (including tokens).
+            response['Referrer-Policy']='same-origin'
         return response
