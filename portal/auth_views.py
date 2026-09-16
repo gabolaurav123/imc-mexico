@@ -31,7 +31,13 @@ def activation_email(user,kind='activation'):
     uid=urlsafe_base64_encode(force_bytes(user.pk))
     token=default_token_generator.make_token(user)
     url=f'{settings.PUBLIC_URL}/activar/{uid}/{token}/'
-    return Notification.objects.create(user=user,channel='email',kind=kind,subject='Activa o recupera tu acceso a IMC México',body=f'Abre este enlace para establecer tu contraseña y verificar tu correo. Caduca en una hora y solo puede usarse una vez:\n\n{url}\n\nSi no solicitaste este acceso, ignora este mensaje.')
+    subject,intro={
+        'recovery':('Recupera tu acceso a IMC México','Recibimos una solicitud para recuperar el acceso a tu cuenta. Abre el enlace y elige una nueva contraseña.'),
+        'verify':('Confirma tu correo en IMC México','Tu cuenta está lista para preparar tus fichas. Abre el enlace para establecer o confirmar tu contraseña y verificar tu correo.'),
+        'admin_activation':('Activa tu acceso administrativo a IMC México','Tu cuenta administrativa está preparada. Establece tu contraseña y después configura la verificación en dos pasos.'),
+    }.get(kind,('Activa tu acceso a IMC México','Tu cuenta está preparada. Abre el enlace para establecer tu contraseña y verificar tu correo.'))
+    minutes=max(1,settings.PASSWORD_RESET_TIMEOUT//60)
+    return Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
 
 def register(request):
     if request.user.is_authenticated:return redirect('/panel/')
@@ -45,9 +51,11 @@ def register(request):
             with transaction.atomic():
                 user=form.save()
                 Consent.objects.bulk_create([Consent(user=user,kind=k,granted=True) for k in ('terms','privacy')])
-                activation_email(user,'verify')
                 audit(user,'account.register',user)
-            login(request,user)
+                # Tokens include last_login: create the verification link only
+                # after login has updated it, otherwise it is invalid on arrival.
+                login(request,user)
+                activation_email(user,'verify')
             attach_consent_to_account(request,user)
             record_event(request,'register_completed',page='register')
             messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')

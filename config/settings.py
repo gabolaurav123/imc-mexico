@@ -74,6 +74,7 @@ EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS','true').lower() == 'true'
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL','false').lower() == 'true'
 EMAIL_TIMEOUT = 20
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL','IMC México <no-reply@localhost>')
+EMAIL_REPLY_TO = os.getenv('EMAIL_REPLY_TO','').strip()
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL','')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY','')

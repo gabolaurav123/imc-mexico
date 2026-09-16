@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es-MX"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>{{ subject }}</title></head>
+<body style="margin:0;padding:0;background-color:#f2f3f6;color:#231f20;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;color:transparent;">{{ preheader }}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background-color:#f2f3f6;"><tr><td align="center" style="padding:28px 12px;">
+    <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border:1px solid #e0e2e8;">
+      <tr><td style="padding:24px;background-color:#000033;border-bottom:5px solid #e38c1a;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+          {% if logo_cid %}<td width="64" style="width:64px;padding-right:16px;"><img src="cid:{{ logo_cid }}" width="64" height="64" alt="IMC México" style="display:block;width:64px;height:64px;border:0;background-color:#ffffff;"></td>{% endif %}
+          <td style="color:#ffffff;font-family:Arial,Helvetica,sans-serif;"><p style="margin:0 0 6px;font-size:20px;font-weight:bold;letter-spacing:1px;color:#ffffff;">IMC MÉXICO</p><p style="margin:0;font-size:10px;line-height:16px;letter-spacing:1.5px;color:#d5d9ed;">PORTAL DE ANUNCIANTES</p></td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:32px 24px 16px;">
+        <p style="margin:0 0 13px;font-size:10px;line-height:16px;font-weight:bold;letter-spacing:1.4px;color:#925400;">{{ eyebrow }}</p>
+        <h1 style="margin:0 0 24px;font-size:27px;line-height:35px;font-weight:bold;color:#000033;overflow-wrap:anywhere;">{{ subject }}</h1>
+        <p style="margin:0 0 16px;font-size:16px;line-height:26px;color:#231f20;">{{ greeting }}</p>
+        {% for paragraph in paragraphs %}<p style="margin:0 0 17px;font-size:15px;line-height:25px;color:#41414b;overflow-wrap:anywhere;word-break:break-word;">{{ paragraph|linebreaksbr }}</p>{% endfor %}
+      </td></tr>
+      <tr><td style="padding:4px 24px 28px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" bgcolor="#e38c1a" style="background-color:#e38c1a;border-radius:4px;mso-padding-alt:16px 22px;">
+          <a href="{{ cta_url }}" style="display:inline-block;padding:16px 22px;font-size:15px;line-height:20px;font-weight:bold;color:#000033;text-decoration:none;border:1px solid #e38c1a;border-radius:4px;">{{ cta_label }}</a>
+        </td></tr></table>
+        {% if is_auth %}<p style="margin:20px 0 0;padding:14px 16px;background-color:#f5f5f8;border-left:3px solid #e38c1a;font-size:12px;line-height:20px;color:#50505d;">Este enlace es privado y de un solo uso. No lo compartas. {% if is_admin_activation %}Después de establecer tu contraseña, activa la verificación en dos pasos.{% else %}IMC México no te pedirá que envíes tu contraseña por correo.{% endif %}</p>{% endif %}
+      </td></tr>
+      <tr><td style="padding:22px 24px;border-top:1px solid #e8e8ed;background-color:#fafafb;">
+        <p style="margin:0 0 9px;font-size:12px;line-height:19px;color:#65656c;">Si el botón no funciona, copia y pega este enlace en tu navegador:</p>
+        <p style="margin:0;font-size:11px;line-height:18px;word-break:break-all;overflow-wrap:anywhere;"><a href="{{ cta_url }}" style="color:#000033;text-decoration:underline;word-break:break-all;overflow-wrap:anywhere;">{{ cta_url }}</a></p>
+      </td></tr>
+    </table>
+    <!--[if mso]></td></tr></table><![endif]-->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;"><tr><td align="center" style="padding:22px 18px 6px;">
+      <p style="margin:0 0 9px;font-size:12px;line-height:20px;color:#65656c;">{% if is_auth %}Si no solicitaste este correo, puedes ignorarlo. Tu acceso no cambia hasta que completes el proceso.{% else %}Recibes este aviso por la actividad de tu cuenta en IMC México. Puedes consultar el historial desde tu panel.{% endif %}</p>
+      <p style="margin:0 0 12px;font-size:12px;line-height:20px;"><a href="{{ contact_url }}" style="color:#000033;text-decoration:underline;">Contactar al equipo</a>{% if reply_to %}<span style="color:#65656c;"> · También puedes responder a este correo.</span>{% endif %}</p>
+      <p style="margin:0;font-size:10px;line-height:18px;letter-spacing:.4px;color:#777781;">IMC MÉXICO · {{ portal_host }}</p>
+    </td></tr></table>
+  </td></tr></table>
+</body></html>

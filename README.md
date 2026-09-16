@@ -148,6 +148,7 @@ No subas `.env`, claves, cadenas de conexión, medios privados ni copias de base
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | Autenticación SMTP privada |
 | `EMAIL_USE_TLS`, `EMAIL_USE_SSL` | Elegir la modalidad compatible con el puerto; no habilitar ambas |
 | `DEFAULT_FROM_EMAIL` | Remitente autorizado por el proveedor |
+| `EMAIL_REPLY_TO` | Buzón real y opcional para respuestas; vacío omite el encabezado |
 | `PRIVATE_S3_BUCKET`, `PRIVATE_S3_ENDPOINT_URL`, `PRIVATE_S3_REGION` | Alternativa opcional al volumen local |
 | `PRIVATE_S3_ACCESS_KEY_ID`, `PRIVATE_S3_SECRET_ACCESS_KEY` | Credenciales del bucket privado, si no se usa identidad del entorno |
 | `BACKUP_DIR`, `BACKUP_INTERVAL_HOURS`, `BACKUP_RETENTION_DAYS` | Carpeta, frecuencia y conservación de copias privadas; ver guía de operación |

@@ -18,7 +18,7 @@ from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files import File
 from django.core.files.base import ContentFile
-from django.core.mail import send_mail
+from .emailing import NotificationNotSendable, send_notification_email
 from django.db import connection, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
@@ -831,14 +831,16 @@ def process_notifications():
                 continue
             try:
                 if notice.channel == "email":
-                    sent = send_mail(notice.subject, notice.body, settings.DEFAULT_FROM_EMAIL,
-                                     [notice.user.email], fail_silently=False)
+                    sent = send_notification_email(notice)
                     if sent != 1:
                         raise RuntimeError("Email not accepted")
                 notice.status = "sent"
                 notice.error = ""
                 notice.sent_at = timezone.now()
                 count += 1
+            except NotificationNotSendable as exc:
+                notice.status = "failed"
+                notice.error = str(exc)
             except Exception:
                 notice.status = "failed" if notice.attempts >= 3 else "pending"
                 notice.error = "No se pudo entregar la notificación por correo. El aviso permanece en tu panel."

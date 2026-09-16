@@ -13,7 +13,7 @@ No se accedió a la administración, bases de datos ni API privada del sitio pri
 - SHA-256: `c1a78af58a0a5f3fe0aa183d1d52afc9024692bf4715f292f55b0e70a674e722`.
 - Copia local: `portal/static/portal/imc-logo.png`.
 - Se conserva proporción y contenido; no se redibuja, recorta ni recolorea. El nombre IMC MÉXICO y la leyenda del portal son texto independiente.
-- Aplicación: cabecera, pie, ficha ilustrativa, administración, icono del navegador y PDF. Los correos son texto plano y conservan el nombre del remitente.
+- Aplicación: cabecera, pie, ficha ilustrativa, administración, icono del navegador, PDF y correos transaccionales. Los correos combinan una versión HTML con el logo original incorporado y una alternativa completa de texto plano.
 
 ## Colorimetría observada
 

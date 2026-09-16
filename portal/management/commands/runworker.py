@@ -27,9 +27,9 @@ class Command(BaseCommand):
             close_old_connections()
             try:
                 processed = process_next_job()
-                delivered = process_notifications()
+                accepted = process_notifications()
                 if options["once"]:
-                    self.stdout.write(f"Análisis procesado: {int(processed)}. Avisos entregados: {delivered}.")
+                    self.stdout.write(f"Análisis procesado: {int(processed)}. Avisos aceptados por backend: {accepted}.")
                     break
             except Exception as exc:
                 # Never print provider response or configuration values.

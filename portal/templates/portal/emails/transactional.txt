@@ -1,0 +1,21 @@
+{% autoescape off %}IMC MÉXICO · PORTAL DE ANUNCIANTES
+{{ subject }}
+
+{{ greeting }}
+{% for paragraph in paragraphs %}
+{{ paragraph }}
+{% endfor %}
+{{ cta_label }}:
+{{ cta_url }}
+{% if is_auth %}
+Este enlace es privado y de un solo uso. No lo compartas.
+{% if is_admin_activation %}Después de establecer tu contraseña, activa la verificación en dos pasos.{% else %}IMC México no te pedirá que envíes tu contraseña por correo.{% endif %}
+
+Si no solicitaste este correo, puedes ignorarlo. Tu acceso no cambia hasta que completes el proceso.
+{% else %}
+Recibes este aviso por la actividad de tu cuenta en IMC México. Puedes consultar el historial desde tu panel.
+{% endif %}
+Contactar al equipo: {{ contact_url }}
+{% if reply_to %}También puedes responder a este correo.
+{% endif %}
+IMC México · {{ portal_host }}{% endautoescape %}

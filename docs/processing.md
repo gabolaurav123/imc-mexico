@@ -136,6 +136,20 @@ causar un duplicado (entrega al menos una vez). Si falla correo, el aviso intern
 permanece en el panel. Validar dominio/remitente y comprobar recepción real antes
 de declarar el correo listo en producción.
 
+Las notificaciones se renderizan al enviar como `multipart/alternative` (texto y
+HTML), dentro de `multipart/related` cuando se incorpora el logo original mediante
+CID. El HTML usa tablas, estilos en línea y los colores de IMC; conserva el contenido
+editable de las notificaciones con escape HTML. No carga imágenes remotas ni añade
+píxeles de seguimiento. Los botones de acceso validan origen, destinatario, token y
+vigencia; los botones de seguimiento se construyen desde rutas internas del portal.
+Los enlaces vencidos o inválidos fallan sin regenerar ni extender su token. No se
+almacena una copia HTML adicional del enlace privado. El registro genera su enlace
+después de establecer la sesión inicial, para conservar su validez.
+
+`EMAIL_REPLY_TO` admite un buzón real opcional. El diagnóstico
+`python manage.py check_email_config --json` revisa la configuración sin consultar
+DNS/SMTP ni enviar correo; ver [Configuración de correo](email-configuration.md).
+
 ## PDF y privacidad
 
 `build_pdf` usa ReportLab, texto escapado, fotografías proporcionadas sin deformar,

@@ -1,15 +1,13 @@
 from urllib.parse import urlsplit
 
 from django.conf import settings
-from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
 
-from portal.models import Notification, User
+from portal.models import User
+from portal.auth_views import activation_email
 from portal.services import audit
 
 
@@ -44,8 +42,5 @@ class Command(BaseCommand):
         if not created and not options["resend"]:
             self.stdout.write("La invitación ya existe. Usa --resend únicamente si necesitas otro correo de activación.")
             return
-        token = default_token_generator.make_token(user)
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
-        Notification.objects.create(user=user, kind="admin_activation", subject="Activa tu acceso administrativo a IMC México",
-            body=f"Se creó tu acceso administrativo para esta plataforma. Establece tu contraseña mediante este enlace privado: {base_url}/activar/{uid}/{token}/\n\nEl enlace caduca y sólo puede usarse una vez. Después del acceso, configura el segundo factor de autenticación. Si no solicitaste esta cuenta, no utilices el enlace.", channel="email")
+        activation_email(user, "admin_activation")
         self.stdout.write(self.style.SUCCESS("Cuenta preparada; correo de activación en cola. No se ha confirmado su recepción."))

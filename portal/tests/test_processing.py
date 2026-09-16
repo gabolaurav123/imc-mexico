@@ -294,6 +294,7 @@ class ProcessingTests(TestCase):
         self.assertEqual(job.status, "failed")
         self.assertEqual(job.attempts, 2)
 
+    @override_settings(PUBLIC_URL="https://portal.example.com", EMAIL_REPLY_TO="")
     def test_notification_delivery_and_bounded_failure(self):
         notice = Notification.objects.create(user=self.user, kind="review", subject="Solicitud recibida",
                                               body="Consulta el estado desde tu panel.", channel="email")
@@ -305,7 +306,7 @@ class ProcessingTests(TestCase):
         notice.status = "pending"
         notice.attempts = 0
         notice.save()
-        with patch("portal.processing.send_mail", side_effect=RuntimeError("password=secret")):
+        with patch("portal.processing.send_notification_email", side_effect=RuntimeError("password=secret")):
             process_notifications()
         notice.refresh_from_db()
         self.assertEqual(notice.status, "failed")
@@ -317,7 +318,7 @@ class ProcessingTests(TestCase):
         self.user.save()
         notice = Notification.objects.create(user=self.user, kind="review", subject="Prueba",
                                               body="No debe enviarse.", channel="email")
-        with patch("portal.processing.send_mail") as send:
+        with patch("portal.processing.send_notification_email") as send:
             self.assertEqual(process_notifications(), 0)
         send.assert_not_called()
         notice.refresh_from_db()
