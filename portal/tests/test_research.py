@@ -298,7 +298,8 @@ class ResearchValidationTests(SimpleTestCase):
             text = f"Caterpillar {model}: potencia 70 kW."
             self.assertEqual(normalized([fact(evidence=text)], text=text)["fields"][0]["value"], "70 kW")
         text = "Caterpillar 420F2IT y 420F2: potencia 70 kW."
-        self.assertEqual(normalized([fact(evidence=text)], text=text)["fields"][0]["value"], "70 kW")
+        # A comparison naming both variants does not bind the value to the base.
+        self.assertEqual(normalized([fact(evidence=text)], text=text)["fields"], [])
 
     def test_conflicting_sources_drop_field_and_keep_warning(self):
         other = "Caterpillar 420F2: potencia 99 kW."

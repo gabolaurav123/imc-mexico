@@ -77,6 +77,69 @@ class SourceTitleContextTests(SimpleTestCase):
         year = normalize(body="Año: 2018.", title=TITLE, item=candidate(key="year", value="2018", scope="exact_serial", matched_serial="UNIT123"), identity=identity)
         self.assertEqual(year["fields"], [])
 
+    def test_letter_suffix_variant_in_real_title_cannot_supply_base_model_context(self):
+        for suffix in (" IT", " it", "-IT", "IT", " LC", " LGP"):
+            with self.subTest(suffix=suffix):
+                result = normalize(title="Caterpillar 420F2" + suffix + " Specifications")
+                self.assertEqual(result["fields"], [])
+                self.assertEqual(result["sources"], [])
+
+    def test_variant_in_cited_body_cannot_borrow_a_base_model_title_or_match_label(self):
+        for body in ("Caterpillar 420F2 IT: potencia 70 kW.",
+                     "Caterpillar 420F2-IT: potencia 70 kW.",
+                     "La potencia del 420F2IT es 70 kW.",
+                     "Modelo 420F2 IT: potencia 70 kW.",
+                     "Caterpillar 420F2 / 430F2: potencia 70 kW."):
+            with self.subTest(body=body):
+                result = normalize(body=body)
+                self.assertEqual(result["fields"], [])
+                self.assertEqual(result["sources"], [])
+        exact = normalize(body="Caterpillar 420F2 IT, serie UNIT123: potencia 70 kW.",
+                          item=candidate(scope="exact_serial", matched_serial="UNIT123", matched_model=None),
+                          identity={**IDENTITY, "serial": "UNIT123"})
+        self.assertEqual(exact["fields"], [])
+
+    def test_shared_model_document_requires_explicit_base_model_in_its_own_passage(self):
+        for title in ("CAT 420F2/420F2 IT", "Caterpillar 420F2 and 420F2 IT", "CAT 420F2/IT"):
+            with self.subTest(title=title):
+                self.assertEqual(normalize(title=title)["fields"], [])
+                explicit = normalize(title=title, body="Caterpillar 420F2: potencia neta 70 kW.")
+                self.assertEqual(explicit["fields"][0]["value"], "70 kW")
+                self.assertNotIn("Título de la fuente", explicit["fields"][0]["evidence"])
+
+    def test_actual_full_variant_identity_still_matches_itself(self):
+        identity = {**IDENTITY, "model": "420F2 IT"}
+        for body in (BODY, "Caterpillar 420F2 IT: potencia neta 70 kW."):
+            with self.subTest(body=body):
+                result = normalize(body=body, title="Caterpillar 420F2 IT Backhoe Loader Specifications",
+                                   identity=identity, item=candidate(matched_model="420F2 IT"))
+                self.assertEqual(result["fields"][0]["value"], "70 kW")
+
+    def test_engine_code_units_and_document_format_do_not_become_model_variants(self):
+        for body, title in (("Caterpillar 420F2: motor C4.4, potencia 70 kW.", TITLE),
+                            ("Caterpillar 420F2 has power 70 kW.", TITLE),
+                            (BODY, "Caterpillar 420F2 PDF Specifications")):
+            with self.subTest(body=body, title=title):
+                self.assertEqual(normalize(body=body, title=title)["fields"][0]["value"], "70 kW")
+
+    def test_labeled_engine_manufacturer_and_model_are_not_the_machine_model(self):
+        for label in ("Motor", "Engine"):
+            with self.subTest(label=label):
+                result = normalize(body=f"{label}: Caterpillar C4.4 ACERT DIT.",
+                                   title="Caterpillar 420F2 IT Backhoe Loader Specifications",
+                                   identity={**IDENTITY, "model": "420F2 IT"},
+                                   item=candidate(key="engine", value="Caterpillar C4.4 ACERT DIT",
+                                                  matched_model="420F2 IT"))
+                self.assertEqual(result["fields"][0]["key"], "engine")
+                self.assertEqual(result["fields"][0]["scope"], "model")
+
+    def test_hyphenated_serial_after_model_is_not_truncated_into_a_variant_suffix(self):
+        result = normalize(body="Caterpillar 420F2 CAT-SN1234: potencia 70 kW.",
+                           identity={**IDENTITY, "serial": "CAT-SN1234"},
+                           item=candidate(scope="exact_serial", matched_serial="CAT-SN1234"))
+        self.assertEqual(result["fields"][0]["value"], "70 kW")
+        self.assertEqual(result["fields"][0]["scope"], "exact_serial")
+
     def test_only_retrieved_and_cited_title_is_exposed_as_identity_context(self):
         context = {}
         response_sources(provider_response(), context_titles=context)

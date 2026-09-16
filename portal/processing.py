@@ -33,7 +33,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v10"
+PROMPT_VERSION = "imc-vision-research-2026-09-v11"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}

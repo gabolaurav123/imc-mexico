@@ -52,6 +52,8 @@ NORMALIZE_INSTRUCTIONS = (
     "Sólo keys brand,model,power,weight,capacity,dimensions,fuel,engine,transmission,year,"
     "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
+    "fuel sólo es el tipo de combustible o energía (diésel, gasolina, gas, eléctrico), nunca ahorro, consumo o funciones comerciales. "
+    "Una variante con sufijo separado, como 420F2 IT, es distinta de 420F2; no transfieras sus cifras. "
     "year requiere año de fabricación de la serie exacta, nunca lanzamiento, publicación o rango de años. "
     "Para discrepancias devuelve todos los valores con sus respectivos índices; el servidor resuelve conflictos."
 )

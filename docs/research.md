@@ -56,6 +56,8 @@ El resultado incluye `research.status`, el alcance de la coincidencia, campos co
 
 Cuando el fragmento omite la identidad pero el título real de esa misma fuente citada incluye marca y modelo inequívocos, ese título puede aportar contexto de modelo. La evidencia etiqueta por separado título y fragmento. El valor técnico debe seguir apareciendo literalmente en el fragmento: el título no prueba una serie exacta ni un año, y una identidad distinta o una comparación ambigua impiden usar ese contexto.
 
+La validación distingue sufijos de variantes, incluso separados por espacios: `420F2 IT` no aporta cifras a `420F2`. Un documento compartido necesita un fragmento que identifique expresamente el modelo consultado. El campo combustible sólo admite nombres explícitos de combustible o energía y combinaciones; las frases de ahorro o consumo no se convierten en su valor. Estas regresiones proceden de la inspección de resultados reales, además de las pruebas simuladas.
+
 ## Conservación de datos y fallos
 
 - Las correcciones humanas y los ceros se conservan, igual que en el formulario de dos pasos.
