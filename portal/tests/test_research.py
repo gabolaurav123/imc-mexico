@@ -78,6 +78,7 @@ class ResearchValidationTests(SimpleTestCase):
                     "provenance": {"serial": {"source": "user", "review": "confirmed"}}}
         self.assertEqual(research_identity(result, snapshot)[0]["serial"], "OWNER123")
         snapshot["provenance"]["serial"]["source"] = "visual_proposal"
+        snapshot["provenance"]["serial"]["review"] = "needs_review"
         self.assertIsNone(research_identity(result, snapshot)[0]["serial"])
 
     def test_private_or_instruction_like_identifiers_are_not_forwarded(self):
@@ -323,7 +324,8 @@ class ResearchValidationTests(SimpleTestCase):
 
     def test_merge_does_not_overwrite_human_or_ocr_and_description_uses_only_saved_values(self):
         result = vision()
-        merge_research(result, normalized(), {"data": {"power": "65 kW"}})
+        merge_research(result, normalized(), {"data": {"power": "65 kW"},
+                                             "provenance": {"power": {"source": "user", "review": "confirmed"}}})
         self.assertNotIn("power", result["data"])
         result["data"]["power"] = "80 kW"
         result["provenance"]["power"] = {"source": "image", "review": "clear"}

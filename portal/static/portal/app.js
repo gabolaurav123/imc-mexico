@@ -116,9 +116,10 @@
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
   let analysisOutcome = null;
+  const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
-  const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión' };
+  const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',country_of_origin:'País de fabricación' };
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -481,6 +482,10 @@
   }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
+    previewImageKinds.clear();
+    for (const image of Array.isArray(result.image_observations) ? result.image_observations : []) if (image && ['machine','plate','document','other','unknown'].includes(image.kind)) previewImageKinds.set(String(image.asset_id),image.kind);
+    // Legacy jobs identify close-up plates without the newer main-object classification.
+    for (const plate of Array.isArray(result.plates) ? result.plates : []) if (plate?.asset_id && !previewImageKinds.has(String(plate.asset_id))) previewImageKinds.set(String(plate.asset_id),'plate');
     const wasOpen = target.open; target.replaceChildren(); target.hidden = false; target.open = wasOpen;
     const observations = [...new Set([...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : []),...(Array.isArray(result.research?.warnings) ? result.research.warnings : [])].map(item => typeof item === 'string' ? item : JSON.stringify(item)))];
     target.append(el('summary','',observations.length ? `Fuentes y detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Fuentes y detalles de la preparación'),el('p','small muted','La lectura de las fotos y las referencias web se conservan con su procedencia. Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
@@ -492,15 +497,63 @@
     for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',keyLabels[key] || key),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }
     if (provenance.children.length) target.append(provenance);
     for (const plate of Array.isArray(result.plates) ? result.plates : []) { target.append(el('p','small',`Placa: ${plate.component || 'componente por identificar'}`),el('pre','plate-text',plate.transcription || 'No identificable')); if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a','text-link small','Ver placa original ↗'); link.href = `/archivos/${plate.asset_id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; target.append(link); } }
+    renderPreview();
+  }
+  function previewSource(meta) {
+    if (!meta || !meta.source || meta.source === 'unknown') return '';
+    if (meta.source === 'web' || meta.source === 'web_model' || meta.source === 'web_serial') return (meta.scope === 'model' || meta.source === 'web_model' ? 'Referencia del modelo' : meta.scope === 'exact_serial' || meta.source === 'web_serial' ? 'Referencia de la unidad' : 'Fuente web') + (meta.review === 'confirmed' ? ' · confirmado por ti' : ' · por confirmar');
+    if (meta.source === 'plate') return 'Lectura de placa' + (meta.review === 'needs_review' ? ' · por revisar' : '');
+    if (['visual','visual_proposal'].includes(meta.source)) return 'Observación visual · por revisar';
+    return sourceLabels[meta.source] || '';
   }
   function renderPreview() {
-    const value = collect(); $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Tu maquinaria';
-    $('#preview-description').textContent = value.data.description || (['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
-    const images = $$('.asset-card[data-kind=image]',wizard).filter(card => !['plate','document'].includes(card.dataset.purpose));
+    const value = collect(), data = value.data;
+    $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Maquinaria · ficha en preparación';
+    $('#preview-description').textContent = data.description || (['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
+    const selectedCategory = $('#category')?.selectedOptions[0];
+    const categoryLabel = value.category && selectedCategory?.value ? selectedCategory.textContent.trim() : 'Maquinaria';
+    $('#preview-category').textContent = categoryLabel;
+    const allImages = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document');
+    const isPlate = card => previewImageKinds.get(card.dataset.assetId) === 'plate' || card.dataset.purpose === 'plate';
+    const machineImages = allImages.filter(card => !isPlate(card));
+    const images = machineImages.length ? machineImages : allImages;
     const cover = images.find(card => !$('.asset-cover',card).hidden) || images[0], coverBox = $('#preview-cover');
-    if (cover && $('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) { const image = el('img'); image.src = `/archivos/${cover.dataset.assetId}/`; image.dataset.assetId = cover.dataset.assetId; image.alt = 'Fotografía de tu maquinaria'; coverBox.replaceChildren(image); } else if (!cover) coverBox.replaceChildren();
+    if (cover) {
+      if ($('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) {
+        const link = el('a'), image = el('img');
+        link.href = `/archivos/${encodeURIComponent(cover.dataset.assetId)}/?original=1`; link.target = '_blank'; link.rel = 'noopener';
+        image.src = `/archivos/${encodeURIComponent(cover.dataset.assetId)}/`; image.dataset.assetId = cover.dataset.assetId;
+        link.append(image); coverBox.replaceChildren(link);
+      }
+      $('img',coverBox).alt = isPlate(cover) ? 'Placa de identificación de esta ficha' : 'Fotografía aportada de la maquinaria';
+      $('#preview-image-caption').textContent = isPlate(cover) ? 'Placa de identificación · privada. No sustituye una vista general del equipo.' : 'Fotografía aportada · pulsa para ampliar el original.';
+    } else {
+      coverBox.replaceChildren(el('span','preview-photo-placeholder','Sin fotografía general de la maquinaria'));
+      $('#preview-image-caption').textContent = 'Los archivos originales se conservan en esta ficha interna.';
+    }
+    function addField(target,key,text,label=keyLabels[key] || key) {
+      if (missing(text)) return;
+      const row = el('div'), definition = el('dd',key === 'serial' ? 'preview-private-value' : '',String(text));
+      row.dataset.previewField = key;
+      const source = previewSource(value.provenance[key]);
+      if (source) definition.append(el('small','preview-field-source',source));
+      row.append(el('dt','',label),definition); target.append(row);
+    }
     const specs = $('#preview-specs'); specs.replaceChildren();
-    for (const [label,text] of [['Marca',value.data.brand],['Modelo',value.data.model],['Año',value.data.year],['Horas',value.data.hours]]) if (!missing(text)) { const row = el('div'); row.append(el('dt','',label),el('dd','',String(text))); specs.append(row); }
+    for (const key of ['brand','model','year','serial','hours','condition']) addField(specs,key,data[key]);
+    if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
+    const technical = $('#preview-technical-specs'); technical.replaceChildren();
+    for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments']) addField(technical,key,data[key]);
+    $('#preview-technical-section').hidden = !technical.children.length;
+    const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
+    addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
+    addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');
+    let price = 'Consultar precio';
+    if (!missing(data.price)) {
+      const amount = Number(data.price), formatted = Number.isFinite(amount) ? new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(amount) : String(data.price);
+      price = `${formatted} ${data.currency || 'MXN'}`;
+    }
+    addField(commercial,'price',price);
   }
   $('#submit-machine').addEventListener('click',async () => {
     if (!editable || submitting || downloading || deleting) return;
@@ -549,7 +602,7 @@
     const target = $('#category-fields'), source = $('#category-data'); if (!target || !source) return;
     let categories; try { categories = JSON.parse(source.textContent); } catch { return; }
     const category = categories.find(item => String(item.id) === $('#category').value); target.replaceChildren();
-    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission'];
+    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin'];
     const fields = [...(category?.fields || [])];
     for (const key of technical) if (!missing(pending.has(key) ? pending.get(key).value : state.data[key]) && !fields.some(item => (typeof item === 'string' ? item : item.key || item.name) === key)) fields.push(key);
     for (const item of fields) {

@@ -4,6 +4,18 @@
 
 La acción «Preparar mi ficha» identifica los datos de las fotografías, consulta referencias web a partir de la serie o del modelo identificado y prepara la descripción. El resultado se guarda automáticamente en el borrador. Enviar a IMC no exige completar ubicación, precio ni especificaciones que no se conozcan. Se pueden editar desde secciones opcionales.
 
+### Lectura completa de placas y ficha técnica
+
+La lectura identifica la maquinaria descrita por la placa. El título y la descripción no describen el soporte metálico, los tornillos ni el color de la etiqueta. La referencia/modelo y cada especificación legible se extraen por separado; para compactación se incluyen frecuencia de vibración, fuerza centrífuga y profundidad de compactación. Las series se transcriben literalmente cuando son legibles: un formato desconocido no prueba que la lectura sea incorrecta, y un carácter realmente dudoso no se completa por conjetura.
+
+El país de fabricación (`country_of_origin`) sólo se completa con una indicación explícita en la placa o una fuente que identifique el modelo y su fabricación. No se deduce de un eslogan, del nombre de la marca o de la sede de un distribuidor. La ubicación actual (`location`) permanece independiente y no se calcula a partir de la serie.
+
+Volver a preparar la ficha puede corregir un título o una especificación generados por un análisis anterior, siempre que el valor y su procedencia no hayan cambiado desde el inicio de la nueva lectura. Los cambios, confirmaciones y borrados explícitos del propietario se conservan. Un resultado anterior tampoco puede reemplazar los datos de un análisis posterior.
+
+Cuando cambia la identidad, las especificaciones web no confirmadas de otro modelo se retiran antes de regenerar la descripción. Sus trabajos e instantáneas históricos se conservan. Las exportaciones tampoco presentan fuentes de una identidad anterior como referencias del modelo actual; una referencia web nunca sustituye una lectura clara de la propia placa.
+
+La vista previa y las exportaciones muestran las especificaciones disponibles aunque no estén configuradas como campos particulares de la categoría. Las fotos identificadas como primeros planos de placas se presentan como evidencia privada. Esta clasificación no modifica el archivo original y queda conservada en la instantánea; la aprobación no vuelve a incluirlas entre las fotos públicas.
+
 La serie es un campo opcional visible en el primer paso: se guarda antes de encolar el análisis, incluso si el usuario acaba de corregirla. No hace falta una foto de placa. Sin serie, una marca y un modelo claramente legibles en fotos generales permiten la misma investigación de modelo.
 
 Si sólo se reconoce el tipo de equipo, se consulta una referencia general de esa categoría. Debe coincidir exactamente con el catálogo permitido; la consulta no utiliza narraciones privadas. El resultado `general_context`, con alcance `category`, conserva enlaces realmente citados, pero `fields` permanece vacío: no se adivinan modelo, medidas ni capacidades. Se muestra en los detalles del análisis, sin convertirlo en especificaciones de la ficha ni de sus exportaciones.

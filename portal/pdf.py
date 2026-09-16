@@ -2,6 +2,7 @@
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 from xml.sax.saxutils import escape
 
 import reportlab
@@ -31,10 +32,34 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
+    "vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
+    "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación",
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
                   "document", "owner_email", "owner_phone", "email", "phone"}
+SOURCE_LABELS = {"user": "Anunciante", "image": "Fotografía", "plate": "Lectura de placa",
+                 "visual_proposal": "Propuesta visual", "external": "Fuente externa",
+                 "web": "Referencia documental", "system": "Texto de preparación"}
+REVIEW_LABELS = {"clear": "Lectura clara", "confirmed": "Confirmado por el anunciante",
+                 "needs_review": "Por revisar", "not_identifiable": "No identificable"}
+
+
+def _present(value):
+    return value is not None and value != "" and not isinstance(value, (dict, list, bool))
+
+
+def _price(value, currency):
+    if not _present(value):
+        return "Consultar precio"
+    try:
+        amount = Decimal(str(value))
+        if amount.is_finite() and len(str(value)) < 24 and -6 <= amount.adjusted() <= 18:
+            decimals = 0 if amount == amount.to_integral_value() else 2
+            value = f"{amount:,.{decimals}f}"
+    except (InvalidOperation, ValueError):
+        pass
+    return f"{value} {currency or 'MXN'}"
 
 
 @lru_cache(maxsize=1)
@@ -51,9 +76,10 @@ def _fonts():
 
 class PhotoPanel(Flowable):
     """Fit the complete preview; do not crop equipment or alter its proportions."""
-    def __init__(self, reader, width, height):
+    def __init__(self, reader, width, height, max_image_width=None):
         super().__init__()
         self.reader, self.width, self.height = reader, width, height
+        self.max_image_width = max_image_width
 
     def draw(self):
         canvas = self.canv
@@ -62,6 +88,8 @@ class PhotoPanel(Flowable):
         canvas.roundRect(0, 0, self.width, self.height, 4, fill=1, stroke=0)
         iw, ih = self.reader.getSize()
         scale = min((self.width - 4 * mm) / iw, (self.height - 4 * mm) / ih)
+        if self.max_image_width:
+            scale = min(scale, self.max_image_width / iw)
         width, height = iw * scale, ih * scale
         canvas.drawImage(self.reader, (self.width - width) / 2, (self.height - height) / 2,
                          width=width, height=height, preserveAspectRatio=True, mask="auto")
@@ -78,6 +106,12 @@ def build_pdf(machine, data, assets, public=False, version=None):
                                                    "web_research": web_research_for_provenance(provenance)}
     web_references = public_web_references(reference_snapshot)
     reference_by_field = {item["field"]: item for item in web_references}
+    plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
+                                        else getattr(machine, "_detected_plate_asset_ids", set()))}
+
+    def is_plate(asset):
+        return asset.purpose == "plate" or str(asset.pk) in plate_ids
+
     asset_list = list(assets)
     if version:
         allowed = {str(a) for a in snapshot.get("asset_ids", [])}
@@ -87,14 +121,14 @@ def build_pdf(machine, data, assets, public=False, version=None):
             raise ValueError("Una ficha de difusión requiere una versión autorizada.")
         public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
         asset_list = [a for a in asset_list if str(a.pk) in public_ids and a.public_authorized
-                      and a.purpose not in {"plate", "document"}]
+                      and not is_plate(a) and a.purpose != "document"]
         for field in PRIVATE_FIELDS:
             values.pop(field, None)
         if not snapshot.get("contact_authorized"):
             values.pop("contact_public", None)
     else:
         asset_list = [a for a in asset_list if a.purpose != "document"]
-    asset_list.sort(key=lambda a: (a.purpose == "plate", not a.is_cover, a.position, str(a.pk)))
+    asset_list.sort(key=lambda a: (is_plate(a), not a.is_cover, a.position, str(a.pk)))
 
     regular, bold = _fonts()
     output, width = BytesIO(), 176 * mm
@@ -108,15 +142,18 @@ def build_pdf(machine, data, assets, public=False, version=None):
     definitions = {
         "Title": dict(fontName=bold, fontSize=23, leading=27, textColor=NAVY, spaceAfter=5),
         "Heading": dict(fontName=bold, fontSize=11, leading=15, textColor=NAVY,
-                        spaceBefore=13, spaceAfter=7, keepWithNext=True),
-        "Body": dict(fontSize=9, leading=13.5, textColor=CHARCOAL, spaceAfter=6),
+                        spaceBefore=10, spaceAfter=6, keepWithNext=True),
+        "Body": dict(fontSize=9, leading=13, textColor=CHARCOAL, spaceAfter=5),
         "Small": dict(fontSize=7.2, leading=10.3, textColor=MUTED, spaceAfter=4),
         "Label": dict(fontName=bold, fontSize=6.8, leading=9, textColor=MUTED, spaceAfter=3),
         "Value": dict(fontName=bold, fontSize=10.5, leading=14, textColor=NAVY, spaceAfter=2),
         "Eyebrow": dict(fontName=bold, fontSize=7.3, leading=10, textColor=BLUE, spaceAfter=5),
+        "TableLabel": dict(fontName=bold, fontSize=8, leading=11.5, textColor=NAVY, spaceAfter=2),
+        "TableValue": dict(fontSize=8.5, leading=12.5, textColor=CHARCOAL, spaceAfter=2),
+        "WhiteHeading": dict(fontName=bold, fontSize=9.5, leading=13, textColor=colors.white),
     }
     for name, overrides in definitions.items():
-        styles[name] = ParagraphStyle(name="IMC" + name, **{"fontName": regular, "wordWrap": "CJK", **overrides})
+        styles[name] = ParagraphStyle(name="IMC" + name, **{"fontName": regular, "splitLongWords": 1, **overrides})
 
     def para(text, style="Body"):
         clean = str(text if text is not None else "").replace("\x00", "").replace("\r\n", "\n")
@@ -142,6 +179,41 @@ def build_pdf(machine, data, assets, public=False, version=None):
         ]))
         return table
 
+    def origin(key):
+        reference = reference_by_field.get(key)
+        if reference:
+            return reference["scope_label"] + ". " + reference["review_label"]
+        meta = provenance.get(key, {})
+        if not isinstance(meta, dict) or not meta.get("source"):
+            return "Dato de la ficha"
+        label = SOURCE_LABELS.get(meta.get("source"), "Origen registrado")
+        review = REVIEW_LABELS.get(meta.get("review"), "Por revisar")
+        # Never copy raw evidence, asset identifiers, or an unvalidated URL into
+        # public copy. A source label describes how the value entered the file.
+        if meta.get("source") in {"plate", "image"} and meta.get("review") == "clear":
+            return label
+        return label + ". " + review
+
+    def specification_table(label, keys, labels=None):
+        entries = [key for key in keys if _present(values.get(key)) and not (public and key in PRIVATE_FIELDS)]
+        if not entries:
+            return
+        rows = [[para(label, "WhiteHeading"), "", ""]]
+        for key in entries:
+            name = LABELS.get(key, (labels or {}).get(key, key.replace("_", " ").capitalize()))
+            rows.append([para(name, "TableLabel"), para(values[key], "TableValue"), para(origin(key), "Small")])
+        table = LongTable(rows, colWidths=[35 * mm, 101 * mm, 40 * mm], hAlign="LEFT",
+                          splitInRow=1, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("SPAN", (0, 0), (-1, 0)), ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [LIGHT, colors.white]),
+            ("LINEBELOW", (0, 1), (-1, -1), .4, SILVER),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.extend([Spacer(1, 4 * mm), table])
+
     now = timezone.localtime(version.created_at if version else timezone.now())
     category = getattr(machine, "category", None)
     category_name = snapshot.get("category_name", "") if version else getattr(category, "name", "")
@@ -165,68 +237,91 @@ def build_pdf(machine, data, assets, public=False, version=None):
             pictures.append((asset, reader))
         except (OSError, ValueError):
             unreadable += 1
-    primary = next((item for item in pictures if item[0].purpose != "plate"), None)
+    primary = next((item for item in pictures if not is_plate(item[0])), None)
+    if not primary and not public:
+        primary = next(iter(pictures), None)
+    primary_is_plate = bool(primary and is_plate(primary[0]))
+    identity_keys = ["brand", "model", "year", "hours"]
+    serial_meta = provenance.get("serial", {})
+    if not public and isinstance(serial_meta, dict) and (
+        serial_meta.get("source") == "user" and serial_meta.get("review") == "confirmed"
+        or serial_meta.get("source") == "plate" and serial_meta.get("review") == "clear"
+        and serial_meta.get("component") == "machine"
+    ):
+        identity_keys.insert(2, "serial")
+    summary_keys = [key for key in identity_keys
+                    if _present(values.get(key)) and len(str(values[key])) <= 40 and "\n" not in str(values[key])]
+    summary_keys = summary_keys[:4]
+    displayed_identity = summary_keys if primary else []
     if primary:
-        story.extend([PhotoPanel(primary[1], width, 73 * mm), Spacer(1, 2 * mm),
-                      para("VISTA PRINCIPAL  |  Fotografía proporcionada por el anunciante", "Label")])
+        if summary_keys:
+            identity = [para("EL EQUIPO", "Eyebrow")]
+            for key in summary_keys:
+                identity.extend([para(LABELS[key].upper(), "Label"), para(values[key], "Value")])
+                if key in reference_by_field or isinstance(provenance.get(key), dict) and provenance[key].get("source"):
+                    identity.append(para(origin(key), "Small"))
+                identity.append(Spacer(1, 1 * mm))
+            hero = Table([[PhotoPanel(primary[1], 117 * mm, 58 * mm if primary_is_plate else 60 * mm,
+                                     max_image_width=88 * mm if primary_is_plate else None), identity]],
+                         colWidths=[122 * mm, 54 * mm], hAlign="LEFT")
+            hero.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("BACKGROUND", (1, 0), (1, 0), LIGHT),
+                ("LINEBEFORE", (1, 0), (1, 0), 2, ORANGE),
+                ("LEFTPADDING", (0, 0), (0, 0), 0), ("RIGHTPADDING", (0, 0), (0, 0), 0),
+                ("TOPPADDING", (0, 0), (0, 0), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (1, 0), (1, 0), 11), ("RIGHTPADDING", (1, 0), (1, 0), 8),
+                ("TOPPADDING", (1, 0), (1, 0), 11),
+            ]))
+            story.append(hero)
+        else:
+            story.append(PhotoPanel(primary[1], width, 65 * mm if primary_is_plate else 73 * mm,
+                                    max_image_width=88 * mm if primary_is_plate else None))
+        caption = "PLACA DE IDENTIFICACIÓN  |  Evidencia de uso interno" if primary_is_plate else "VISTA PRINCIPAL  |  Fotografía del equipo"
+        story.extend([Spacer(1, 2 * mm), para(caption, "Label")])
     else:
         text = "Sin fotografía autorizada en esta versión." if public else "Las fotografías de la maquinaria se incorporarán aquí."
         story.append(panel([[para("VISTA DEL EQUIPO", "Eyebrow"), para(text)]], [width]))
     if unreadable:
         story.append(para("Una fotografía no estaba disponible al generar este documento.", "Small"))
 
-    price_value = values.get("price")
-    price = f"{price_value} {values.get('currency') or 'MXN'}" if price_value not in (None, "") else "Consultar precio"
+    price = _price(values.get("price"), values.get("currency"))
     commercial = [[para("PRECIO", "Label"), para(price, "Value")],
                   [para("DISPONIBILIDAD", "Label"), para(AVAILABILITY.get(machine.availability, machine.availability), "Value")],
                   [para("UBICACIÓN", "Label"), para(values.get("location") or "Por confirmar")]]
     story.extend([Spacer(1, 3 * mm), panel(commercial, [width * .34, width * .30, width * .36])])
+    highlights = [key for key in ("power", "weight", "capacity", "engine", "transmission", "fuel")
+                  if _present(values.get(key)) and len(str(values[key])) <= 65 and "\n" not in str(values[key])][:3]
+    if highlights:
+        cells = [[para(LABELS[key].upper(), "Label"), para(values[key], "Value"), para(origin(key), "Small")]
+                 for key in highlights]
+        story.extend([Spacer(1, 2 * mm), panel(cells, [width / len(cells)] * len(cells))])
     section("Descripción del equipo", [para(values["description"])] if values.get("description") else [])
-
-    keys = list(LABELS)
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
-    for key in category_fields:
-        field_key = key.get("key") if isinstance(key, dict) else key
-        if field_key and field_key not in keys:
-            keys.append(field_key)
-    entries = []
-    for key in keys:
-        if key == "location" or (public and key in PRIVATE_FIELDS | {"contact_public"}):
-            continue
-        value = values.get(key)
-        if value is None or value == "" or isinstance(value, (dict, list)):
-            continue
-        label = LABELS.get(key, custom_labels.get(key, key.replace("_", " ").capitalize()))
-        reference = reference_by_field.get(key)
-        cell = [para(label.upper() + (" · PRIVADO" if key in PRIVATE_FIELDS else ""), "Label"), para(value)]
-        if reference:
-            cell.append(para(reference["scope_label"], "Small"))
-        entries.append(cell)
-    if entries:
-        rows = [entries[i:i + 2] + ([""] if i + 1 == len(entries) else []) for i in range(0, len(entries), 2)]
-        # A repeating table heading lets the first rows use the cover page's
-        # remaining space and labels specifications that continue onto a page.
-        details = LongTable([[para("Características y datos declarados", "Heading"), ""]] + rows,
-                            colWidths=[width / 2] * 2, hAlign="LEFT", splitInRow=1, repeatRows=1)
-        details.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [LIGHT, colors.white]),
-            ("LINEBELOW", (0, 1), (-1, -1), .4, SILVER),
-            ("LEFTPADDING", (0, 0), (-1, -1), 10), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
-            ("TOPPADDING", (0, 0), (-1, -1), 8), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("SPAN", (0, 0), (-1, 0)), ("LEFTPADDING", (0, 0), (-1, 0), 0),
-            ("TOPPADDING", (0, 0), (-1, 0), 13), ("BOTTOMPADDING", (0, 0), (-1, 0), 7),
-        ]))
-        story.append(details)
+    specification_table("Identificación del equipo", [key for key in ("brand", "model", "year", "serial", "country_of_origin")
+                                                       if key not in displayed_identity])
+    specification_table("Especificaciones técnicas", [key for key in ("power", "weight", "capacity", "dimensions", "engine", "transmission", "fuel",
+                                                                       "vibration_frequency", "centrifugal_force", "compaction_depth")
+                                                        if key not in highlights])
+    specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "attachments", "condition")
+                                                   if key not in displayed_identity])
+    custom_keys = [f.get("key") if isinstance(f, dict) else f for f in category_fields]
+    custom_keys = list(dict.fromkeys(key for key in custom_keys if key and key not in LABELS
+                                    and key not in PRIVATE_FIELDS | {"description", "contact_public", "price", "currency"}))
+    specification_table("Datos adicionales de la categoría", custom_keys, custom_labels)
 
-    extra_pictures = [item for item in pictures if item is not primary]
-    if extra_pictures:
+    extra_pictures = [item for item in pictures if item is not primary and not is_plate(item[0])]
+    plate_pictures = [item for item in pictures if is_plate(item[0]) and item is not primary]
+
+    def gallery(items, heading, plates=False):
+        if not items:
+            return
         gallery_items = []
-        for i in range(0, len(extra_pictures), 2):
+        for i in range(0, len(items), 2):
             cells = []
-            for offset, (asset, reader) in enumerate(extra_pictures[i:i + 2]):
-                label = "PLACA DE IDENTIFICACIÓN - USO INTERNO" if asset.purpose == "plate" else f"VISTA ADICIONAL {i + offset + 1:02d}"
+            for offset, (asset, reader) in enumerate(items[i:i + 2]):
+                label = "PLACA - USO INTERNO" if plates else f"VISTA ADICIONAL {i + offset + 1:02d}"
                 cells.append([PhotoPanel(reader, 84 * mm, 59 * mm), Spacer(1, 2 * mm), para(label, "Label")])
             if len(cells) == 1:
                 cells.append("")
@@ -235,7 +330,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
                 ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
                 ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
             gallery_items.append(gallery)
-        section("Galería del equipo", gallery_items)
+        section(heading, gallery_items)
+
+    gallery(extra_pictures, "Registro fotográfico")
     if any(a.kind == "video" for a in asset_list):
         story.append(para("Video disponible en la ficha web autorizada.", "Small"))
 
@@ -260,26 +357,22 @@ def build_pdf(machine, data, assets, public=False, version=None):
                 link = para("Fuente privada; el enlace se conserva en la revisión interna.", "Small")
             reference_items.append(KeepTogether([label, link, Spacer(1, 1.5 * mm)]))
         section("Fuentes de referencia", reference_items)
-    if not public and values.get("notes"):
-        section("Notas internas del anunciante", [para(values["notes"])])
+    if not public:
+        gallery(plate_pictures, "Documentación de placa / uso interno", plates=True)
+        if values.get("plate_transcription"):
+            section("Transcripción de placa / uso interno", [para(values["plate_transcription"])])
+        if values.get("notes"):
+            section("Notas internas del anunciante", [para(values["notes"])])
     if not public and provenance:
-        sources = {"user": "Declaración del usuario", "image": "Imagen", "plate": "Placa",
-                   "visual_proposal": "Propuesta visual", "external": "Fuente externa", "web": "Referencia web", "system": "Texto de preparación"}
-        reviews = {"clear": "Lectura clara", "confirmed": "Confirmado por el usuario",
-                   "needs_review": "Necesita revisión", "not_identifiable": "No identificable"}
         lines = []
         for key, meta in provenance.items():
-            if isinstance(meta, dict):
+            if isinstance(meta, dict) and (key in {"title", "description"} or _present(values.get(key))):
                 label = LABELS.get(key, key.replace("_", " ").capitalize())
-                source = sources.get(meta.get("source"), str(meta.get("source") or "Sin origen registrado"))
-                review = reviews.get(meta.get("review"), str(meta.get("review") or "Pendiente"))
-                lines.append(para(f"{label}: {source}. {review}.", "Small"))
-        section("Procedencia y revisión · uso interno", lines)
-    story.extend([Spacer(1, 4 * mm), para(
-        "La información y las fotografías fueron proporcionadas por el anunciante y pueden incluir asistencia de IA. "
-        "La revisión de la ficha no constituye una inspección, certificación ni garantía de condición mecánica. "
-        "Confirma los datos y la disponibilidad con IMC México.", "Small")])
-
+                line = f"{label}: {origin(key)}."
+                if meta.get("source") == "plate" and meta.get("evidence"):
+                    line += " Texto leído: " + str(meta["evidence"])
+                lines.append(para(line, "Small"))
+        section("Trazabilidad de la información / uso interno", lines)
     brand_logo = ImageReader(str(LOGO_PATH))
     def page(canvas, doc):
         canvas.saveState()
@@ -316,6 +409,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
         canvas.setFont(regular, 7)
         canvas.drawString(17 * mm, 11 * mm, "IMC México  |  " + ("Ficha para difusión" if public else "Documento interno"))
         canvas.drawRightString(page_width - 17 * mm, 11 * mm, f"Página {doc.page}")
+        canvas.setFont(regular, 6.5)
+        canvas.drawString(17 * mm, 6.5 * mm,
+                          "Datos del anunciante con posible asistencia de IA. No constituye inspección ni garantía mecánica.")
         canvas.restoreState()
 
     document.build(story, onFirstPage=page, onLaterPages=page)

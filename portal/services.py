@@ -19,13 +19,15 @@ from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine,
                      Message, Notification, NotificationTemplate, Publication, Submission, User, WorkflowStatus)
 
 
-DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"}
+PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
+                          "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación"}
+DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
-                         "dimensions", "fuel", "kilometers", "engine", "transmission", "description"}
-WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"}
+                         "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
+WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
-                    "engine": "Motor", "transmission": "Transmisión", "year": "Año"}
+                    "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS}
 
 
 def _reference_text(value):
@@ -61,6 +63,26 @@ def _public_reference_url(url, serials):
     return url
 
 
+def _reference_identity_matches(data, provenance, identity, scope):
+    if not isinstance(identity, dict):
+        return False
+    for key in (("brand", "model", "serial") if scope == "exact_serial" else ("brand", "model")):
+        researched = identity.get(key)
+        if not researched:
+            continue
+        current = data.get(key)
+        current_key, researched_key = _reference_text(current), _reference_text(researched)
+        if key == "brand":
+            aliases = {"cat": "caterpillar", "deere": "johndeere", "volvoce": "volvo"}
+            current_key, researched_key = aliases.get(current_key, current_key), aliases.get(researched_key, researched_key)
+        if current_key and current_key != researched_key:
+            return False
+        meta = provenance.get(key, {})
+        if not current_key and isinstance(meta, dict) and (meta.get("source") == "user" or meta.get("review") == "confirmed"):
+            return False
+    return True
+
+
 def public_web_references(snapshot):
     """Public citation allowlist derived only from the displayed immutable data.
 
@@ -88,6 +110,8 @@ def public_web_references(snapshot):
         if not is_validated_web_field({"research": manifest}, key, value, {**meta, "review": "needs_review"}):
             continue
         identity = manifest.get("identity", {})
+        if not _reference_identity_matches(data, provenance, identity, meta["scope"]):
+            continue
         private_serials = serials | {_reference_text(identity.get("serial")), _reference_text(meta.get("matched_serial"))} - {""}
         title = re.sub(r"[\x00-\x1f\x7f]", " ", str(meta.get("source_title") or "Fuente de referencia"))[:500]
         url = _public_reference_url(meta.get("source_url"), private_serials)
@@ -115,20 +139,61 @@ def web_research_for_provenance(provenance):
             for job in AnalysisJob.objects.filter(pk__in=valid_identifiers) if isinstance(job.result, dict)}
 
 
+def detected_plate_asset_ids(machine):
+    """Classify visible plate evidence without changing the uploaded originals.
+
+    New per-image observations distinguish a plate close-up from a whole machine.
+    Older results only identify the plate-bearing asset and remain private.
+    """
+    current = {str(pk) for pk in machine.assets.filter(kind="image").values_list("pk", flat=True)}
+    seen, plates = set(), set()
+    for job in machine.analysis_jobs.filter(status="completed").order_by("-created_at", "-pk").only("asset_ids", "result"):
+        if not isinstance(job.result, dict) or not isinstance(job.asset_ids, list):
+            continue
+        allowed = current.intersection(job.asset_ids)
+        observations = job.result.get("image_observations", [])
+        if isinstance(observations, list):
+            for item in observations:
+                if not isinstance(item, dict) or item.get("kind") not in {"plate", "machine", "detail", "other"}:
+                    continue
+                identifier = item.get("asset_id")
+                if identifier in allowed and identifier not in seen:
+                    seen.add(identifier)
+                    if item["kind"] == "plate":
+                        plates.add(identifier)
+        for item in job.result.get("plates", []):
+            identifier = item.get("asset_id") if isinstance(item, dict) else None
+            if identifier in allowed and identifier not in seen:
+                seen.add(identifier)
+                plates.add(identifier)
+    return plates
+
+
 def _web_identity_unchanged(machine, job, scope):
     identity = job.result.get("research", {}).get("identity", {})
-    if not isinstance(identity, dict):
-        return False
-    for key in ("brand", "model", "serial") if scope == "exact_serial" else ("brand", "model"):
-        researched = identity.get(key)
-        if not researched:
+    return _reference_identity_matches(machine.data, machine.provenance, identity, scope)
+
+
+def _remove_incompatible_web_values(machine):
+    """A corrected identity cannot retain unconfirmed specs of the old model.
+
+    Verify the old signed result rather than trusting editable provenance alone.
+    Historical jobs/versions and human confirmations remain untouched.
+    """
+    from .research import is_validated_web_field
+    manifests = web_research_for_provenance(machine.provenance)
+    removed = []
+    for key, meta in list(machine.provenance.items()):
+        if not isinstance(meta, dict) or meta.get("source") != "web" or _human_provenance(machine, key):
             continue
-        current = machine.data.get(key)
-        if current not in (None, "") and _reference_text(current) != _reference_text(researched):
-            return False
-        if _empty_suggestion_target(machine, key) and _human_provenance(machine, key):
-            return False
-    return True
+        manifest = manifests.get(meta.get("analysis_id"), {})
+        if (not is_validated_web_field({"research": manifest}, key, machine.data.get(key), meta)
+                or _reference_identity_matches(machine.data, machine.provenance, manifest.get("identity"), meta.get("scope"))):
+            continue
+        machine.data.pop(key, None)
+        machine.provenance.pop(key, None)
+        removed.append(key)
+    return removed
 
 
 def _web_value_keeps_serial_private(machine, job, value):
@@ -168,6 +233,19 @@ def _automatic_description_record(machine):
     return {"value": value, "provenance": deepcopy(meta)}
 
 
+def _automatic_field_record(machine, key):
+    """Only a still-unconfirmed AI value may be refreshed by a new analysis."""
+    if key == "description":
+        return _automatic_description_record(machine)
+    value = machine.title if key == "title" else machine.category_id if key == "category" else machine.data.get(key)
+    meta = machine.provenance.get(key, {})
+    if (value in (None, "") or not isinstance(meta, dict) or _human_provenance(machine, key)
+            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web"}
+            or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]):
+        return None
+    return {"value": value, "provenance": deepcopy(meta)}
+
+
 def automatic_application_snapshot(machine):
     """Private, durable pre-request state. This metadata is never sent to OpenAI."""
     eligible = {key for key in AUTOMATIC_DATA_FIELDS | {"title", "category"}
@@ -178,6 +256,13 @@ def automatic_application_snapshot(machine):
     if refresh is not None:
         snapshot["refresh_description"] = refresh
         eligible.add("description")
+    refresh_fields = {}
+    for key in AUTOMATIC_DATA_FIELDS | {"title", "category"}:
+        record = _automatic_field_record(machine, key)
+        if record is not None:
+            refresh_fields[key] = record
+            eligible.add(key)
+    snapshot["refresh_fields"] = refresh_fields
     snapshot["eligible_fields"] = sorted(eligible)
     return snapshot
 
@@ -247,7 +332,7 @@ def _visual_description_for_completion(machine, job):
 
 @transaction.atomic
 def apply_analysis_automatically(machine, user, job, expected_revision=None, *, from_worker=False):
-    """Fill gaps or refresh an unchanged AI description, once; never approve."""
+    """Fill gaps or refresh unchanged AI suggestions, once; never approve."""
     # Same lock order as save/submit and the worker completion path.
     machine = Machine.all_objects.select_for_update().get(pk=machine.pk)
     user = User.objects.get(pk=user.pk)
@@ -314,6 +399,11 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["field_reasons"][key] = reason
 
     def can_fill(key):
+        refresh_fields = base.get("refresh_fields", {}) if not legacy else {}
+        refresh_field = refresh_fields.get(key) if isinstance(refresh_fields, dict) else None
+        if (key in eligible and isinstance(refresh_field, dict)
+                and refresh_field == _automatic_field_record(machine, key)):
+            return True
         refresh = base.get("refresh_description") if not legacy else None
         if (key == "description" and key in eligible and isinstance(refresh, dict)
                 and refresh == _automatic_description_record(machine)):
@@ -351,10 +441,13 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         machine.data, machine.provenance = candidate.data, candidate.provenance
         result["applied_fields"].append(key)
 
-    identity_at_completion = deepcopy(machine)
     research = job.result.get("research")
     compose_after_research = isinstance(research, dict) and research.get("status") != "disabled"
-    for key, value in candidates.items():
+    # Apply clear readings before model references so a corrected AI identity
+    # can receive its own research, while human identity changes still reject it.
+    candidate_items = sorted(candidates.items(), key=lambda item: isinstance(provenance.get(item[0]), dict)
+                             and provenance[item[0]].get("source") == "web")
+    for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
             continue
         if key == "description" and compose_after_research:
@@ -365,11 +458,20 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         if not isinstance(meta, dict) or not _clear_automatic_field(job, key, value, meta):
             skip(key, "not_identifiable" if value is None or value == "" else "uncertain")
             continue
-        if meta.get("source") == "web" and not _web_identity_unchanged(identity_at_completion, job, meta.get("scope")):
+        if meta.get("source") == "web" and not _web_identity_unchanged(machine, job, meta.get("scope")):
             skip(key, "identity_changed")
             continue
-        if meta.get("source") == "web" and not _web_value_keeps_serial_private(identity_at_completion, job, value):
+        if meta.get("source") == "web" and not _web_value_keeps_serial_private(machine, job, value):
             skip(key, "private_identifier")
+            continue
+        existing_meta = machine.provenance.get(key, {})
+        if (meta.get("source") == "web" and isinstance(existing_meta, dict)
+                and existing_meta.get("source") in {"plate", "image"}
+                and existing_meta.get("review") in {"clear", "confirmed"}
+                and not _empty_suggestion_target(machine, key)):
+            # A catalog reference cannot replace a reading of this unit merely
+            # because both were generated automatically at different times.
+            skip(key, "existing_unit_reading")
             continue
         if can_fill(key):
             add_validated(key, value, meta)
@@ -383,10 +485,13 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    if compose_after_research and can_fill("description"):
+    invalidated = _remove_incompatible_web_values(machine)
+    if invalidated:
+        result["invalidated_fields"] = invalidated
+    if (compose_after_research or invalidated) and can_fill("description"):
         from .research import compose_description
         private_identifiers = [machine.data.get("serial"), candidates.get("serial"),
-                               research.get("identity", {}).get("serial")]
+                               (research or {}).get("identity", {}).get("serial")]
         private_identifiers.extend(field.get("value") for field in job.result.get("fields", [])
                                    if isinstance(field, dict) and field.get("key") == "serial")
         description = compose_description(machine.data, machine.provenance,
@@ -395,14 +500,15 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                                           private_identifiers=private_identifiers)
         if description:
             add_validated("description", description, {"source": "system", "review": "needs_review"})
-    if result["applied_fields"]:
+    if result["applied_fields"] or invalidated:
         machine.revision += 1
         if machine.status in {"approved", "rejected", "cancelled"}:
             machine.status = "draft"
         machine.save(update_fields=["title", "category", "data", "provenance", "revision", "status", "updated_at"])
         result["status"] = "applied"
         result["revision_after"] = machine.revision
-        audit(user, "analysis.automatically_applied", machine, {"job_id": str(job.pk), "fields": result["applied_fields"], "revision": machine.revision})
+        audit(user, "analysis.automatically_applied", machine, {"job_id": str(job.pk), "fields": result["applied_fields"],
+              "invalidated_fields": invalidated, "revision": machine.revision})
     else:
         result["status"] = "no_changes"
     return finish()
@@ -609,6 +715,7 @@ def snapshot(machine, user):
     machine = Machine.objects.select_for_update(of=("self",)).select_related("category").get(pk=machine.pk)
     require_owner(machine, user)
     assets = list(machine.assets.filter(processing_status="ready"))
+    plate_ids = detected_plate_asset_ids(machine)
     number = (machine.versions.aggregate(value=Max("number"))["value"] or 0) + 1
     contact = machine.consents.filter(kind="contact",user_id=machine.owner_id).order_by("-created_at", "-pk").first()
     public_contact = {}
@@ -624,7 +731,8 @@ def snapshot(machine, user):
         "data": deepcopy(machine.data), "provenance": deepcopy(machine.provenance),
         "web_research": web_research_for_provenance(machine.provenance),
         "asset_ids": [str(asset.pk) for asset in assets],
-        "public_asset_ids": [str(asset.pk) for asset in assets if asset.public_authorized and asset.purpose not in {"plate", "document"}],
+        "private_plate_asset_ids": sorted(plate_ids),
+        "public_asset_ids": [str(asset.pk) for asset in assets if asset.public_authorized and asset.purpose not in {"plate", "document"} and str(asset.pk) not in plate_ids],
         "contact_authorized": bool(contact and contact.granted), "public_contact": public_contact, "revision": machine.revision,
     })
 
@@ -693,9 +801,14 @@ def review_submission(submission, actor, decision, reason=""):
     if decision == "approved":
         approved_data = deepcopy(original_version.data)
         allowed_assets = approved_data.get("asset_ids", [])
+        # A running reading can identify a plate after the advertiser submitted
+        # the snapshot. Preserve that restriction before any public approval.
+        approved_data["private_plate_asset_ids"] = sorted(
+            set(approved_data.get("private_plate_asset_ids", []))
+            | (detected_plate_asset_ids(machine) & set(allowed_assets)))
         approved_data["public_asset_ids"] = [str(pk) for pk in machine.assets.filter(
             pk__in=allowed_assets, processing_status="ready", public_authorized=True,
-            purpose__in=["general", "detail"]).values_list("pk", flat=True)]
+            purpose__in=["general", "detail"]).exclude(pk__in=approved_data.get("private_plate_asset_ids", [])).values_list("pk", flat=True)]
         approved_version = MachineVersion.objects.create(machine=machine,
             number=(machine.versions.aggregate(value=Max("number"))["value"] or 0) + 1,
             data=approved_data, created_by=actor)

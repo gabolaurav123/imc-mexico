@@ -312,17 +312,24 @@ def public_record(token):
     return publication
 
 def sheet_context(machine,version=None,public=False,token=None):
+    plate_ids=services.detected_plate_asset_ids(machine)
+    if version:plate_ids |= set(version.data.get('private_plate_asset_ids',[]))
     if version:
         data=safe_public_data(version.data) if public else version.data.get('data',{})
         ids=version.data.get('public_asset_ids' if public else 'asset_ids',[])
         assets=machine.assets.filter(pk__in=ids,processing_status='ready')
         title=version.data.get('title',machine.title)
     else:data=machine.data;assets=machine.assets.filter(processing_status='ready');title=machine.title
-    if public:assets=assets.filter(public_authorized=True).exclude(purpose__in=['plate','document'])
+    if public:assets=assets.filter(public_authorized=True).exclude(purpose__in=['plate','document']).exclude(pk__in=plate_ids)
     # Render approved title rather than the current draft title.
-    machine=copy.copy(machine);machine.title=title
+    machine=copy.copy(machine);machine.title=title;machine._detected_plate_asset_ids=plate_ids
+    if not public:
+        assets=list(assets)
+        for asset in assets:
+            if str(asset.pk) in plate_ids:
+                asset.purpose='plate'
     category_name=version.data.get('category_name','') if version else (machine.category.name if machine.category_id else '')
-    labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios'}
+    labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS}
     extra_fields=[{'label':label,'value':data[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
     web_references=services.public_web_references(reference_snapshot)
@@ -364,7 +371,8 @@ def asset_download(request,pk):
 
 def public_asset(request,token,pk):
     pub=public_record(token)
-    if str(pk) not in pub.version.data.get('public_asset_ids',[]):raise Http404
+    if (str(pk) not in pub.version.data.get('public_asset_ids',[]) or str(pk) in pub.version.data.get('private_plate_asset_ids',[])
+            or str(pk) in services.detected_plate_asset_ids(pub.machine)):raise Http404
     asset=get_object_or_404(Asset,pk=pk,machine=pub.machine,public_authorized=True,processing_status='ready')
     if asset.purpose in ['plate','document']:raise Http404
     return send_asset(asset)

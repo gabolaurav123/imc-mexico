@@ -80,6 +80,10 @@ de campos aplicables. El flujo rápido solicita `auto_apply` al pulsar «Prepara
 ficha», junto al aviso de procesamiento de imágenes. El worker completa el borrador
 privado y conserva el origen y estado de lectura de la IA, sin marcarlo como
 confirmación humana. Los cambios del usuario y los campos desconocidos se conservan.
+Un reanálisis puede refrescar sugerencias anteriores de IA si siguen sin confirmar
+y coinciden exactamente con el valor y la procedencia capturados al encolarlo.
+Esto incluye título y especificaciones; las ediciones humanas y los resultados
+aplicados por otro análisis posterior impiden la sustitución.
 El trabajo guarda una instantánea de entrada y registra el resultado de aplicación
 para evitar aplicar el mismo análisis dos veces. El envío y la publicación no se
 activan al completar el análisis. La API anterior de selección explícita permanece

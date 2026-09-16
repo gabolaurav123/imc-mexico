@@ -162,4 +162,4 @@ class VisualCompletionTests(TestCase):
         self.apply(job)
         self.assertEqual(self.machine.category, corrected)
         self.assertNotIn(VISIBLE, self.machine.data["description"])
-        self.assertIn("Grúas", self.machine.data["description"])
+        self.assertIn("Grúa", self.machine.data["description"])

@@ -188,5 +188,27 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
  }
  pass('list delete and restore send displayed revision once; only deletion confirms and errors remain visible in card');
 
+const professional=setup(async()=>{throw Error('Preview must not make requests');},{query:'?paso=2',state:{title:'Compactadora de prueba',provenance:{power:{source:'plate',review:'clear'},weight:{source:'web',scope:'model',review:'needs_review'},country_of_origin:{source:'plate',review:'clear'}}},data:{model:'MODELO-SINTETICO',serial:'SERIE-PRIVADA-DE-PRUEBA',description:'Descripción completa de la maquinaria.\nSe conserva el segundo párrafo. <img src=x onerror=alert(1)>',location:'',country_of_origin:'País de prueba',price:0,power:'4.5 kW',weight:'90 kg',vibration_frequency:'4200 VPM',centrifugal_force:'13 kN',compaction_depth:'30 cm'}});
+ const technicalPreview=professional.doc.querySelector('#preview-technical-specs');
+ assert.equal(professional.doc.querySelector('#preview-technical-section').hidden,false);
+ for(const key of ['power','weight','vibration_frequency','centrifugal_force','compaction_depth']){const row=technicalPreview.querySelector('[data-preview-field="'+key+'"]');assert.ok(row,key+' must be visible in the document');assert.equal(row.closest('details'),null);}
+ assert.match(technicalPreview.textContent,/Lectura de placa/);assert.match(technicalPreview.textContent,/Referencia del modelo · por confirmar/);
+ assert.match(professional.doc.querySelector('#preview-specs').textContent,/Serie privadaSERIE-PRIVADA-DE-PRUEBA/);assert.match(professional.doc.querySelector('#preview-specs').textContent,/Horas0/);
+ assert.match(professional.doc.querySelector('#preview-commercial-specs').textContent,/Ubicación actualNo indicada/);assert.match(professional.doc.querySelector('#preview-commercial-specs').textContent,/País de fabricaciónPaís de prueba/);assert.match(professional.doc.querySelector('#preview-commercial-specs').textContent,/Precio0 MXN/);
+ assert.equal(professional.doc.querySelector('#preview-description img'),null);assert.match(professional.doc.querySelector('#preview-description').textContent,/segundo párrafo/);
+ assert.equal(professional.doc.querySelector('#extra-country_of_origin').value,'País de prueba');
+ assert.ok(professional.doc.querySelector('#submit-machine').compareDocumentPosition(professional.doc.querySelector('#commercial-details')) & professional.w.Node.DOCUMENT_POSITION_FOLLOWING,'send precedes optional editing controls');
+ input(professional,'extra-compaction_depth','35 cm');assert.match(technicalPreview.textContent,/35 cm/);assert.equal(professional.doc.querySelector('#location').value,'');professional.close();pass('professional preview exposes technical data, private serial, zero and full safe description; manufacturing origin never becomes current location');
+
+ for(const explicitKind of ['plate','machine',null]){
+   let photoPreview;
+   photoPreview=setup(async()=>{await pause(1);const result=completed(photoPreview.state,{});result.result.plates=[{asset_id:'1',component:'machine',transcription:'PLACA SINTETICA'}];if(explicitKind)result.result.image_observations=[{asset_id:'1',kind:explicitKind}];return response(200,result);},{job:{id:'job',status:'completed'},before(w){w.document.querySelectorAll('.asset-card:not([data-asset-id="1"])').forEach(node=>node.remove());}});
+   await pause(35);const caption=photoPreview.doc.querySelector('#preview-image-caption').textContent;
+   if(explicitKind==='machine')assert.doesNotMatch(caption,/Placa de identificación/);else assert.match(caption,/Placa de identificación · privada/);
+   assert.equal(photoPreview.doc.querySelector('.asset-card').dataset.purpose,'general','display label never changes classification or publication permissions');
+   assert.match(photoPreview.doc.querySelector('#preview-cover a').href,/\/archivos\/1\/\?original=1$/);
+   photoPreview.close();
+ }
+ pass('main-object classification labels plate close-ups, prioritizes machine evidence, and supports legacy jobs without mutating asset permissions');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
