@@ -33,11 +33,13 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v8"
+PROMPT_VERSION = "imc-vision-research-2026-09-v9"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
 MAX_OUTPUT_TOKENS = 4500
+MIN_ANALYSIS_IMAGE_EDGE = 1280
+MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
 AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
            "dimensions", "fuel", "kilometers", "engine", "transmission",
            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"}
@@ -64,6 +66,13 @@ por allowed_field_keys, conservando sus unidades. Incluye modelo o código de pr
 cuando el encabezado lo vincula claramente al tipo de máquina, aunque no diga Modelo;
 no confundas ese código con la serie individual, un número de inventario o de pieza.
 Una transcripción completa sin sus campos correspondientes no completa la ficha.
+Antes de devolver cada cifra, vuelve a leer visualmente esa misma línea: comprueba
+cada dígito, punto decimal, separador y unidad. Copia literalmente lo impreso.
+Si una etiqueta expresa dos unidades, transcribe AMBAS cifras de esa etiqueta;
+NO conviertas unidades, NO calcules equivalencias ni ajustes una cifra para que
+coincida con la otra. Si parecen inconsistentes, conserva la lectura y adviértelo.
+No sustituyas números por valores habituales del modelo, por memoria ni por datos
+previos. Si una cifra no puede distinguirse, devuelve null para ese dato.
 Mapea frecuencia de vibración a vibration_frequency, fuerza centrífuga a
 centrifugal_force, profundidad de compactación a compaction_depth y país de
 fabricación a country_of_origin. Este último requiere texto explícito Fabricado en,
@@ -530,8 +539,29 @@ def _image_input(asset):
     if not asset.preview:
         raise ValidationError("Una fotografía no tiene vista previa disponible.")
     with asset.preview.open("rb") as stream:
-        raw = stream.read(12 * 1024 * 1024 + 1)
-    if len(raw) > 12 * 1024 * 1024:
+        raw = stream.read(MAX_ANALYSIS_IMAGE_BYTES + 1)
+    if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
+        raise ValidationError("Una fotografía excede el tamaño permitido para análisis.")
+    # Small previews can make printed decimals occupy too few input patches.
+    # Enlarge only the in-memory request using ordinary interpolation: this
+    # adds no new detail and never modifies the stored original or preview.
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as preview:
+                if preview.width * preview.height > MAX_PIXELS:
+                    raise ValidationError("La fotografía excede las dimensiones permitidas para análisis.")
+                edge = max(preview.size)
+                if edge < MIN_ANALYSIS_IMAGE_EDGE:
+                    size = tuple(max(1, round(length * MIN_ANALYSIS_IMAGE_EDGE / edge)) for length in preview.size)
+                    enlarged = preview.convert("RGB").resize(size, Image.Resampling.LANCZOS)
+                    output = io.BytesIO()
+                    enlarged.save(output, format="JPEG", quality=95, subsampling=0)
+                    raw = output.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning) as exc:
+        raise ValidationError("No pudimos preparar la fotografía para el análisis. Prueba con otra imagen.") from exc
+    if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
         raise ValidationError("Una fotografía excede el tamaño permitido para análisis.")
     # Keep private storage URLs and original EXIF out of external requests.
     return {"type": "input_image", "detail": "high",

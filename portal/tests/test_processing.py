@@ -195,6 +195,10 @@ class ProcessingTests(TestCase):
             mock.return_value.responses.parse.return_value = response
             result, usage = process_analysis(job)
         kwargs = mock.return_value.responses.parse.call_args.kwargs
+        mock.return_value.responses.parse.assert_called_once()
+        mock.return_value.responses.create.assert_not_called()
+        self.assertEqual(kwargs["model"], "gpt-4.1-mini")
+        self.assertLessEqual(kwargs["max_output_tokens"], 4500)
         self.assertFalse(kwargs["store"])
         self.assertEqual(kwargs["text_format"], MachineAnalysis)
         self.assertEqual(mock.call_args.kwargs["max_retries"], 0)
