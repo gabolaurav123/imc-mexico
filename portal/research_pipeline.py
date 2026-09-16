@@ -1,5 +1,6 @@
 """Staged, bounded external research, retaining independently cited evidence."""
 import json
+from urllib.parse import urlsplit
 
 from django.core import signing
 
@@ -74,16 +75,16 @@ def _stage_request(identity, stage, result, category=None):
         identifiers["serial"] = None
     known = " ".join(f'"{identifiers[k]}"' for k in ("brand", "model") if identifiers.get(k))
     if stage == "serial":
-        query = f'"{identity["serial"]}" {known} fabricante machinery serial number record'
+        query = f'"{identity["serial"]}" {known}'
         objective = "Localizar un registro público de la serie exacta; identificar marca/modelo sólo si la misma fuente los vincula."
     elif stage == "manufacturer":
-        query = f'{known} specifications technical data ficha técnica manufacturer manual PDF'
+        query = f'{known} specifications'
         objective = "Consultar documentación original del fabricante y tablas de especificaciones del modelo exacto."
     elif stage == "catalogs":
-        query = f'{known} specifications weight engine dimensions country of manufacture'
+        query = f'{known} specifications'
         objective = "Contrastar y ampliar con catálogos externos de maquinaria; nunca usar rangos como datos de la unidad."
     else:
-        query = f'{known} manual PDF ficha técnica país de fabricación distributor'
+        query = f'{known} technical manual PDF'
         objective = "Buscar manuales, fichas PDF y documentación de distribuidores para datos todavía no documentados."
     if not known:
         query = f'"{identity.get("serial") or ""}" machinery manufacturer identification manual'
@@ -107,7 +108,7 @@ def _stage_request(identity, stage, result, category=None):
     }, domains
 
 
-def _collect(response, identity, sources, passages, titles):
+def _collect(response, identity, sources, passages, titles, domains=()):
     diagnostics, response_titles = {}, {}
     retrieved, calls = response_sources(response, diagnostics, response_titles)
     text = str(_get(response, "output_text", "") or "")[:12000]
@@ -116,6 +117,11 @@ def _collect(response, identity, sources, passages, titles):
     remaining = 18000 - sum(len(p["text"]) for p in passages)
     stage_count = 0
     for source in retrieved:
+        # Enforce the chosen external catalog/manufacturer even when a legacy
+        # model uses site: queries because it cannot accept tool-level filters.
+        host = urlsplit(source["url"]).hostname or ""
+        if domains and not any(host == domain or host.endswith("." + domain) for domain in domains):
+            continue
         for passage in bound.get(source["url"], []):
             if len(passages) >= MAX_CITED_PASSAGES or remaining <= 0 or stage_count >= 12:
                 break
@@ -202,8 +208,13 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             stage = "manuals"
         tool = {"type": "web_search", "search_context_size": "medium"}
         if domains:
-            tool["filters"] = {"allowed_domains": list(dict.fromkeys(domains))[:30]}
-        attempt = {"stage": stage, "domains": domains, "status": "no_results"}
+            if model.startswith("gpt-4.1"):
+                sites = " OR ".join("site:" + domain for domain in domains)
+                payload["query"] = f"({sites}) " + payload["query"]
+            else:
+                tool["filters"] = {"allowed_domains": list(dict.fromkeys(domains))[:30]}
+        attempt = {"stage": stage, "domains": domains, "status": "no_results",
+                   "domain_control": "site_query_and_source_check" if domains and "filters" not in tool else "tool_filter_and_source_check" if domains else "open_search"}
         attempts.append(attempt)
         received = False
         try:
@@ -220,7 +231,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             usage.estimate(8000 * calls)
             if _get(response, "status") != "completed" or calls != 1:
                 raise ValueError("Incomplete web search")
-            metrics, _ = _collect(response, identity, sources, passages, titles)
+            metrics, _ = _collect(response, identity, sources, passages, titles, domains)
             attempt.update(metrics)
             attempt["status"] = "evidence_found" if metrics["retained_passage_count"] else "no_results"
         except Exception as exc:

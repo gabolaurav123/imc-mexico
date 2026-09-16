@@ -51,7 +51,13 @@ kind = source_kind('https://www.cat.com/en_US/support/maintenance/service-manual
 - `public_documentation` significa **origen público no clasificado**: no acredita que la URL contenga un manual, que se haya descargado, que sea oficial ni que sus afirmaciones sean correctas. URL inválida, credenciales incrustadas, IP literal o nombre local devuelve `None`.
 - El módulo no hace peticiones. Su comprobación de URL no es un cortafuegos de red ni un validador SSRF; cualquier futura descarga debe aplicar su política de red y volver a clasificar el destino final de una redirección.
 
-Los dominios son sugerencias para filtros de búsqueda dirigidos. Cada dato aún requiere evidencia vinculada a su URL, identidad de marca/modelo coherente, ámbito explícito y validación de procedencia. **Ningún perfil autoriza por sí solo un año por serie ni confirma la configuración de la unidad.** Se mantienen los validadores existentes y la revisión humana. No se añaden valores técnicos, existencias, precios ni datos personales al catálogo.
+Los dominios alimentan las etapas de búsqueda dirigidas, con una estrategia compatible con el modelo:
+
+- Cuando el modelo admite filtros de dominios de `web_search`, la etapa usa `filters.allowed_domains`.
+- Con la familia `gpt-4.1`, la consulta incorpora operadores `site:`; esta alternativa responde al rechazo del parámetro observado en la prueba real con `gpt-4.1-mini`. El servidor comprueba después el dominio de cada fuente y excluye fuentes y fragmentos fuera de la lista de esa etapa. Se acepta el dominio completo o un subdominio delimitado; `cat.com.otro-dominio.example` no pertenece a `cat.com`.
+- `site:` orienta el buscador; **la comprobación local impide aceptar evidencia fuera de los dominios previstos**. No se presenta esta alternativa como un filtro nativo de la API. Las etapas sin lista de dominios mantienen la búsqueda pública y sus validadores de evidencia.
+
+La elección de estrategia conserva el modelo configurado, las etapas y las cuotas; no habilita acceso privado. Cada dato aún requiere evidencia vinculada a su URL, identidad de marca/modelo coherente, ámbito explícito y validación de procedencia. **Ningún perfil autoriza por sí solo un año por serie ni confirma la configuración de la unidad.** Se mantienen los validadores existentes y la revisión humana. No se añaden valores técnicos, existencias, precios ni datos personales al catálogo.
 
 ## Pruebas locales
 

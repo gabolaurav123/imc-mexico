@@ -67,10 +67,10 @@ class StagedResearchTests(SimpleTestCase):
         self.assertEqual(requests[0]["identifiers"]["serial"], "UNIT123")
         self.assertIsNone(requests[1]["identifiers"]["serial"])
         self.assertNotIn("UNIT123", requests[1]["query"])
-        self.assertIn("cat.com", client.responses.create.call_args_list[1].kwargs["tools"][0]["filters"]["allowed_domains"])
-        catalog_domains = client.responses.create.call_args_list[2].kwargs["tools"][0]["filters"]["allowed_domains"]
-        self.assertIn("lectura-specs.com", catalog_domains)
-        self.assertIn("ritchiespecs.com", catalog_domains)
+        self.assertNotIn("filters", client.responses.create.call_args_list[1].kwargs["tools"][0])
+        self.assertIn("site:cat.com", requests[1]["query"])
+        self.assertIn("site:lectura-specs.com", requests[2]["query"])
+        self.assertIn("site:ritchiespecs.com", requests[2]["query"])
         self.assertEqual(research["fields"][0]["value"], "70 kW")
         self.assertEqual(research["match"], "model")
         self.assertEqual(usage.web_search_calls, 3)
@@ -92,6 +92,22 @@ class StagedResearchTests(SimpleTestCase):
         research, _ = research_machine(client, "gpt-4.1-mini", vision())
         self.assertEqual(research["fields"], [])
         self.assertEqual(research["diagnostics"]["rejection_counts"]["conflicting_values"], 1)
+
+    def test_legacy_site_query_rejects_cited_sources_outside_selected_domains(self):
+        client = Mock()
+        client.responses.create.side_effect = [response("Caterpillar 420F2: potencia 99 kW.", "https://cat.com.badsite.com/specs"),
+            response("Caterpillar 420F2: potencia 99 kW.", "https://unrelated.com/specs"), web_response(sources=[])]
+        research, _ = research_machine(client, "gpt-4.1-mini", vision())
+        client.responses.parse.assert_not_called()
+        self.assertEqual(research["fields"], [])
+        self.assertEqual(research["sources"], [])
+
+    def test_supported_models_keep_tool_domain_controls(self):
+        client = Mock()
+        client.responses.create.return_value = web_response(sources=[])
+        research_machine(client, "gpt-5-mini", vision())
+        self.assertEqual(client.responses.create.call_args_list[0].kwargs["tools"][0]["filters"],
+                         {"allowed_domains": ["cat.com"]})
 
     def test_timeout_of_one_stage_preserves_evidence_from_others_and_counts_usage(self):
         client = Mock()
