@@ -9,3 +9,77 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation-duration:.01ms!important;transition:none!important}.button:hover{transform:none}}@media print{.utility-bar,.site-header,.site-footer,.sheet-toolbar,.toast,.sidebar,.button,.sheet-commercial>.form-field,.sheet-commercial>.link-button{display:none!important}body{background:white;font-size:12px}.wrap{width:100%}.sheet{border:0;box-shadow:none;padding:0}.sheet-layout{padding:0}.sheet-content{grid-template-columns:1.8fr 1fr;gap:25px}.sheet-header{break-after:avoid}.spec-grid>div,.sheet-gallery>a{break-inside:avoid}.sheet-gallery img{max-height:300px}.sheet-commercial{break-inside:avoid}.sheet-commercial h2{font-size:25px}}
 
 .demo-brand{display:flex;align-items:center;gap:14px;margin-bottom:18px}.demo-brand img{width:56px;height:56px;object-fit:contain;background:#fff;flex-shrink:0}.demo-brand .eyebrow{margin:0}@media(max-width:719px){.demo-brand img{width:44px;height:44px}.brand-label{letter-spacing:.06em}.utility-bar .wrap>span{font-size:8px}.document-top b{font-size:8px}}
+
+/* Compact two-step intake: primary actions stay visible; optional fields expand in place. */
+.quick-intake{max-width:960px;min-width:0}
+.quick-intake .wizard-heading{margin-bottom:22px;gap:18px}
+.quick-intake .wizard-heading h1{font-size:clamp(30px,3vw,43px)}
+.quick-intake .wizard-progress{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding-bottom:0;border:0;margin-bottom:24px}
+.quick-intake .wizard-progress>button{display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:10px;padding:10px 15px;min-height:48px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);color:var(--muted);text-align:left}
+.quick-intake .wizard-progress>button:not(:last-child):after{content:none}
+.quick-intake .wizard-progress>button>b{background:transparent;font-size:12px;max-width:none;padding:0}
+.quick-intake .wizard-progress>button[aria-current=step]{border-color:var(--navy);background:#ededf5;color:var(--navy)}
+.quick-intake .step-heading{margin-bottom:20px}
+.quick-intake .step-heading .eyebrow{margin-bottom:9px}
+.quick-intake .step-heading h2{font-size:28px;margin-bottom:10px}
+.quick-intake .step-heading>p:last-child{margin-bottom:0;max-width:680px}
+.quick-intake .upload-zone{padding:24px}
+.quick-intake .upload-zone h3{font-size:21px}
+.quick-intake .asset-grid:empty,.quick-intake .upload-queue:empty{display:none}
+.quick-intake .asset-info summary{font-size:11px;cursor:pointer;min-height:32px;overflow-wrap:anywhere}
+.quick-intake .asset-info[open] summary{margin-bottom:8px}
+.quick-intake .asset-actions{flex-wrap:wrap}
+.quick-intake .quick-options{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);margin:12px 0;padding:0 18px;min-width:0}
+.quick-intake .quick-options>summary{padding:14px 0;margin:0;font-size:13px;line-height:1.5;cursor:pointer;min-height:48px;overflow-wrap:anywhere}
+.quick-intake .quick-options[open]{padding-bottom:18px}
+.quick-intake .quick-options[open]>summary{margin-bottom:14px;border-bottom:1px solid var(--line)}
+.quick-intake .quick-options .form-field:last-child{margin-bottom:0}
+.quick-intake .quick-options .form-grid{min-width:0}
+.quick-intake .quick-options input,.quick-intake .quick-options select,.quick-intake .quick-options textarea{max-width:100%}
+.quick-intake .prepare-action,.quick-intake .submit-action{margin-top:22px}
+.quick-intake .prepare-action>.button,.quick-intake .submit-action>.button{min-height:52px;font-size:15px}
+.quick-intake .prepare-action>.link-button{display:block;margin:14px auto 0;min-height:40px;font-size:13px}
+.quick-intake .action-notice{font-size:12px;line-height:1.65;color:var(--muted);margin:12px 0;max-width:750px}
+.quick-intake .quick-analysis-feedback{display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px;background:#eef7fc;border-left:3px solid var(--blue);padding:10px 14px;margin-bottom:22px;overflow-wrap:anywhere}
+.quick-intake .quick-analysis-feedback .analysis-status{margin:0;padding:0;flex:1 1 250px;line-height:1.6;font-size:13px}
+.quick-intake .quick-preview{margin-bottom:18px}
+.quick-intake .preview-top{padding:14px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap;gap:8px 18px}
+.quick-intake .preview-top .eyebrow{font-size:9px;max-width:none}
+.quick-intake .preview-top .tag{font-size:8px;max-width:none}
+.quick-intake .quick-preview-content{display:grid;grid-template-columns:150px minmax(0,1fr);gap:20px;padding:20px;align-items:start}
+.quick-intake .quick-preview-content:has(.preview-cover:empty){grid-template-columns:minmax(0,1fr)}
+.quick-intake .preview-cover{background:var(--cream);border-radius:4px;overflow:hidden}
+.quick-intake .preview-cover img{width:100%;height:155px;max-height:155px;object-fit:contain}
+.quick-intake .preview-body{padding:0;min-width:0;overflow-wrap:anywhere}
+.quick-intake .preview-body h2{font-size:25px;line-height:1.2}
+.quick-intake .preview-body>.eyebrow{margin-bottom:8px}
+.quick-intake .preview-body>#preview-description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;white-space:normal;font-size:13px;line-height:1.6;margin-bottom:14px}
+.quick-intake .preview-body .spec-grid{margin:0;gap:12px 18px}
+.quick-intake .preview-body .spec-grid dd{font-size:13px;overflow-wrap:anywhere}
+.quick-intake .quick-commercial{padding:22px;margin-bottom:16px}
+.quick-intake .quick-commercial>.form-grid{margin-bottom:0}
+.quick-intake .quick-commercial .form-field:last-child{margin-bottom:0}
+.quick-intake .wizard-bottom{margin-top:26px;padding-top:18px}
+.quick-intake .wizard-bottom .text-link{font-size:12px;min-height:40px;display:inline-flex;align-items:center}
+.quick-intake pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}
+@media(max-width:600px){
+ .quick-intake .wizard-heading{gap:14px;margin-bottom:20px}
+ .quick-intake .wizard-heading h1{font-size:31px}
+ .quick-intake .wizard-progress{gap:8px;margin-bottom:22px}
+ .quick-intake .wizard-progress>button{padding:9px 12px;gap:8px}
+ .quick-intake .wizard-progress>button>b{font-size:12px}
+ .quick-intake .step-heading h2{font-size:25px}
+ .quick-intake .upload-zone{padding:23px 15px}
+ .quick-intake .quick-preview-content{grid-template-columns:minmax(0,1fr);gap:15px;padding:17px}
+ .quick-intake .preview-cover img{height:145px;max-height:145px}
+ .quick-intake .preview-body h2{font-size:24px}
+ .quick-intake .preview-top{padding:13px 16px}
+ .quick-intake .quick-commercial{padding:19px 17px}
+ .quick-intake .quick-options{padding-inline:15px}
+ .quick-intake .action-notice{font-size:12px}
+ .quick-intake .submit-action>.small{font-size:11px}
+ .quick-intake .wizard-bottom{flex-wrap:wrap;gap:12px}
+}
+
+.steps-grid.steps-grid-two{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:600px){.steps-grid.steps-grid-two{grid-template-columns:minmax(0,1fr)}}

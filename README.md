@@ -14,6 +14,10 @@ El formulario incluye sugerencias editables de nueve marcas y nueve modelos obse
 
 La versión integrada pasó **124 pruebas sin omisiones**, la prueba DOM del catálogo y la revisión visual de un PDF de dos páginas. La identidad y el catálogo no requieren una migración adicional; la apertura del registro usa `0006`.
 
+## Formulario rápido
+
+El recorrido se reduce a **Fotos → Ficha y envío**. La IA completa el borrador automáticamente al pulsar «Preparar mi ficha»; los campos opcionales quedan plegados y la edición sigue disponible. La migración `0007` conserva las fichas existentes. [Comportamiento, protección de cambios y recuperación](docs/quick-intake.md).
+
 ## Servicio y acceso actuales
 
 | Elemento | Estado comprobado |
@@ -35,9 +39,9 @@ El intento de recarga de US$10 fue rechazado y no hay cobro confirmado. La mejor
 
 - Registro básico, acceso por contraseña, verificación/recuperación por enlace de un uso, perfil, cierre de otras sesiones y solicitudes sobre datos personales.
 - Segundo factor TOTP obligatorio para el equipo administrativo; acceso por roles y permisos.
-- Asistente de cinco pasos con borradores, guardado con control de revisión, carga múltiple, portada, reordenamiento y datos desconocidos permitidos.
+- Asistente de dos pasos: fotos y ficha/envío. Borradores con autoguardado, carga múltiple y detalles opcionales plegados.
 - Imágenes JPG, PNG, WEBP y HEIC/HEIF; un video MOV/MP4 opcional. Originales privados y vistas optimizadas sin metadatos EXIF/GPS.
-- OpenAI Responses con salida estructurada: información visible, procedencia, componentes, transcripción de placas, preguntas y advertencias. Aceptación explícita de sugerencias, sin sobrescribir automáticamente los datos del usuario.
+- OpenAI Responses con salida estructurada y relleno automático del borrador al pulsar «Preparar mi ficha». Conserva las correcciones del usuario y la procedencia de IA; no exige aceptar campos uno a uno ni marca la lectura como confirmación humana. El envío a IMC sigue siendo una acción separada.
 - Solicitudes, observaciones, correcciones, nueva presentación, versiones inmutables y autorización independiente de imágenes.
 - Ficha web y PDF internos; ficha pública y PDF basados en una versión aprobada y en una lista de archivos autorizados. Placas, documentos y series quedan fuera de difusión.
 - Administración de anunciantes, maquinaria, solicitudes, medios, mensajes, contactos comerciales, categorías, marcas, modelos, unidades, contenido, límites de IA y auditoría.
@@ -174,7 +178,7 @@ python manage.py check
 
 La suite usa SQLite en memoria para que no altere Neon ni ejecute las llamadas externas de OpenAI/SMTP. Instala ffmpeg/ffprobe para que se ejecute también la prueba real de conversión de video; si no están disponibles, esa prueba se omite y no debe presentarse como aprobada. Las variables de los binarios permiten usar una instalación específica.
 
-La última suite confirmada registra **117 pruebas aprobadas sin omisiones**, incluidas 19 de privacidad de analítica. Cinco comprobaciones transaccionales adicionales de analítica en PostgreSQL también pasaron, con rollback. Además se completaron cuatro trabajos reales de OpenAI (dos locales y dos en el hosting), QA visual de un PDF de dos páginas, pruebas transaccionales de workflow en PostgreSQL y revisión de interfaz pública en escritorio y móvil. El registro de aplicación contiene **106 comprobaciones aprobadas, con 88 etiquetas distintas**, e incluye HTTPS, base de datos y repeticiones tras despliegue. El informe de entrega y `VERIFICACION-IMC.json`, guardados en `outputs` del workspace, documentan el cierre. Las cinco cuentas de ensayo se desactivaron y perdieron privilegios/contraseñas utilizables; se conserva el historial. Los simuladores prueban fallos y contratos; entrega de correo, persistencia y restauración se acreditan por sus pruebas externas separadas en [docs/acceptance.md](docs/acceptance.md).
+La suite de aceptación inicial registró **117 pruebas aprobadas sin omisiones**, incluidas 19 de privacidad de analítica. Cinco comprobaciones transaccionales adicionales de analítica en PostgreSQL también pasaron, con rollback. Además se completaron cuatro trabajos reales de OpenAI (dos locales y dos en el hosting), QA visual de un PDF de dos páginas, pruebas transaccionales de workflow en PostgreSQL y revisión de interfaz pública en escritorio y móvil. El registro de aplicación contiene **106 comprobaciones aprobadas, con 88 etiquetas distintas**, e incluye HTTPS, base de datos y repeticiones tras despliegue. El informe de entrega y `VERIFICACION-IMC.json`, guardados en `outputs` del workspace, documentan el cierre. Las cinco cuentas de ensayo se desactivaron y perdieron privilegios/contraseñas utilizables; se conserva el historial. Los simuladores prueban fallos y contratos; entrega de correo, persistencia y restauración se acreditan por sus pruebas externas separadas en [docs/acceptance.md](docs/acceptance.md).
 
 ## Despliegue en Seenode
 

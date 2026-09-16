@@ -41,6 +41,7 @@ def api(fn):
     def wrapper(request,*args,**kwargs):
         if not request.user.is_authenticated:return JsonResponse({'error':'Inicia sesión para continuar.'},status=401)
         try:return fn(request,*args,**kwargs)
+        except services.DraftRevisionConflict as exc:return JsonResponse({'error':' '.join(exc.messages)},status=409)
         except ValidationError as exc:return JsonResponse({'error':' '.join(exc.messages)},status=400)
         except (ValueError,TypeError,KeyError):return JsonResponse({'error':'Revisa los datos enviados.'},status=400)
         except PermissionDenied:return JsonResponse({'error':'No tienes permiso para realizar esta acción.'},status=403)
@@ -55,7 +56,7 @@ def home(request):
     return render(request,'portal/home.html',{'home_content':content})
 
 PAGES={
- 'como-funciona':('Tus fotos son el punto de partida','Prepara tu maquinaria con ayuda, a tu ritmo.', [('01 · Fotografía','Sube una vista general de la máquina. Si tienes una foto de la placa o el horómetro, agrégala. Puedes continuar sin ellos.'),('02 · Revisa','La IA propone una ficha a partir de lo visible. Tú confirmas o corriges cada dato. Lo desconocido puede quedarse sin especificar.'),('03 · Envía','Completa la ubicación y los datos comerciales. IMC México revisará la solicitud y podrá pedir correcciones. El envío no equivale a publicación.'),('04 · Sigue el proceso','Consulta tus solicitudes y responde las observaciones desde tu panel. Conservamos el avance aunque cierres el navegador.')]),
+ 'como-funciona':('Tus fotos son el punto de partida','De tus fotos a una ficha, en dos pasos.', [('01 · Sube tus fotos','Agrega fotos o una captura y pulsa Preparar mi ficha. La IA completa el borrador con la información que puede identificar. Puedes continuar manualmente si lo prefieres.'),('02 · Completa y envía','Indica dónde está la maquinaria, añade el precio si lo conoces y envía la ficha a IMC México. Puedes corregir cualquier dato; los detalles son opcionales. El equipo revisará tu solicitud.')]),
  'guia-de-fotos':('Una buena foto ayuda mucho','No necesitas equipo profesional: basta con tu celular y buena luz.', [('Vista general','Fotografía la máquina completa de costado. Evita personas y documentos ajenos en el encuadre.'),('Detalles que importan','Incluye accesorios, puntos de desgaste y defectos visibles, sin ocultarlos ni alterar las imágenes.'),('Placa, si la tienes','Acércate hasta que se lean los caracteres, evita reflejos y toma la imagen de frente. Indica si pertenece al motor, a la máquina o a otro componente.'),('Sin placa también puedes empezar','Una sola fotografía útil permite guardar un borrador. No inventes series, año u horas si los desconoces.'),('Video opcional','Un recorrido breve puede complementar las fotografías. El análisis de video mediante IA está desactivado.')]),
  'preguntas-frecuentes':('Resolvemos tus dudas','Lo esencial antes de anunciar tu maquinaria.', [('¿Necesito la placa?','No. Puedes empezar con una fotografía general y dejar los datos desconocidos pendientes.'),('¿La IA certifica mi máquina?','No. Organiza información visible y propone textos. Necesita revisión humana y no evalúa el estado mecánico interno.'),('¿Se publica al enviar?','No. El permiso de anunciante, la aprobación de una solicitud y la publicación en cada destino se gestionan por separado.'),('¿Puedo continuar más tarde?','Sí. Tu borrador se guarda en tu cuenta. La interfaz confirma cuándo terminó el guardado.'),('¿Mis fotos son públicas?','Inicialmente son privadas. Las placas, series y documentos no se publican por defecto. Solo se comparten versiones autorizadas.'),('¿Qué ocurre si falla el análisis?','Conservamos las fotografías. Puedes completar datos manualmente, reintentar dentro de los límites o pedir asistencia.')]),
  'privacidad':('Aviso de privacidad','Documento operativo pendiente de validación por el responsable de IMC México.', [('Finalidad','Tratamos los datos de cuenta, contacto, archivos y maquinaria para preparar fichas, revisar solicitudes y dar seguimiento. Las comunicaciones comerciales requieren consentimiento separado.'),('Procesamiento con OpenAI','Con tu autorización, enviamos las imágenes necesarias al servidor de OpenAI para extraer información y proponer una ficha. No enviamos intencionalmente tu correo ni teléfono. Evita documentos personales en las imágenes. store:false evita almacenar una respuesta como recurso recuperable, pero no garantiza ausencia absoluta de retención: aplican los controles y excepciones del proveedor.'),('Acceso y publicación','Tus borradores y originales son privados. La difusión exige permisos y revisión. Las imágenes pueden contener identificadores: se revisan antes de autorizar su publicación.'),('Conservación y derechos','Puedes solicitar acceso, corrección o eliminación en Panel → Seguridad. El responsable resolverá la solicitud y las obligaciones de conservación aplicables. La política inicial propone revisar datos inactivos tras 365 días; no elimina publicaciones activas automáticamente.'),('Responsable y contacto','Los datos legales del responsable, domicilio, transferencias, plazos y procedimiento definitivo deben ser validados por IMC México antes de apertura comercial. No se declara cumplimiento legal automático.')]),
@@ -126,12 +127,12 @@ def machine_create(request):
 @ensure_csrf_cookie
 def machine_wizard(request,pk):
     machine=owned(request,pk)
-    try:step=max(1,min(5,int(request.GET.get('paso',request.GET.get('step',1)))))
+    try:step=max(1,min(2,int(request.GET.get('paso',request.GET.get('step',1)))))
     except ValueError:step=1
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
     models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
     catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
-    return render(request,'portal/wizard.html',{'machine':machine,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':{'id':str(machine.id),'revision':machine.revision,'title':machine.title,'category':machine.category_id,'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status}})
+    return render(request,'portal/wizard.html',{'machine':machine,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
 
 @login_required
 def requests_list(request):
@@ -178,6 +179,17 @@ def api_save(request,pk):
 
 def asset_info(asset):
     return {'id':str(asset.pk),'url':f'/archivos/{asset.pk}/','kind':asset.kind,'purpose':asset.purpose,'is_cover':asset.is_cover,'processing_status':asset.processing_status,'error':asset.error,'position':asset.position}
+
+
+def machine_state(machine):
+    return {'id':str(machine.pk),'revision':machine.revision,'title':machine.title,'category':machine.category_id,
+            'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status}
+
+
+def analysis_state(job, machine):
+    return {'id':str(job.pk),'status':job.status,'result':job.result if job.status=='completed' else None,
+            'error':job.error if job.status=='failed' else '', 'assets':[asset_info(a) for a in machine.assets.all()],
+            'machine':machine_state(machine),'auto_apply':services.automatic_application_status(job)}
 
 @require_POST
 @api
@@ -233,26 +245,32 @@ def api_asset_action(request,pk):
 @api
 def api_analyze(request,pk):
     from .processing import enqueue_analysis
-    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode'])
+    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode','auto_apply','revision'])
     if body.get('consent') is not True:raise ValidationError('Autoriza el procesamiento de las imágenes necesarias mediante OpenAI.')
-    if not Consent.objects.filter(user=request.user,machine=machine,kind='ai',granted=True).exists():Consent.objects.create(user=request.user,machine=machine,kind='ai',granted=True)
-    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),body.get('mode','analysis'),analytics_context=capture_context(request,page='analysis'))
-    return JsonResponse({'id':str(job.pk),'status':job.status})
+    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),body.get('mode','analysis'),analytics_context=capture_context(request,page='analysis'),auto_apply=body.get('auto_apply',False),expected_revision=body.get('revision'),authorize_ai=True)
+    machine.refresh_from_db()
+    return JsonResponse(analysis_state(job,machine))
 
 @require_GET
 @api
 def api_analysis(request,pk):
-    job=get_object_or_404(AnalysisJob,pk=pk);owned(request,job.machine_id)
-    return JsonResponse({'id':str(job.pk),'status':job.status,'result':job.result if job.status=='completed' else None,'error':job.error if job.status=='failed' else '', 'assets':[asset_info(a) for a in job.machine.assets.all()]})
+    job=get_object_or_404(AnalysisJob,pk=pk);machine=owned(request,job.machine_id)
+    return JsonResponse(analysis_state(job,machine))
 
 @require_POST
 @api
 def api_apply(request,pk):
-    machine=owned(request,pk);body=payload(request,allowed=['job_id','fields','revision'])
+    machine=owned(request,pk);body=payload(request,allowed=['job_id','fields','revision','automatic'])
     job=get_object_or_404(AnalysisJob,pk=body.get('job_id'),machine=machine,status='completed')
-    machine=services.apply_analysis_suggestions(machine,request.user,job,body.get('fields',[]),body.get('revision'))
-    event(request,'sheet_reviewed',machine)
-    return JsonResponse({'revision':machine.revision,'data':machine.data,'title':machine.title,'provenance':machine.provenance})
+    if 'automatic' in body and type(body['automatic']) is not bool:raise ValidationError('Indica una acción de completado válida.')
+    if body.get('automatic') is True:
+        machine,completion=services.apply_analysis_automatically(machine,request.user,job,body.get('revision'))
+    else:
+        machine=services.apply_analysis_suggestions(machine,request.user,job,body.get('fields',[]),body.get('revision'))
+        completion=services.automatic_application_status(job)
+        event(request,'sheet_reviewed',machine)
+    return JsonResponse({'revision':machine.revision,'data':machine.data,'title':machine.title,'category':machine.category_id,
+                         'provenance':machine.provenance,'machine':machine_state(machine),'auto_apply':completion})
 
 @require_POST
 @api

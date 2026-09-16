@@ -61,8 +61,9 @@ class Command(BaseCommand):
             # Existing permissions are preserved: rerunning the seed cannot unexpectedly alter staff access.
             if created:
                 group.permissions.set(Permission.objects.filter(content_type__app_label="portal", codename__in=codenames))
+        legacy_how_it_works = ("Tus fotos, una ficha más clara", "Sube una fotografía general de tu maquinaria. La placa ayuda, pero no es obligatoria. Revisa cada dato propuesto por la IA, completa la ubicación y envía tu solicitud. El equipo de IMC México revisa tu permiso de anunciante y el contenido antes de autorizar una publicación.")
         pages = {
-            "como-funciona": ("Tus fotos, una ficha más clara", "Sube una fotografía general de tu maquinaria. La placa ayuda, pero no es obligatoria. Revisa cada dato propuesto por la IA, completa la ubicación y envía tu solicitud. El equipo de IMC México revisa tu permiso de anunciante y el contenido antes de autorizar una publicación."),
+            "como-funciona": ("De tus fotos a una ficha, en dos pasos", "01 · Sube tus fotos y prepara la ficha\nAgrega una fotografía general y pulsa «Preparar mi ficha». La IA completa los datos que puede identificar y propone una descripción. La placa es opcional y puedes continuar manualmente.\n\n02 · Revisa y envía a IMC México\nComprueba la ficha, indica la ubicación y corrige lo que necesites. El precio y los detalles técnicos son opcionales; los datos desconocidos pueden quedar vacíos. Envía tu solicitud cuando esté lista. IMC México revisa tu permiso de anunciante y el contenido antes de autorizar cualquier publicación."),
             "guia-de-fotos": ("Una buena ficha comienza con tus fotos", "Fotografía la máquina completa con luz natural y desde varios ángulos. Incluye detalles de accesorios, desgaste y defectos conocidos. Si tienes una placa, toma la fotografía de frente y sin reflejos e indica si pertenece a la máquina, al motor u otro componente. No necesitas una placa para comenzar. No subas identificaciones personales ni documentos con datos sensibles salvo solicitud privada justificada."),
             "preguntas-frecuentes": ("Preguntas frecuentes", "¿Puedo empezar sin saber el año o la serie? Sí. Los datos desconocidos pueden dejarse vacíos.\n\n¿La IA certifica mi equipo? No. Organiza información visible y propone un borrador que debes revisar.\n\n¿Enviar equivale a publicar? No. IMC México revisa al anunciante y la solicitud; la difusión requiere una autorización separada.\n\n¿Puedo regresar después? Sí. Los borradores guardados permanecen en tu panel.\n\n¿Qué imágenes se publican? Sólo las autorizadas por IMC en la versión aprobada. Las placas y los documentos permanecen privados."),
             "privacidad": ("Aviso de privacidad · pendiente de validación", "Documento de trabajo pendiente de validación jurídica y de identificación formal del responsable por IMC México. Esta plataforma utiliza los datos de cuenta y contacto para gestionar acceso, borradores, solicitudes y atención. Las fotografías se conservan privadas salvo autorización expresa de difusión. El análisis asistido envía a OpenAI únicamente las imágenes seleccionadas con tu consentimiento. Puedes solicitar acceso, corrección, exportación o eliminación de tus datos desde Perfil y seguridad. Las finalidades comerciales adicionales requieren consentimiento independiente. IMC debe completar responsable, domicilio, contacto de privacidad, transferencias, plazos y procedimientos aplicables antes de habilitar el registro público."),
@@ -70,6 +71,11 @@ class Command(BaseCommand):
         }
         for key, (title, body) in pages.items():
             SiteContent.objects.get_or_create(key=key, defaults={"title": title, "body": body})
+        # Upgrade only the untouched, active installation text. The predicate is
+        # part of the UPDATE so a concurrent administrator edit is preserved.
+        title, body = pages["como-funciona"]
+        SiteContent.objects.filter(key="como-funciona", active=True,
+                                   title=legacy_how_it_works[0], body=legacy_how_it_works[1]).update(title=title, body=body)
         SiteContent.objects.get_or_create(key="home-hero",defaults={"title":"Buenas fotos.\nUna ficha clara.\nEl siguiente paso.","body":"Sube tus fotografías. Te ayudamos a preparar la descripción y la ficha para enviarla a IMC México.","active":False})
         templates={
             "submission":("$folio: solicitud recibida","Hola $name. Recibimos $title para revisión. Enviar una solicitud no equivale a publicar. Consulta tu avance: $portal_url"),
@@ -84,4 +90,4 @@ class Command(BaseCommand):
         }
         for key,(subject,body) in templates.items():
             NotificationTemplate.objects.get_or_create(key=key,defaults={"subject":subject,"body":body})
-        self.stdout.write(self.style.SUCCESS("Datos iniciales creados sin modificar contenidos ni permisos existentes."))
+        self.stdout.write(self.style.SUCCESS("Datos iniciales preparados; contenido personalizado y permisos existentes conservados."))

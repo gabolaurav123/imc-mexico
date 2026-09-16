@@ -1,0 +1,10 @@
+{
+  "name": "imc-mexico-ui-tests",
+  "private": true,
+  "scripts": {
+    "test:ui": "node portal/tests/catalog_dom_test.cjs && node portal/tests/quick_intake_dom_test.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "29.1.1"
+  }
+}

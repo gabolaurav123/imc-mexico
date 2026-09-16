@@ -75,10 +75,14 @@ detecta múltiples valores candidatos de un mismo campo. Structured Outputs vali
 la estructura, no la verdad de la lectura: toda sugerencia requiere revisión humana.
 
 Los resultados quedan en `AnalysisJob.result`, con `data` y `provenance` como mapas
-de campos aplicables. Nunca modifican automáticamente `Machine`. La aceptación de
-campos seleccionados es una operación explícita del usuario y conserva su origen.
-El trabajo guarda una instantánea de la entrada: cambios posteriores del usuario
-no alteran un análisis ya encolado.
+de campos aplicables. El flujo rápido solicita `auto_apply` al pulsar «Preparar mi
+ficha», junto al aviso de procesamiento de imágenes. El worker completa el borrador
+privado y conserva el origen y estado de lectura de la IA, sin marcarlo como
+confirmación humana. Los cambios del usuario y los campos desconocidos se conservan.
+El trabajo guarda una instantánea de entrada y registra el resultado de aplicación
+para evitar aplicar el mismo análisis dos veces. El envío y la publicación no se
+activan al completar el análisis. La API anterior de selección explícita permanece
+compatible para clientes anteriores.
 
 ## Cola persistente y consumo
 

@@ -100,323 +100,341 @@
   if (!wizard) return;
   let state;
   try { state = JSON.parse($('#machine-state').textContent); if (typeof state === 'string') state = JSON.parse(state); }
-  catch { $('#wizard-errors').textContent = 'No pudimos cargar los datos del borrador. Recarga esta página antes de editar.'; $('#wizard-errors').hidden = false; return; }
+  catch { $('#wizard-errors').textContent = 'No pudimos cargar el borrador. Recarga antes de editar.'; $('#wizard-errors').hidden = false; return; }
   state.data ||= {}; state.provenance ||= {};
   const base = `/api/maquinarias/${wizard.dataset.machine}/`;
-  const editable = wizard.dataset.editable === 'true';
-  let dirty = false, editSequence = 0, savedSequence = 0, saveTimer, saving = null, conflict = false;
-  let uploadCount = 0, activeJob = null, pollTimer, pendingMode = 'analysis', currentStep = 1;
+  let editable = wizard.dataset.editable === 'true';
+  const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set();
+  let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
+  let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false;
+  let activeJob = null, pollTimer, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
-  const keyLabels = { title: 'Título', description: 'Descripción', brand: 'Marca', model: 'Modelo', year: 'Año', serial: 'Número de serie', hours: 'Horas de uso', category: 'Categoría', location: 'Ubicación', condition: 'Condición', plate_kind: 'La placa corresponde a', plate_transcription: 'Texto de la placa', price: 'Precio', currency: 'Moneda', notes: 'Comentarios', contact_public: 'Contacto autorizado', power: 'Potencia declarada', weight: 'Peso declarado', capacity: 'Capacidad declarada', dimensions: 'Dimensiones', fuel: 'Combustible', kilometers: 'Kilometraje', attachments: 'Accesorios', engine: 'Motor', transmission: 'Transmisión' };
-  const sourceLabels = { image: 'Imagen', plate: 'Placa', user: 'Declaración del usuario', external: 'Fuente externa', visual: 'Propuesta visual', visual_proposal: 'Propuesta visual', user_declared: 'Declaración del usuario', unknown: 'Sin identificar' };
-  const reviewLabels = { clear: 'Lectura clara', pending: 'Necesita revisión', needs_review: 'Necesita revisión', confirmed: 'Confirmado por el usuario', unreadable: 'No identificable', needs_confirmation: 'Necesita confirmación' };
-  function problem(message) { errorBox.textContent = message; errorBox.hidden = false; errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+  const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión' };
+  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar' };
+  const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
+  const missing = value => value === undefined || value === null || value === '';
+  const fieldValue = (snapshot,key) => key === 'title' || key === 'category' ? snapshot[key] : snapshot.data?.[key];
+  function problem(message) { errorBox.textContent = message; errorBox.hidden = false; errorBox.scrollIntoView({behavior:'smooth',block:'nearest'}); }
   function clearProblem() { errorBox.hidden = true; errorBox.textContent = ''; }
-  function markSave(message, status = 'saved') { saveStatus.textContent = message; saveStatus.dataset.state = status; saveRetry.hidden = status !== 'error' || conflict; }
+  function markSave(message,status='saved') { saveStatus.textContent = message; saveStatus.dataset.state = status; saveRetry.hidden = status !== 'error' || conflict; }
   function readInput(input) { if (input.type === 'checkbox') return input.checked; const value = input.value.trim(); return value === '' ? null : value; }
   function collect() {
-    const payload = { revision: state.revision, title: state.title, category: state.category, data: { ...state.data }, provenance: { ...state.provenance } };
-    $$('[data-field]', wizard).forEach(input => { payload.data[input.dataset.field] = readInput(input); });
-    $$('[data-top-field]', wizard).forEach(input => { payload[input.dataset.topField] = readInput(input); });
-    return payload;
+    const value = { revision:state.revision,title:state.title,category:state.category,data:{...state.data},provenance:{...state.provenance} };
+    $$('[data-field]',wizard).forEach(input => { value.data[input.dataset.field] = readInput(input); });
+    $$('[data-top-field]',wizard).forEach(input => { value[input.dataset.topField] = readInput(input); });
+    for (const [key,entry] of pending) {
+      if (key === 'title' || key === 'category') value[key] = entry.value; else value.data[key] = entry.value;
+      value.provenance[key] = {source:'user',review:'confirmed'};
+    }
+    return value;
   }
   function changed(event) {
-    if (!editable || conflict) return;
-    dirty = true; editSequence++;
+    if (!editable || submitting) return;
     const input = event.target, key = input.dataset.field || input.dataset.topField;
-    if (key) state.provenance[key] = { source: 'user', review: 'confirmed' };
-    markSave('Cambios pendientes', 'pending'); clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { save().catch(() => {}); }, 850);
+    if (!key) return;
+    pending.set(key,{value:readInput(input),sequence:++sequence});
+    renderPreview();
+    if (conflict) return;
+    markSave('Cambios pendientes','pending'); clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => save().catch(() => {}),850);
+  }
+  function bindInput(input) {
+    input.addEventListener('input',changed);
+    if (input.tagName === 'SELECT' || input.type === 'checkbox') input.addEventListener('change',changed);
+  }
+  function isOwnAutoAdvance(snapshot,metadata,revision=state.revision) {
+    return metadata?.status === 'applied' && Number(metadata.revision_before) === Number(revision) && Number(metadata.revision_after) === Number(snapshot?.revision) && Number(snapshot.revision) > Number(revision);
+  }
+  function hydrate(snapshot) {
+    if (!snapshot || Number(snapshot.revision) < Number(state.revision)) return false;
+    state = {...state,...snapshot,data:{...(snapshot.data || {})},provenance:{...(snapshot.provenance || {})}};
+    $$('[data-top-field]',wizard).forEach(input => { if (!pending.has(input.dataset.topField)) input.value = state[input.dataset.topField] ?? ''; });
+    categoryFields();
+    $$('[data-field]',wizard).forEach(input => {
+      const key = input.dataset.field, value = pending.has(key) ? pending.get(key).value : state.data[key];
+      if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = value ?? (key === 'currency' ? 'MXN' : '');
+    });
+    // Catalog listens to this event; text-input change is not a user edit here.
+    $('#brand')?.dispatchEvent(new Event('change'));
+    if (snapshot.editable === false) { editable = false; lockEditing(); }
+    renderPreview(); return true;
+  }
+  async function rebaseOwnAnalysis(revision) {
+    if (!activeJob) return false;
+    try {
+      const job = await api(`/api/analisis/${activeJob}/`);
+      if (!isOwnAutoAdvance(job.machine,job.auto_apply,revision)) return false;
+      return hydrate(job.machine);
+    } catch { return false; }
   }
   async function save() {
     clearTimeout(saveTimer);
-    if (!editable || !dirty) return;
-    if (conflict) throw new Error('Este borrador cambió en otra sesión. Recarga antes de seguir.');
-    if (saving) { await saving; if (dirty) return save(); return; }
-    const sequence = editSequence, payload = collect();
-    // Submit visible category fields and shared fields; historical category-specific
-    // data remains on the server and must not make a category change invalid.
-    const sharedFields = ['brand','model','year','serial','hours','description','location','price','currency','condition','notes','contact_public','plate_transcription','plate_type','plate_kind','no_plate','kilometers','power','capacity','weight','dimensions','fuel','attachments','engine','transmission'];
-    const dataKeys = new Set([...sharedFields, ...$$('[data-field]', wizard).map(input => input.dataset.field)]);
-    payload.data = Object.fromEntries(Object.entries(payload.data).filter(([key]) => dataKeys.has(key)));
-    payload.provenance = Object.fromEntries(Object.entries(payload.provenance).filter(([key]) => dataKeys.has(key) || key === 'title' || key === 'category'));
-    markSave('Guardando…', 'pending');
+    if (!editable || !pending.size) return;
+    if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios en esta pestaña.');
+    if (assetMutation) await assetMutation;
+    if (saving) { await saving; if (pending.size) return save(); return; }
     saving = (async () => {
-      try {
-        const result = await api(`${base}guardar/`, payload);
-        state.revision = result.revision; state.title = payload.title; state.category = payload.category;
-        state.data = { ...state.data, ...payload.data };
-        savedSequence = sequence; dirty = editSequence !== sequence;
-        if (!dirty) markSave('Guardado'); else markSave('Cambios pendientes', 'pending');
-      } catch (error) {
-        dirty = true;
-        if (error.status === 409) {
-          conflict = true; problem('Este borrador cambió en otra pestaña o durante un proceso. Copia los cambios que quieras conservar y recarga la página para consultar la versión actual. No se han sobrescrito tus datos.');
+      let recovered = false;
+      while (pending.size) {
+        const sent = new Map(pending), payload = {revision:state.revision,data:{},provenance:{}};
+        for (const [key,entry] of sent) {
+          if (key === 'title' || key === 'category') payload[key] = entry.value; else payload.data[key] = entry.value;
+          payload.provenance[key] = {source:'user',review:'confirmed'};
         }
-        markSave(navigator.onLine ? 'No se guardó. Reintenta.' : 'Sin conexión · pendiente', 'error');
-        if (error.status !== 409) problem(error.message);
-        throw error;
-      } finally { saving = null; }
+        markSave('Guardando…','pending');
+        try {
+          const result = await api(`${base}guardar/`,payload);
+          for (const [key,entry] of sent) {
+            const unchanged = String(fieldValue(state,key) ?? '') === String(entry.value ?? '');
+            const previous = state.provenance[key];
+            if (key === 'title' || key === 'category') state[key] = entry.value; else state.data[key] = entry.value;
+            state.provenance[key] = unchanged && previous ? {...previous,review:'confirmed'} : {source:'user',review:'confirmed'};
+            if (pending.get(key)?.sequence === entry.sequence) pending.delete(key);
+          }
+          state.revision = result.revision;
+          markSave(pending.size ? 'Cambios pendientes' : 'Guardado',pending.size ? 'pending' : 'saved');
+        } catch (error) {
+          if (error.status === 409 && !recovered && await rebaseOwnAnalysis(payload.revision)) { recovered = true; continue; }
+          if (error.status === 409) {
+            conflict = true;
+            problem('Este borrador cambió en otra pestaña. Tus correcciones siguen aquí y no se sobrescribieron. Copia lo que quieras conservar y recarga para consultar la versión actual.');
+          } else problem(error.message);
+          markSave(navigator.onLine ? 'No se guardó. Reintenta.' : 'Sin conexión · pendiente','error');
+          throw error;
+        }
+      }
     })();
-    await saving;
-    if (dirty && !conflict) return save();
+    try { await saving; } finally { saving = null; }
   }
-  $$('[data-field],[data-top-field]', wizard).forEach(input => {
-    input.addEventListener('input', changed);
-    if (input.tagName === 'SELECT' || input.type === 'checkbox') input.addEventListener('change', changed);
-  });
-  saveRetry.addEventListener('click', () => { clearProblem(); save().catch(() => {}); });
-  addEventListener('online', () => { if (dirty && !conflict) save().catch(() => {}); });
-  addEventListener('beforeunload', event => { if (dirty || saving || uploadCount) { event.preventDefault(); event.returnValue = ''; } });
-  $('#save-exit').addEventListener('click', async event => {
+  $$('[data-field],[data-top-field]',wizard).forEach(bindInput);
+  saveRetry.addEventListener('click',() => { clearProblem(); save().catch(() => {}); });
+  addEventListener('online',() => { if (pending.size && !conflict) save().catch(() => {}); });
+  addEventListener('beforeunload',event => { if (pending.size || saving || uploadCount || uploadFailures.size || submitting) { event.preventDefault(); event.returnValue = ''; } });
+  $('#save-exit').addEventListener('click',async event => {
     event.preventDefault();
-    if (uploadCount) return problem('Espera a que termine la carga de tus archivos antes de salir.');
-    try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep the unsaved form visible. */ }
+    if (submitting) return problem('Espera a que termine el envío de tu ficha.');
+    if (uploadCount || uploadFailures.size) return problem('Termina la carga o descarta los archivos que no pudieron subir antes de salir.');
+    try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep local corrections visible. */ }
   });
   beforePreferencesReload = async () => {
-    if (uploadCount) return false;
+    if (submitting || uploadCount || uploadFailures.size) return false;
     try { await save(); return true; } catch { return false; }
   };
-  function displayStep(step, scroll = true) {
-    currentStep = Math.min(5, Math.max(1, Number(step) || 1));
-    $$('[data-step-panel]', wizard).forEach(panel => { panel.hidden = Number(panel.dataset.stepPanel) !== currentStep; });
-    $$('[data-step-to]', $('.wizard-progress')).forEach(button => {
-      if (Number(button.dataset.stepTo) === currentStep) button.setAttribute('aria-current', 'step');
-      else button.removeAttribute('aria-current');
-    });
-    $('#step-prev').hidden = currentStep === 1; $('#step-next').hidden = currentStep === 5;
-    const url = new URL(location.href); url.searchParams.set('paso', currentStep); history.replaceState(null, '', url);
-    if (currentStep === 2) renderAnalysisAssets();
-    if (currentStep === 5) renderPreview();
-    if (scroll) $('.wizard-progress').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  function displayStep(step,scroll=true) {
+    currentStep = Number(step) > 1 ? 2 : 1;
+    $$('[data-step-panel]',wizard).forEach(panel => { panel.hidden = Number(panel.dataset.stepPanel) !== currentStep; });
+    $$('.wizard-progress [data-step-to]',wizard).forEach(button => { if (Number(button.dataset.stepTo) === currentStep) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current'); });
+    $('#step-prev').hidden = currentStep === 1;
+    const url = new URL(location.href); url.searchParams.set('paso',currentStep); url.searchParams.delete('step'); history.replaceState(null,'',url);
+    if (currentStep === 2) renderPreview();
+    if (scroll) $('.wizard-progress').scrollIntoView({behavior:'smooth',block:'start'});
   }
-  $$('[data-step-to]', wizard).forEach(button => button.addEventListener('click', () => displayStep(button.dataset.stepTo)));
-  $('#step-prev').addEventListener('click', () => displayStep(currentStep - 1));
-  $('#step-next').addEventListener('click', () => displayStep(currentStep + 1));
-  const initialStep = new URL(location.href).searchParams.get('paso') || wizard.dataset.step;
-  displayStep(initialStep, false);
-
-  function updateRevision(result) { if (result.revision !== undefined) state.revision = result.revision; }
-  const purposeLabels = { general: 'Vista general', detail: 'Detalle', plate: 'Placa · privada', document: 'Documento · privado' };
+  $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => displayStep(button.dataset.stepTo)));
+  $('#step-prev').addEventListener('click',() => displayStep(1));
+  function updateRevision(result) { if (result.revision !== undefined) state.revision = Math.max(Number(state.revision),Number(result.revision)); }
+  async function mutateAsset(action) {
+    while (assetMutation) await assetMutation;
+    await save();
+    while (assetMutation) await assetMutation;
+    let release;
+    assetMutation = new Promise(resolve => { release = resolve; });
+    try { const result = await action(); updateRevision(result); return result; }
+    finally { assetMutation = null; release(); if (pending.size && !conflict) saveTimer = setTimeout(() => save().catch(() => {}),0); }
+  }
+  function assetSummary(card) {
+    const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
+  }
   function assetActionButtons(card) {
-    $$('[data-asset-action]', card).forEach(button => button.addEventListener('click', async () => {
-      if (!editable || button.disabled) return;
+    $$('[data-asset-action]',card).forEach(button => { button.disabled = !editable || submitting; button.addEventListener('click',async () => {
+      if (!editable || preparing || submitting || button.disabled) return;
       const action = button.dataset.assetAction;
       if (action === 'delete' && !confirm('¿Eliminar este archivo del borrador?')) return;
       button.disabled = true;
       try {
-        await save();
-        const result = await api(`/api/archivos/${card.dataset.assetId}/accion/`, { action }); updateRevision(result);
+        await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action}));
         if (action === 'delete') card.remove();
-        if (action === 'cover') { $$('.asset-cover', wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover', card).hidden = false; }
-        if (action === 'up' && card.previousElementSibling) card.parentNode.insertBefore(card, card.previousElementSibling);
-        if (action === 'down' && card.nextElementSibling) card.parentNode.insertBefore(card.nextElementSibling, card);
-        renderAnalysisAssets(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
+        if (action === 'cover') { $$('.asset-cover',wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover',card).hidden = false; }
+        if (action === 'up' && card.previousElementSibling) card.parentNode.insertBefore(card,card.previousElementSibling);
+        if (action === 'down' && card.nextElementSibling) card.parentNode.insertBefore(card.nextElementSibling,card);
+        renderPreview(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
       } catch (error) { problem(error.message); }
-      finally { button.disabled = false; }
-    }));
-    const purposeSelect = el('select', 'asset-purpose'); purposeSelect.setAttribute('aria-label', 'Tipo de archivo'); purposeSelect.disabled = !editable;
-    for (const [value, label] of Object.entries(purposeLabels)) { const option = el('option', '', label); option.value = value; option.selected = value === card.dataset.purpose; purposeSelect.append(option); }
-    purposeSelect.addEventListener('change', async () => {
-      const previous = card.dataset.purpose; purposeSelect.disabled = true;
-      try {
-        await save(); const result = await api(`/api/archivos/${card.dataset.assetId}/accion/`, { action: 'purpose', purpose: purposeSelect.value }); updateRevision(result);
-        card.dataset.purpose = purposeSelect.value;
-        $('.asset-info>.small', card).textContent = purposeLabels[purposeSelect.value];
-        renderAnalysisAssets(); toast('Tipo de archivo guardado. Se revisará su privacidad antes de difundirlo.');
-      } catch (error) { purposeSelect.value = previous; problem(error.message); }
-      finally { purposeSelect.disabled = !editable; }
+      finally { button.disabled = !editable || submitting; }
+    }); });
+    const select = el('select','asset-purpose'); select.setAttribute('aria-label','Tipo de archivo'); select.disabled = !editable || submitting;
+    for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
+    select.addEventListener('change',async () => {
+      const previous = card.dataset.purpose; if (preparing || submitting) { select.value = previous; return; } select.disabled = true;
+      try { await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); renderPreview(); }
+      catch (error) { select.value = previous; problem(error.message); }
+      finally { select.disabled = !editable || submitting; }
     });
-    $('.asset-info', card).append(purposeSelect);
+    $('.asset-info',card).append(select);
   }
-  $$('.asset-card', wizard).forEach(assetActionButtons);
+  $$('.asset-card',wizard).forEach(assetActionButtons);
   function appendAsset(result) {
-    if ($$('.asset-card', wizard).some(card => card.dataset.assetId === String(result.id))) return;
-    const card = el('article', 'asset-card'); card.dataset.assetId = result.id; card.dataset.kind = result.kind; card.dataset.purpose = result.purpose;
-    const preview = el('div', 'asset-preview');
-    const url = result.url || `/archivos/${result.id}/`;
+    if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(result.id))) return;
+    const card = el('article','asset-card'); card.dataset.assetId = result.id; card.dataset.kind = result.kind; card.dataset.purpose = result.purpose;
+    const preview = el('div','asset-preview'), url = result.url || `/archivos/${result.id}/`;
     if (result.kind === 'video') { const video = el('video'); video.src = url; video.controls = true; video.preload = 'metadata'; preview.append(video); }
-    else { const link = el('a'); link.href = `/archivos/${result.id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; const img = el('img'); img.src = url; img.alt = 'Fotografía de tu maquinaria'; img.loading = 'lazy'; link.append(img); preview.append(link); }
-    const cover = el('span', 'tag asset-cover', 'PORTADA'); cover.hidden = !result.is_cover; preview.append(cover);
-    const info = el('div', 'asset-info'); info.append(el('span', 'small', purposeLabels[result.purpose] || 'Archivo'));
-    const actions = el('div', 'asset-actions');
-    for (const [action, label, symbol] of [['cover', 'Usar como portada', '☆'], ['up', 'Mover antes', '←'], ['down', 'Mover después', '→'], ['delete', 'Eliminar archivo', '×']]) {
-      const button = el('button', '', symbol); button.type = 'button'; button.dataset.assetAction = action; button.setAttribute('aria-label', label); button.title = label; actions.append(button);
-    }
-    info.append(actions); card.append(preview, info); $('#asset-grid').append(card); assetActionButtons(card);
+    else { const link = el('a'); link.href = `/archivos/${result.id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; const image = el('img'); image.src = url; image.alt = 'Fotografía de tu maquinaria'; image.loading = 'lazy'; link.append(image); preview.append(link); }
+    const cover = el('span','tag asset-cover','PORTADA'); cover.hidden = !result.is_cover; preview.append(cover);
+    const info = el('details','asset-info'), summary = el('summary'), actions = el('div','asset-actions');
+    for (const [action,label,symbol] of [['cover','Usar como portada','☆'],['up','Mover antes','←'],['down','Mover después','→'],['delete','Eliminar archivo','×']]) { const button = el('button','',symbol); button.type = 'button'; button.dataset.assetAction = action; button.setAttribute('aria-label',label); button.title = label; actions.append(button); }
+    info.append(summary,actions); card.append(preview,info); $('#asset-grid').append(card); assetSummary(card); assetActionButtons(card); renderPreview();
   }
-  function sendFile(file, purpose, row) {
-    return new Promise((resolve, reject) => {
-      const progress = $('progress', row), label = $('.upload-message', row);
-      const xhr = new XMLHttpRequest(); xhr.open('POST', `${base}archivos/`); xhr.withCredentials = true;
-      xhr.setRequestHeader('X-CSRFToken', csrf()); xhr.setRequestHeader('Accept', 'application/json'); xhr.timeout = 300000;
-      xhr.upload.addEventListener('progress', event => {
-        if (event.lengthComputable) { progress.max = event.total; progress.value = event.loaded; label.textContent = event.loaded === event.total ? 'Transferencia completa. Esperando validación del servidor…' : `${Math.round(event.loaded / event.total * 100)}% transferido`; }
-      });
-      xhr.addEventListener('load', () => {
-        let result; try { result = JSON.parse(xhr.responseText); } catch { reject(new Error('No recibimos una respuesta válida. Tu sesión puede haber expirado.')); return; }
-        if (xhr.status < 200 || xhr.status >= 300) reject(new Error(result.error || 'No se pudo recibir este archivo.'));
-        else resolve(result);
-      });
-      xhr.addEventListener('error', () => reject(new Error('La carga se interrumpió. Conservamos el archivo en esta pestaña para que puedas reintentar.')));
-      xhr.addEventListener('timeout', () => reject(new Error('La conexión tardó demasiado. Puedes reintentar este archivo.')));
-      const form = new FormData(); form.append('file', file); form.append('purpose', purpose); xhr.send(form);
+  function sendFile(file,purpose,row) {
+    return new Promise((resolve,reject) => {
+      const progress = $('progress',row), label = $('.upload-message',row);
+      const xhr = new XMLHttpRequest(); xhr.open('POST',`${base}archivos/`); xhr.withCredentials = true; xhr.timeout = 300000;
+      xhr.setRequestHeader('X-CSRFToken',csrf()); xhr.setRequestHeader('Accept','application/json');
+      xhr.upload.addEventListener('progress',event => { if (event.lengthComputable) { progress.max = event.total; progress.value = event.loaded; label.textContent = event.loaded === event.total ? 'Validando el archivo…' : `${Math.round(event.loaded / event.total * 100)}% transferido`; } });
+      xhr.addEventListener('load',() => { let result; try { result = JSON.parse(xhr.responseText); } catch { reject(new Error('Respuesta no válida. Conservamos el archivo para reintentar.')); return; } if (xhr.status < 200 || xhr.status >= 300) reject(new Error(result.error || 'No se pudo recibir este archivo.')); else resolve(result); });
+      xhr.addEventListener('error',() => reject(new Error('Se interrumpió la carga. Puedes reintentar este archivo.')));
+      xhr.addEventListener('timeout',() => reject(new Error('La conexión tardó demasiado. Puedes reintentar este archivo.')));
+      const form = new FormData(); form.append('file',file); form.append('purpose',purpose); xhr.send(form);
     });
   }
-  let fileChain = Promise.resolve();
   function queueFiles(files) {
     if (!editable) return;
+    if (preparing || submitting) return problem('Espera a que termine la preparación o el envío antes de agregar más archivos.');
     for (const file of files) {
       const purpose = $('#upload-purpose').value;
-      const row = el('div', 'upload-item'), top = el('div', 'upload-item-top'), name = el('strong', '', file.name), message = el('span', 'upload-message', 'En espera de carga…');
-      const progress = el('progress'); progress.max = 100; progress.value = 0; progress.setAttribute('aria-label', `Carga de ${file.name}`);
-      const retry = el('button', 'link-button small', 'Reintentar'); retry.type = 'button'; retry.hidden = true;
-      top.append(name, retry); row.append(top, progress, message); $('#upload-queue').append(row);
-      const isVideo = file.type.startsWith('video/') || /\.(mov|mp4)$/i.test(file.name);
-      const maxMb = Number(isVideo ? wizard.dataset.maxVideoMb : wizard.dataset.maxImageMb);
-      if (file.size > maxMb * 1024 * 1024) { message.textContent = `El archivo supera el límite de ${maxMb} MB. Elige una versión más pequeña.`; row.classList.add('error-text'); progress.hidden = true; continue; }
+      const row = el('div','upload-item'), top = el('div','upload-item-top'), message = el('span','upload-message','En espera de carga…'), progress = el('progress');
+      progress.max = 100; progress.value = 0; progress.setAttribute('aria-label',`Carga de ${file.name}`);
+      const controls = el('div','button-row'), retry = el('button','link-button small','Reintentar'), omit = el('button','link-button small','Descartar'); retry.type = omit.type = 'button'; retry.hidden = omit.hidden = true;
+      controls.append(retry,omit); top.append(el('strong','',file.name),controls); row.append(top,progress,message); $('#upload-queue').append(row);
+      const isVideo = file.type.startsWith('video/') || /\.(mov|mp4)$/i.test(file.name), maxMb = Number(isVideo ? wizard.dataset.maxVideoMb : wizard.dataset.maxImageMb);
+      omit.addEventListener('click',() => { uploadFailures.delete(row); row.remove(); });
+      if (file.size > maxMb * 1024 * 1024) { uploadFailures.add(row); message.textContent = `Supera ${maxMb} MB. Elige un archivo más pequeño o descártalo.`; row.classList.add('error-text'); progress.hidden = true; omit.hidden = false; continue; }
       async function attempt() {
-        uploadCount++; retry.hidden = true; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
-        try {
-          await save(); const result = await sendFile(file, purpose, row); updateRevision(result);
-          appendAsset(result); message.textContent = result.processing_status === 'pending' ? 'Recibido. El servidor está preparando el archivo.' : 'Archivo recibido y verificado.';
-          progress.hidden = true; renderAnalysisAssets();
-        } catch (error) { message.textContent = error.message; row.classList.add('error-text'); retry.hidden = false; progress.hidden = true; }
+        uploadFailures.delete(row); retry.hidden = omit.hidden = true; progress.hidden = false; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
+        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido y verificado.'; progress.hidden = true; }
+        catch (error) { uploadFailures.add(row); message.textContent = error.message; row.classList.add('error-text'); retry.hidden = omit.hidden = false; progress.hidden = true; }
         finally { uploadCount--; }
       }
-      retry.addEventListener('click', () => { progress.hidden = false; fileChain = fileChain.then(attempt); });
-      fileChain = fileChain.then(attempt);
+      function enqueue() { uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); }
+      retry.addEventListener('click',enqueue); enqueue();
     }
   }
-  $$('[data-file-open]', wizard).forEach(button => button.addEventListener('click', () => $(`#${button.dataset.fileOpen}`).click()));
-  for (const input of [$('#gallery-input'), $('#camera-input')]) input.addEventListener('change', () => { queueFiles([...input.files]); input.value = ''; });
+  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting) $(`#${button.dataset.fileOpen}`).click(); }));
+  for (const input of [$('#gallery-input'),$('#camera-input')]) input.addEventListener('change',() => { queueFiles([...input.files]); input.value = ''; });
   const drop = $('#drop-zone');
-  for (const name of ['dragenter', 'dragover']) drop.addEventListener(name, event => { event.preventDefault(); drop.classList.add('drag-over'); });
-  for (const name of ['dragleave', 'drop']) drop.addEventListener(name, event => { event.preventDefault(); drop.classList.remove('drag-over'); });
-  drop.addEventListener('drop', event => queueFiles([...event.dataTransfer.files]));
-
-  function renderAnalysisAssets() {
-    const target = $('#analysis-assets'); const previous = new Map($$('input', target).map(input => [input.value, input.checked])); target.replaceChildren();
-    for (const card of $$('.asset-card[data-kind=image]', wizard)) {
-      const label = el('label', 'analysis-choice'), input = el('input'); input.type = 'checkbox'; input.value = card.dataset.assetId; input.checked = previous.has(input.value) ? previous.get(input.value) : card.dataset.purpose !== 'document'; input.disabled = !editable;
-      const img = el('img'); img.src = `/archivos/${card.dataset.assetId}/`; img.alt = purposeLabels[card.dataset.purpose] || 'Fotografía';
-      label.append(img, input, el('span', '', purposeLabels[card.dataset.purpose] || 'Fotografía')); target.append(label);
-    }
-    if (!target.children.length) target.append(el('p', 'small muted', 'Agrega al menos una imagen en el paso Fotografías o continúa con la edición manual.'));
+  for (const name of ['dragenter','dragover']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.add('drag-over'); });
+  for (const name of ['dragleave','drop']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.remove('drag-over'); });
+  drop.addEventListener('drop',event => queueFiles([...event.dataTransfer.files]));
+  async function uploadsReady() { while (uploadCount) await fileChain; if (assetMutation) await assetMutation; if (uploadFailures.size) throw new Error('Hay archivos que no pudieron subir. Reinténtalos o descártalos para continuar.'); }
+  function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; }
+  async function syncSnapshot(job) {
+    if (saving) { try { await saving; } catch { return job; } }
+    if (assetMutation) await assetMutation;
+    if (job.machine && Number(job.machine.revision) < Number(state.revision)) job = await api(`/api/analisis/${job.id}/`);
+    if (!conflict && job.machine && (!pending.size || Number(job.machine.revision) === Number(state.revision) || isOwnAutoAdvance(job.machine,job.auto_apply))) hydrate(job.machine);
+    return job;
   }
-  function analysisStatus(message, status) { const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status || ''; }
-  let analysisStartedAt = 0;
+  async function completedJob(job) {
+    job = await syncSnapshot(job);
+    // A previous, already consented analysis can fill blanks without a second AI call.
+    if (editable && !conflict && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
+      legacyAttempts.add(job.id);
+      try { await save(); const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
+      catch (error) { analysisStatus(`${error.message} Puedes completar tu ficha manualmente.`,'failed'); renderResults(job); return; }
+    }
+    renderResults(job);
+    const metadata = job.auto_apply || {}, count = metadata.applied_fields?.length || 0;
+    const message = metadata.status === 'skipped' ? 'Conservamos tus datos. Las fotos o la ficha cambiaron durante la lectura; puedes editar la información o volver a prepararla con las fotos actuales.' : count ? `Ficha preparada. Completamos ${count} dato${count === 1 ? '' : 's'} disponible${count === 1 ? '' : 's'} y conservamos tus correcciones.` : 'Tu ficha está lista para revisar. Conservamos la información que ya tenías; puedes completar los datos que falten.';
+    analysisStatus(message,'completed'); $('#ready-heading').textContent = 'Tu ficha está preparada.';
+    if (currentStep === 1 && !conflict) displayStep(2);
+  }
   async function pollJob(id) {
-    clearTimeout(pollTimer); activeJob = id; $('#analysis-resume').hidden = true;
+    if (polling) return;
+    clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(`/api/analisis/${id}/`);
-      if (job.status === 'completed') {
-        analysisStatus('Borrador preparado. Revisa las propuestas antes de incorporarlas.', 'completed'); renderResults(job.result || {}, id); $('#analyze-button').disabled = !editable; return;
+      if (job.status === 'completed') { jobPending = false; await completedJob(job); }
+      else if (job.status === 'failed') { jobPending = false; await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas: puedes completar la ficha manualmente o volver a intentarlo con otras imágenes.','failed'); $('#ready-heading').textContent = 'Completa tu ficha a tu ritmo.'; }
+      else {
+        jobPending = true;
+        analysisStatus(job.status === 'running' ? 'Estamos preparando tu ficha. Puedes ir indicando la ubicación; tus cambios se conservarán.' : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
+        if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes continuar manualmente o consultar su estado después.','queued'); }
+        else pollTimer = setTimeout(() => pollJob(id),2500);
       }
-      if (job.status === 'failed') {
-        analysisStatus(job.error || 'No se pudo completar el análisis. Tus archivos siguen guardados. Puedes editar manualmente o reintentar.', 'failed');
-        $('#analyze-button').disabled = !editable; return;
-      }
-      analysisStatus(job.status === 'running' ? 'Análisis en curso. Puedes continuar completando tu ficha.' : 'Archivos recibidos. El análisis está en espera de procesamiento.', 'running');
-      if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; analysisStatus('El análisis sigue pendiente en el servidor. Puedes cerrar esta página y consultar su estado después.', 'queued'); return; }
-      pollTimer = setTimeout(() => pollJob(id), 3500);
-    } catch (error) {
-      analysisStatus(`${error.message} Tus archivos siguen guardados.`, 'failed'); $('#analysis-resume').hidden = false; $('#analyze-button').disabled = !editable;
-    }
+    } catch (error) { jobPending = false; analysisStatus(`${error.message} Tus datos siguen aquí; puedes continuar manualmente.`,'failed'); $('#analysis-resume').hidden = false; }
+    finally { polling = false; prepareLabel(); }
   }
-  $('#analysis-resume').addEventListener('click', () => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
-  $('#analyze-button').addEventListener('click', async () => {
-    if (!editable) return;
-    clearProblem();
-    if (!$('#ai-consent').checked) return problem('Antes del análisis, confirma que autorizas el procesamiento de las imágenes seleccionadas mediante OpenAI.');
-    const assetIds = $$('input:checked', $('#analysis-assets')).map(input => input.value);
-    if (!assetIds.length && pendingMode === 'analysis') return problem('Selecciona al menos una fotografía para analizar. También puedes continuar con los datos manualmente.');
-    if (uploadCount) return problem('Espera a que termine la carga de los archivos seleccionados.');
-    $('#analyze-button').disabled = true;
-    try { await save(); const result = await api(`${base}analizar/`, { consent: true, asset_ids: assetIds, mode: pendingMode }); analysisStartedAt = Date.now(); await pollJob(result.id); }
-    catch (error) { analysisStatus(error.message, 'failed'); $('#analyze-button').disabled = false; }
+  $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
+  $('#analyze-button').addEventListener('click',async () => {
+    if (!editable || preparing || jobPending || polling || submitting) return;
+    preparing = true; clearProblem(); prepareLabel();
+    try {
+      await uploadsReady(); await save();
+      const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
+      if (!assetIds.length) throw new Error('Agrega una fotografía de la maquinaria o continúa con la ficha manualmente.');
+      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
+      activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
+      displayStep(2); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
+    } catch (error) { problem(error.message); analysisStatus('Puedes completar tu ficha manualmente. Tus datos y fotos recibidas siguen guardados.','failed'); }
+    finally { preparing = false; prepareLabel(); }
   });
-  $('#regenerate-description').addEventListener('click', () => {
-    pendingMode = 'description'; $('#analyze-button').textContent = 'Preparar una nueva descripción ✧'; displayStep(2);
-    analysisStatus('Revisa el consentimiento y solicita una nueva descripción. Tu texto actual se conservará hasta que aceptes la propuesta.', '');
-  });
-  function renderResults(result, jobId) {
-    const target = $('#analysis-results'); target.replaceChildren(); target.hidden = false;
-    target.append(el('p', 'eyebrow', 'PROPUESTAS PARA TU REVISIÓN'), el('h3', '', 'Elige qué incorporar.'), el('p', 'small muted', 'Ningún dato se incorpora automáticamente. Las correcciones que ya escribiste se conservarán salvo que elijas reemplazarlas.'));
-    for (const [key, title] of [['warnings', 'Observaciones'], ['questions', 'Por confirmar']]) if (Array.isArray(result[key]) && result[key].length) {
-      target.append(el('h4', '', title)); const list = el('ul'); result[key].forEach(item => list.append(el('li', '', typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list);
-    }
-    const proposed = result.data || { ...(result.title ? { title: result.title } : {}), ...(result.description ? { description: result.description } : {}) };
-    const current = collect();
-    for (const [key, value] of Object.entries(proposed)) {
-      if (value === null || value === undefined || value === '') continue;
-      const row = el('div', 'suggestion-row'), checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.value = key; checkbox.id = `suggestion-${key.replace(/[^a-zA-Z0-9_-]/g, '')}`; checkbox.disabled = !editable;
-      const label = el('label'); label.htmlFor = checkbox.id; label.append(el('strong', '', keyLabels[key] || key), el('p', '', typeof value === 'object' ? JSON.stringify(value) : String(value)));
-      const provenance = result.provenance?.[key] || {}, old = key === 'title' ? current.title : current.data[key];
-      label.append(el('small', '', `Origen: ${sourceLabels[provenance.source] || provenance.source || 'Propuesta de IA'} · ${reviewLabels[provenance.review] || 'Necesita revisión'}`));
-      if (old && String(old) !== String(value)) label.append(el('small', 'error-text', `Valor que tienes: ${old}. Al seleccionar esta propuesta, lo reemplazarás.`));
-      row.append(checkbox, label); target.append(row);
-    }
-    if (Array.isArray(result.plates) && result.plates.length) {
-      const details = el('details', 'more-details'); details.append(el('summary', '', 'Comparar la transcripción de las placas'));
-      result.plates.forEach(plate => {
-        details.append(el('p', 'small', `Componente: ${plate.component || 'Por confirmar'} · ${reviewLabels[plate.readability] || plate.readability || 'Necesita revisión'}`), el('pre', 'plate-text', plate.transcription || 'No identificable'));
-        if ($$('.asset-card', wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a', 'text-link small', 'Ampliar la placa original ↗'); link.href = `/archivos/${plate.asset_id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; details.append(link); }
-      }); target.append(details);
-    }
-    const apply = el('button', 'button button-navy', 'Incorporar los datos seleccionados →'); apply.type = 'button'; apply.disabled = !editable;
-    apply.addEventListener('click', async () => {
-      const fields = $$('.suggestion-row input:checked', target).map(input => input.value);
-      if (!fields.length) return toast('Selecciona al menos una propuesta para incorporarla.', true);
-      apply.disabled = true;
-      try { await save(); await api(`${base}aplicar/`, { job_id: jobId, fields, revision: state.revision }); dirty = false; const url = new URL(location.href); url.searchParams.set('paso', '3'); location.assign(url); }
-      catch (error) { problem(error.message); apply.disabled = false; }
-    }); target.append(apply);
+  function renderResults(job) {
+    const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
+    const wasOpen = target.open; target.replaceChildren(); target.hidden = false; target.open = wasOpen;
+    const observations = [...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : [])];
+    target.append(el('summary','',observations.length ? `Detalles de la lectura · ${observations.length} observaciones` : 'Detalles de la lectura con IA'),el('p','small muted','Los datos visibles se completan como lectura de IA, no como especificaciones certificadas. Puedes corregirlos en Editar información.'));
+    if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
+    if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }
+    const data = result.data || {};
+    const provenance = el('dl','analysis-provenance');
+    for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',keyLabels[key] || key),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }
+    if (provenance.children.length) target.append(provenance);
+    for (const plate of Array.isArray(result.plates) ? result.plates : []) { target.append(el('p','small',`Placa: ${plate.component || 'componente por identificar'}`),el('pre','plate-text',plate.transcription || 'No identificable')); if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a','text-link small','Ver placa original ↗'); link.href = `/archivos/${plate.asset_id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; target.append(link); } }
   }
   function renderPreview() {
-    const value = collect(); $('#preview-title').textContent = value.title || 'Título por completar';
-    $('#preview-description').textContent = value.data.description || 'Descripción pendiente de completar.';
-    const cover = $$('.asset-card', wizard).find(card => card.dataset.kind === 'image' && card.dataset.purpose !== 'plate' && card.dataset.purpose !== 'document' && !$('.asset-cover', card).hidden) || $$('.asset-card', wizard).find(card => card.dataset.kind === 'image' && card.dataset.purpose !== 'plate' && card.dataset.purpose !== 'document');
-    $('#preview-cover').replaceChildren();
-    if (cover) { const image = el('img'); image.src = `/archivos/${cover.dataset.assetId}/`; image.alt = 'Vista previa de tu maquinaria'; $('#preview-cover').append(image); }
+    const value = collect(); $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Tu maquinaria';
+    $('#preview-description').textContent = value.data.description || 'La descripción aparecerá aquí. Puedes añadirla en Editar información.';
+    const images = $$('.asset-card[data-kind=image]',wizard).filter(card => !['plate','document'].includes(card.dataset.purpose));
+    const cover = images.find(card => !$('.asset-cover',card).hidden) || images[0], coverBox = $('#preview-cover');
+    if (cover && $('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) { const image = el('img'); image.src = `/archivos/${cover.dataset.assetId}/`; image.dataset.assetId = cover.dataset.assetId; image.alt = 'Fotografía de tu maquinaria'; coverBox.replaceChildren(image); } else if (!cover) coverBox.replaceChildren();
     const specs = $('#preview-specs'); specs.replaceChildren();
-    for (const [label, text] of [['Marca', value.data.brand || 'No indicada'], ['Modelo', value.data.model || 'No indicado'], ['Año', value.data.year || 'No indicado'], ['Horas', value.data.hours || 'No indicadas'], ['Ubicación', value.data.location || 'Por completar'], ['Precio', value.data.price ? `${value.data.price} ${value.data.currency || 'MXN'}` : 'Consultar precio'], ['Condición declarada', value.data.condition || 'Por confirmar']]) { const row = el('div'); row.append(el('dt', '', label), el('dd', '', String(text))); specs.append(row); }
+    for (const [label,text] of [['Marca',value.data.brand],['Modelo',value.data.model],['Año',value.data.year],['Horas',value.data.hours]]) if (!missing(text)) { const row = el('div'); row.append(el('dt','',label),el('dd','',String(text))); specs.append(row); }
   }
-  $('#submit-machine').addEventListener('click', async () => {
-    if (!editable) return;
-    clearProblem();
-    if (!$('#advertise-consent').checked) return problem('Para enviar la solicitud debes autorizar a IMC México a revisar la maquinaria y confirmar que puedes ofrecerla.');
-    const value = collect();
-    if (!value.data.location) { problem('Completa la ubicación general en el paso Información antes de enviar.'); return; }
-    if (!value.title || value.title === 'Mi maquinaria') { problem('Añade un título que identifique tu maquinaria en el paso Revisar datos.'); return; }
-    if (!$('.asset-card[data-kind=image]', wizard)) { problem('Agrega al menos una fotografía útil antes de enviar.'); return; }
-    if (uploadCount) return problem('Espera a que termine la carga de todos tus archivos.');
+  function focusField(id) { displayStep(2); const input = $(`#${id}`); for (let parent = input.parentElement; parent && parent !== wizard; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true; setTimeout(() => input.focus(),0); }
+  $('#submit-machine').addEventListener('click',async () => {
+    if (!editable || submitting) return;
+    submitting = true; clearProblem(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
+    frozenControls.forEach(([control]) => { control.disabled = true; });
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
-    try { await save(); const result = await api(`${base}enviar/`, { advertise_consent: true, contact_consent: $('#contact-consent').checked }); dirty = false; location.assign(result.url || '/panel/solicitudes/'); }
-    catch (error) { problem(error.message); button.disabled = false; button.textContent = 'Enviar a revisión de IMC México ↗'; }
+    try {
+      await uploadsReady(); await save();
+      const value = collect();
+      if (!value.data.location) { focusField('location'); throw new Error('Indica la ciudad, estado y país donde está el equipo.'); }
+      if (!value.title || value.title === 'Mi maquinaria') { focusField('machine-title'); throw new Error('Escribe un nombre para identificar la maquinaria.'); }
+      if (!$('.asset-card[data-kind=image][data-purpose=general],.asset-card[data-kind=image][data-purpose=detail]',wizard)) { displayStep(1); throw new Error('Agrega al menos una fotografía general o de detalle antes de enviar.'); }
+      const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
+      pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
+    } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a IMC México ↗'; }
   });
-
   function categoryFields() {
-    const target = $('#category-fields'), source = $('#category-data');
-    if (!target || !source) return;
+    const target = $('#category-fields'), source = $('#category-data'); if (!target || !source) return;
     let categories; try { categories = JSON.parse(source.textContent); } catch { return; }
-    const category = categories.find(item => String(item.id) === $('#category').value);
-    target.replaceChildren();
-    const fields = category?.fields || [];
+    const category = categories.find(item => String(item.id) === $('#category').value); target.replaceChildren();
+    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission'];
+    const fields = [...(category?.fields || [])];
+    for (const key of technical) if (!missing(pending.has(key) ? pending.get(key).value : state.data[key]) && !fields.some(item => (typeof item === 'string' ? item : item.key || item.name) === key)) fields.push(key);
     for (const item of fields) {
-      const field = typeof item === 'string' ? { key: item, label: keyLabels[item] || item } : item;
-      const key = field.key || field.name;
-      if (!key || !/^[a-zA-Z0-9_]+$/.test(key) || $$('[data-field]', wizard).some(input => input.dataset.field === key)) continue;
-      const group = el('div', 'form-field'), label = el('label', '', `${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`); label.htmlFor = `extra-${key}`;
-      const input = el('input'); input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = state.data[key] ?? ''; input.disabled = !editable; input.maxLength = 500;
-      if (input.type === 'number') input.step = 'any'; input.addEventListener('input', changed); group.append(label, input); target.append(group);
+      const field = typeof item === 'string' ? {key:item,label:keyLabels[item] || item} : item, key = field.key || field.name;
+      if (!key || !/^[a-zA-Z0-9_]+$/.test(key) || $$('[data-field]',wizard).some(input => input.dataset.field === key)) continue;
+      const group = el('div','form-field'), label = el('label','',`${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`), input = el('input');
+      label.htmlFor = `extra-${key}`; input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = (pending.has(key) ? pending.get(key).value : state.data[key]) ?? ''; input.disabled = !editable || submitting; input.maxLength = 500; if (input.type === 'number') input.step = 'any'; bindInput(input); group.append(label,input); target.append(group);
     }
   }
-  $('#category')?.addEventListener('change', categoryFields); categoryFields();
-  if (!editable) $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button,#submit-machine,#regenerate-description', wizard).forEach(control => { control.disabled = true; });
-  const jobSource = $('#current-job');
-  if (jobSource) {
-    try { const job = JSON.parse(jobSource.textContent); activeJob = job.id; analysisStartedAt = Date.now(); if (job.status !== 'failed') pollJob(job.id); }
-    catch { /* An absent job does not block manual editing. */ }
-  }
+  function lockEditing() { $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button,#submit-machine',wizard).forEach(control => { control.disabled = true; }); }
+  $('#category')?.addEventListener('change',categoryFields); categoryFields();
+  if (!editable) lockEditing();
+  let initialJob = null;
+  try { if ($('#current-job')) initialJob = JSON.parse($('#current-job').textContent); } catch { /* Manual editing remains available. */ }
+  const params = new URL(location.href).searchParams, explicitStep = params.get('paso') || params.get('step');
+  displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
+  if (initialJob) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
+  prepareLabel(); renderPreview();
 })();

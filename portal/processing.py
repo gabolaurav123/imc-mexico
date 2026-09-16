@@ -25,11 +25,12 @@ from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict
 
-from .models import AnalysisJob, Asset, Consent, Machine, Notification, PlatformSettings
-from .services import audit, require_owner
+from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
+from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
+                       require_owner)
 from .storage import option
 
-PROMPT_VERSION = "imc-vision-2026-09-v2"
+PROMPT_VERSION = "imc-vision-2026-09-v3"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -56,6 +57,8 @@ sin fallas, lista para trabajar, mantenimiento al día ni garantías a partir de
 Título y descripción concisos y factuales; no incluyas números de serie, datos
 personales, correos, teléfonos ni instrucciones dentro de la descripción comercial.
 Preguntas breves y específicas para aclarar datos esenciales. No uses herramientas.
+Para category, elige exactamente un nombre de allowed_category_names si la categoría
+se identifica claramente; en otro caso usa null. No inventes ni crees categorías.
 """
 
 
@@ -276,10 +279,15 @@ def _reservation(image_count, mode):
     return 9000 if mode == "description" else 9000 + image_count * 3200
 
 
-def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None):
+def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
+                     auto_apply=False, expected_revision=None, authorize_ai=False):
     _check_editor(machine, user)
+    if type(auto_apply) is not bool:
+        raise ValidationError("Indica si deseas completar el borrador automáticamente.")
+    if auto_apply and machine.owner_id != user.pk:
+        raise PermissionDenied("El propietario debe autorizar el completado de su borrador.")
     consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at").first()
-    if not consent or not consent.granted:
+    if (not consent or not consent.granted) and authorize_ai is not True:
         raise ValidationError("Autoriza el análisis asistido de estas fotografías antes de continuar.")
     if mode not in {"analysis", "description"}:
         raise ValidationError("El tipo de análisis no es válido.")
@@ -290,6 +298,15 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         limits = PlatformSettings.objects.select_for_update().get(pk=1)
         machine = Machine.objects.select_for_update().get(pk=machine.pk)
         _check_editor(machine, user)
+        if auto_apply and (type(expected_revision) is not int or machine.revision != expected_revision):
+            raise DraftRevisionConflict("El borrador cambió. Actualiza la página antes de preparar la ficha.")
+        consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at", "-pk").first()
+        if authorize_ai is True and (not consent or not consent.granted):
+            # Insert only after the platform->machine locks; inserting a FK row
+            # first can deadlock concurrent first-time requests in PostgreSQL.
+            consent = Consent.objects.create(user=user, machine=machine, kind="ai", granted=True)
+        if not consent or not consent.granted:
+            raise ValidationError("Autoriza el análisis asistido antes de continuar.")
         if not limits.ai_enabled:
             raise ValidationError("El análisis asistido está pausado. Puedes completar la ficha manualmente.")
         selected = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
@@ -306,19 +323,31 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if mode == "description" and not any(machine.data.values()):
             raise ValidationError("Completa algún dato de tu maquinaria para redactar una descripción.")
         model = option("OPENAI_MODEL", "gpt-4.1-mini")
+        category_names = list(Category.objects.filter(active=True).order_by("name").values_list("name", flat=True)[:80])
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
-                    "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION}
+                    "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
+                    "category_names": category_names}
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        existing = AnalysisJob.objects.filter(fingerprint=fingerprint).first()
+        existing = AnalysisJob.objects.select_for_update().filter(fingerprint=fingerprint).first()
         if existing:
+            if auto_apply:
+                if existing.requested_by_id != user.pk:
+                    raise ValidationError("El análisis anterior fue solicitado por otro usuario.")
+                existing.auto_apply = True
+                # A legacy job keeps its absent snapshot and conservative exact-
+                # revision rules, whether it is still queued or already completed.
+                existing.save(update_fields=["auto_apply"])
+                if existing.status == "completed":
+                    apply_analysis_automatically(machine, user, existing, expected_revision)
+                    existing.refresh_from_db()
             return existing
         today = timezone.localdate()
         jobs = AnalysisJob.objects.filter(created_at__date=today)
         if jobs.filter(requested_by=user).count() >= limits.ai_user_daily_limit:
             raise ValidationError("Alcanzaste el límite diario de análisis. Puedes continuar manualmente.")
         if jobs.count() >= limits.ai_global_daily_limit:
-            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Inténtalo mañana.")
+            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes continuar manualmente o intentarlo mañana.")
         reserve = _reservation(len(assets), mode) * max(1, limits.ai_max_attempts)
         # Include unfinished prior-day work and any work completed today, so a
         # midnight rollover cannot bypass the reservation budget.
@@ -332,8 +361,10 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         asset_ids=[str(a.pk) for a in assets], mode=mode,
                                         fingerprint=fingerprint, model=model, prompt_version=PROMPT_VERSION,
                                         reserved_tokens=reserve,
+                                        auto_apply=auto_apply,
+                                        application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
-                                        result={"input_snapshot": {"title": machine.title,
+                                        result={"category_names": category_names, "input_snapshot": {"title": machine.title,
                                                 "data": {k: v for k, v in machine.data.items()
                                                          if k in AI_KEYS | {"description", "condition", "attachments"}}}})
         audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode})
@@ -420,6 +451,7 @@ def process_analysis(job):
                 else "Analiza únicamente estas fotografías y prepara sugerencias para revisar.",
         "declared_data": snapshot,
         "allowed_field_keys": sorted(AI_KEYS),
+        "allowed_category_names": job.result.get("category_names", []),
     }, ensure_ascii=False)}]
     for asset in assets:
         content.extend([{"type": "input_text", "text": f"asset_id={asset.pk}; propósito declarado={asset.purpose}"},
@@ -495,6 +527,7 @@ def process_next_job():
     try:
         result, usage = process_analysis(job)
         with transaction.atomic():
+            machine = Machine.objects.select_for_update().get(pk=job.machine_id)
             locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
             if locked.status != "running" or locked.locked_at != lease:
                 return True
@@ -507,6 +540,18 @@ def process_next_job():
             locked.locked_at = None
             locked.error = ""
             locked.save()
+            if locked.auto_apply:
+                try:
+                    with transaction.atomic():
+                        apply_analysis_automatically(machine, locked.requested_by, locked, from_worker=True)
+                except Exception as exc:
+                    # Optional autofill cannot discard a paid, valid AI response.
+                    locked.application_result = {"requested": True, "status": "skipped",
+                        "applied_fields": [], "skipped_fields": [], "field_reasons": {},
+                        "reason": "application_failed", "revision_before": machine.revision,
+                        "revision_after": machine.revision}
+                    locked.save(update_fields=["application_result"])
+                    audit(job.requested_by, "analysis.auto_apply_failed", locked, {"error_type": type(exc).__name__})
             # Read the current locked context: consent can be revoked while the API runs.
             from .analytics import record_job_completion
             record_job_completion(locked)

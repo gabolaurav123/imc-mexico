@@ -6,9 +6,11 @@ Templates Django, una hoja CSS y JavaScript nativo. No hay build de frontend, pa
 
 El asistente envía cambios mediante CSRF y revisiones optimistas. Los archivos usan XMLHttpRequest para mostrar el progreso real de transferencia. La validación y conversión posteriores se muestran como espera del servidor, sin porcentajes simulados. Los fallos conservan las entradas y permiten reintentar. Una revisión concurrente bloquea nuevos guardados para evitar sobrescrituras.
 
-Las propuestas de IA se incorporan únicamente mediante selección explícita. Los datos del componente y de la máquina no se mezclan por renderizar una tabla genérica: la selección usa `result.data`, mientras placas, advertencias y preguntas se muestran por separado. Cada aplicación envía la revisión vigente.
+El asistente tiene dos pasos: fotos y ficha/envío. «Preparar mi ficha» inicia el análisis con un aviso visible de procesamiento y completa automáticamente los campos aplicables del borrador. La persona puede editar la ficha sin seleccionar propuestas una a una. Los detalles técnicos, las observaciones y el contacto público opcional quedan plegados. El botón de envío registra la autorización de revisar la maquinaria; no habilita difusión ni contacto automáticamente.
 
-## Comprobaciones realizadas
+Los datos de componentes y de la máquina se mantienen separados. La aplicación conserva la procedencia de IA y las correcciones humanas; los resultados desconocidos no rellenan campos. La revisión de la ficha se sincroniza con la aplicación del worker para evitar sobrescrituras al autoguardar.
+
+## Comprobaciones de la aceptación inicial
 
 - `node --check portal/static/portal/app.js`: sintaxis correcta.
 - 27 peticiones Django de páginas públicas y privadas: respuesta 200, incluida la ficha con categoría nula, filtros por folio/estado, mensajes, perfil, seguridad, operaciones y revisión. Se usó una transacción de prueba sobre PostgreSQL que se revirtió por completo. El bypass de MFA se limitó al proceso de prueba; no cambió la configuración guardada.
@@ -40,9 +42,9 @@ El teléfono y correo comerciales visibles salen de Configuración de la platafo
 
 ## Revisión manual de una entrega
 
-1. En un ancho de 360 px, recorrer registro, panel y los cinco pasos sin desplazamiento horizontal.
+1. En un ancho de 360 px, recorrer registro, panel y los dos pasos sin desplazamiento horizontal.
 2. Cargar una fotografía general, una placa y un video opcional. Revisar su clasificación, reordenar y elegir portada.
 3. Interrumpir la conexión durante un cambio y una carga. Reintentar y comprobar que la ficha se conserva.
-4. Solicitar IA y aceptar solo un campo. Confirmar que las correcciones no seleccionadas se conservan.
+4. Pulsar «Preparar mi ficha» y comprobar que aparecen los datos automáticamente. Editar durante la espera y comprobar que la corrección permanece, que recargar no reaplica el análisis y que un fallo permite completar manualmente.
 5. Enviar y revisar el folio. Desde Operaciones, autorizar imágenes, revisar al anunciante, decidir la solicitud y comparar versiones.
 6. Habilitar la ficha compartible. Comprobar que no muestra datos privados y que consulta, PDF y disponibilidad corresponden a la versión autorizada.

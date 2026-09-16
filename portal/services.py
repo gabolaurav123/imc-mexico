@@ -2,6 +2,8 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from string import Template
+import re
+import unicodedata
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -15,6 +17,192 @@ from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine,
 
 
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"}
+AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
+                         "dimensions", "fuel", "kilometers", "engine", "transmission", "description"}
+
+
+class DraftRevisionConflict(ValidationError):
+    """An optimistic concurrency conflict, distinct from invalid form values."""
+
+
+def _empty_suggestion_target(machine, key):
+    value = machine.title if key == "title" else machine.category_id if key == "category" else machine.data.get(key)
+    return value is None or value == "" or (isinstance(value, str) and not value.strip()) or (key == "title" and value == "Mi maquinaria")
+
+
+def _human_provenance(machine, key):
+    meta = machine.provenance.get(key, {})
+    return isinstance(meta, dict) and (meta.get("source") == "user" or meta.get("review") == "confirmed")
+
+
+def _analysis_asset_state(machine):
+    return [{"id": str(a.pk), "sha256": a.sha256, "purpose": a.purpose, "kind": a.kind,
+             "status": a.processing_status} for a in machine.assets.order_by("id")]
+
+
+def automatic_application_snapshot(machine):
+    """Private, durable pre-request state. This metadata is never sent to OpenAI."""
+    return {"schema": 1, "owner_id": str(machine.owner_id), "revision": machine.revision,
+            "assets": _analysis_asset_state(machine),
+            "eligible_fields": sorted(key for key in AUTOMATIC_DATA_FIELDS | {"title", "category"}
+                                      if _empty_suggestion_target(machine, key) and not _human_provenance(machine, key))}
+
+
+def automatic_application_status(job):
+    if job.application_result:
+        return {**job.application_result, "requested": job.auto_apply}
+    return {"requested": job.auto_apply, "status": "pending" if job.auto_apply and job.status in {"queued", "running"} else "skipped" if job.auto_apply else "disabled",
+            "applied_fields": [], "skipped_fields": [], "field_reasons": {},
+            "reason": "analysis_failed" if job.auto_apply and job.status == "failed" else "",
+            "revision_before": None, "revision_after": None}
+
+
+def _clear_automatic_field(job, key, value, meta):
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
+        return False
+    if key in {"title", "description"}:
+        return isinstance(value, str) and meta.get("source") in {"visual_proposal", "image", "user"} and meta.get("review") in {"needs_review", "clear"}
+    if meta.get("component") != "machine" or meta.get("review") != "clear" or meta.get("source") not in {"plate", "image"}:
+        return False
+    if not meta.get("asset_id") or str(meta["asset_id"]) not in job.asset_ids:
+        return False
+    if key == "serial":
+        if meta.get("source") != "plate" or re.search(r"[?\[\]*]|ilegible|unreadable", str(value), re.I):
+            return False
+        return any(p.get("asset_id") == meta["asset_id"] and p.get("component") == "machine" and p.get("readability") == "clear"
+                   for p in job.result.get("plates", []) if isinstance(p, dict))
+    return True
+
+
+@transaction.atomic
+def apply_analysis_automatically(machine, user, job, expected_revision=None, *, from_worker=False):
+    """Fill only untouched gaps, once. Completing a private draft never approves it."""
+    # Same lock order as save/submit and the worker completion path.
+    machine = Machine.objects.select_for_update().get(pk=machine.pk)
+    user = User.objects.get(pk=user.pk)
+    if not from_worker:
+        require_owner(machine, user)
+        if machine.owner_id != user.pk:
+            raise PermissionDenied("El propietario debe autorizar el completado de su borrador.")
+    job_id = job.pk if isinstance(job, AnalysisJob) else job
+    try:
+        job = AnalysisJob.objects.select_for_update().get(pk=job_id, machine=machine, status="completed")
+    except (AnalysisJob.DoesNotExist, ValueError, ValidationError):
+        raise ValidationError("El análisis no está disponible para esta maquinaria.")
+    # A retry after a lost response must not reinsert a value the user later cleared.
+    retry_failed_application = not from_worker and job.application_result.get("reason") == "application_failed"
+    if job.application_result and not retry_failed_application:
+        return machine, automatic_application_status(job)
+    if not from_worker and (type(expected_revision) is not int or expected_revision != machine.revision):
+        raise DraftRevisionConflict("El borrador cambió. Actualiza la página antes de completar los huecos.")
+    if from_worker and not job.auto_apply:
+        return machine, automatic_application_status(job)
+    job.auto_apply = True
+    result = {"requested": True, "status": "skipped", "applied_fields": [], "skipped_fields": [],
+              "field_reasons": {}, "reason": "", "revision_before": machine.revision, "revision_after": machine.revision}
+
+    def finish(reason=""):
+        result["reason"] = reason
+        job.application_result = result
+        job.save(update_fields=["auto_apply", "application_result"])
+        return machine, result
+
+    if machine.owner_id != job.requested_by_id or user.pk != job.requested_by_id or not user.is_active:
+        return finish("owner_changed")
+    if not machine.editable:
+        return finish("not_editable")
+    consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at", "-pk").first()
+    if not consent or not consent.granted:
+        return finish("consent_revoked")
+    base = job.application_snapshot
+    legacy = not base
+    if legacy:
+        # Older completed jobs have no durable input snapshot. Exact revision is
+        # required; subsequent human corrections or media changes invalidate reuse.
+        if machine.revision != job.revision:
+            return finish("draft_changed")
+        eligible = AUTOMATIC_DATA_FIELDS | {"title", "category"}
+    else:
+        if base.get("schema") != 1 or base.get("owner_id") != str(machine.owner_id) or base.get("revision") != job.revision or machine.revision < job.revision:
+            return finish("draft_changed")
+        if base.get("assets") != _analysis_asset_state(machine):
+            return finish("assets_changed")
+        eligible = set(base.get("eligible_fields", []))
+    current_assets = {str(a.pk) for a in machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")}
+    if not isinstance(job.asset_ids, list) or not set(job.asset_ids).issubset(current_assets) or (job.mode == "analysis" and not job.asset_ids):
+        return finish("assets_changed")
+    candidates = job.result.get("data", {})
+    provenance = job.result.get("provenance", {})
+    if not isinstance(candidates, dict) or not isinstance(provenance, dict):
+        return finish("invalid_result")
+
+    def skip(key, reason):
+        result["skipped_fields"].append(key)
+        result["field_reasons"][key] = reason
+
+    def can_fill(key):
+        if not _empty_suggestion_target(machine, key):
+            skip(key, "existing_value")
+            return False
+        meta = machine.provenance.get(key, {})
+        # The old form marked untouched blanks as user-confirmed. At the exact
+        # legacy revision, allow those empty placeholders once, but never an
+        # accepted AI field or any correction made after that analysis.
+        legacy_blank = legacy and isinstance(meta, dict) and meta.get("source") == "user" and not meta.get("analysis_id")
+        if _human_provenance(machine, key) and not legacy_blank:
+            skip(key, "human_correction")
+            return False
+        if key not in eligible:
+            skip(key, "not_empty_at_request")
+            return False
+        return True
+
+    def add_validated(key, value, meta):
+        candidate = deepcopy(machine)
+        payload = {"provenance": {key: {**meta, "analysis_id": str(job.pk)}}}
+        if key in {"title", "category"}:
+            payload[key] = value
+        else:
+            payload["data"] = {key: value}
+        try:
+            _validate_payload(candidate, payload, trusted_provenance=True)
+        except ValidationError:
+            skip(key, "invalid_value")
+            return
+        machine.title, machine.category_id = candidate.title, candidate.category_id
+        machine.data, machine.provenance = candidate.data, candidate.provenance
+        result["applied_fields"].append(key)
+
+    for key, value in candidates.items():
+        if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
+            continue
+        meta = provenance.get(key, {})
+        if not isinstance(meta, dict) or not _clear_automatic_field(job, key, value, meta):
+            skip(key, "not_identifiable" if value is None or value == "" else "uncertain")
+            continue
+        if can_fill(key):
+            add_validated(key, value, meta)
+    category = job.result.get("category")
+    if isinstance(category, str) and category.strip() and can_fill("category"):
+        def normalized(text):
+            return " ".join("".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).casefold().split())
+        wanted = normalized(category)
+        matches = [item for item in Category.objects.filter(active=True) if wanted in {normalized(item.name), normalized(item.slug)}]
+        if len(matches) == 1:
+            add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
+        else:
+            skip("category", "no_exact_category")
+    if result["applied_fields"]:
+        machine.revision += 1
+        if machine.status in {"approved", "rejected", "cancelled"}:
+            machine.status = "draft"
+        machine.save(update_fields=["title", "category", "data", "provenance", "revision", "status", "updated_at"])
+        result["status"] = "applied"
+        result["revision_after"] = machine.revision
+        audit(user, "analysis.automatically_applied", machine, {"job_id": str(job.pk), "fields": result["applied_fields"], "revision": machine.revision})
+    else:
+        result["status"] = "no_changes"
+    return finish()
 
 
 def audit(actor, action, obj, metadata=None):
@@ -155,7 +343,7 @@ def save_draft(machine, user, payload, expected_revision):
     if not machine.editable:
         raise ValidationError("La solicitud está en revisión. Espera una respuesta antes de editarla.")
     if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision != machine.revision:
-        raise ValidationError("El borrador cambió en otra ventana. Actualiza la página para recuperar la versión actual.")
+        raise DraftRevisionConflict("El borrador cambió en otra ventana. Actualiza la página para recuperar la versión actual.")
     _validate_payload(machine, payload)
     machine.revision += 1
     if machine.status in {WorkflowStatus.APPROVED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED}:
