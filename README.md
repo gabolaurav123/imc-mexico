@@ -4,7 +4,7 @@ Aplicación complementaria para preparar solicitudes de maquinaria desde fotogra
 
 Repositorio: [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`. El sitio principal [imcmexico.com.mx](https://www.imcmexico.com.mx/) no se modifica ni se reemplaza. No hay pagos, subastas, financiación, comisiones ni publicación automática en ese sitio.
 
-**Estado operativo verificado al 15 de septiembre de 2026:** servicio publicado en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), commit `535c6c6`, con **117 pruebas locales aprobadas sin omisiones** y **72 comprobaciones HTTPS aprobadas**. Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue y recepción de invitación/recuperación en Gmail. El registro público permanece cerrado: faltan validación legal, apertura operativa y activación personal del titular. La ampliación de analítica opcional está validada localmente y en PostgreSQL, y pendiente del siguiente despliegue. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
+**Estado operativo verificado al 15 de septiembre de 2026:** servicio activo en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), último código funcional verificado `389c1a997012a888885e9b4d1183ed9da64328bb`, con **117 pruebas locales aprobadas sin omisiones** y **106 comprobaciones registradas de aplicación aprobadas** (HTTPS, base de datos y repeticiones; 88 etiquetas distintas). Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue, recepción de invitación/recuperación en Gmail y último respaldo local de producción. El registro público permanece cerrado: faltan validación legal, apertura operativa y activación personal del titular. La analítica está desplegada y apagada, sin eventos ni cookies de analítica. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
 
 ## Servicio y acceso actuales
 
@@ -19,7 +19,7 @@ Repositorio: [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mex
 | Base de datos | Neon Free independiente, Frankfurt, PostgreSQL 18; migraciones `0001`–`0005` aplicadas |
 | IA | OpenAI `gpt-4.1-mini`; clave exclusiva de producción y credencial anterior revocada |
 | Correo | Resend SMTP con credencial de envío validada; recepción en Gmail confirmada, dominio/remitente general pendiente |
-| Respaldo | Restauración real de PostgreSQL y 10 archivos en `imc_restore_test` aprobada; ejecución programada en el volumen en verificación, destino externo pendiente |
+| Respaldo | Restauración real de PostgreSQL y 10 archivos en `imc_restore_test` aprobada; último respaldo local de producción confirmado: 15 de septiembre, 23:35 UTC, 10 archivos y 699,9 KB. Programado cada 24 horas; segunda ejecución aún no observada. Destino externo pendiente |
 
 El intento de recarga de US$10 fue rechazado y no hay cobro confirmado. La mejora opcional a Standard 1 GB (US$7/mes + US$2.50 de volumen = US$9.50/mes) **no está activa** y requiere pago. El plan actual no acredita capacidad bajo carga ni la conversión de videos al límite máximo permitido.
 
@@ -157,6 +157,8 @@ Grupos iniciales: Revisión IMC, Publicación IMC, Comercial IMC y Contenido IMC
 
 ## Pruebas
 
+La [ejecución de CI de GitHub del código funcional `389c1a9`](https://github.com/gabolaurav123/imc-mexico/actions/runs/35037736956/job/104610525676) terminó correctamente.
+
 ```bash
 python manage.py test
 python manage.py check
@@ -164,11 +166,11 @@ python manage.py check
 
 La suite usa SQLite en memoria para que no altere Neon ni ejecute las llamadas externas de OpenAI/SMTP. Instala ffmpeg/ffprobe para que se ejecute también la prueba real de conversión de video; si no están disponibles, esa prueba se omite y no debe presentarse como aprobada. Las variables de los binarios permiten usar una instalación específica.
 
-La última suite confirmada registra **117 pruebas aprobadas sin omisiones**, incluidas 19 de privacidad de analítica. Cinco comprobaciones transaccionales adicionales de analítica en PostgreSQL también pasaron, con rollback. Además se completaron cuatro trabajos reales de OpenAI (dos locales y dos en el hosting), QA visual de un PDF de dos páginas, pruebas transaccionales de workflow en PostgreSQL, 72 comprobaciones HTTPS y revisión de interfaz pública en escritorio y móvil. Los simuladores prueban fallos y contratos; entrega de correo, persistencia y restauración se acreditan por sus pruebas externas separadas en [docs/acceptance.md](docs/acceptance.md).
+La última suite confirmada registra **117 pruebas aprobadas sin omisiones**, incluidas 19 de privacidad de analítica. Cinco comprobaciones transaccionales adicionales de analítica en PostgreSQL también pasaron, con rollback. Además se completaron cuatro trabajos reales de OpenAI (dos locales y dos en el hosting), QA visual de un PDF de dos páginas, pruebas transaccionales de workflow en PostgreSQL y revisión de interfaz pública en escritorio y móvil. El registro de aplicación contiene **106 comprobaciones aprobadas, con 88 etiquetas distintas**, e incluye HTTPS, base de datos y repeticiones tras despliegue. El informe de entrega y `VERIFICACION-IMC.json`, guardados en `outputs` del workspace, documentan el cierre. Las cinco cuentas de ensayo se desactivaron y perdieron privilegios/contraseñas utilizables; se conserva el historial. Los simuladores prueban fallos y contratos; entrega de correo, persistencia y restauración se acreditan por sus pruebas externas separadas en [docs/acceptance.md](docs/acceptance.md).
 
 ## Despliegue en Seenode
 
-La aplicación es **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. El commit verificado del servicio público es `535c6c6`. Se comprobaron salud HTTP 200, medios y resultados de IA anteriores después de su redespliegue. La migración `0005_optional_acquisition_analytics` ya está aplicada en Neon y pasó comprobaciones transaccionales; el código de esa ampliación está pendiente del siguiente despliegue.
+La aplicación es **independiente** dentro del espacio correspondiente a «Puerto Cancún». No modificar el servicio, dominio, variables ni base de datos de Puerto Cancún. El último código funcional verificado es `389c1a997012a888885e9b4d1183ed9da64328bb`, activo en Seenode. Se comprobaron salud HTTP 200, medios y resultados de IA anteriores después de su redespliegue, registro bloqueado por POST y operaciones accesibles con MFA. La migración `0005_optional_acquisition_analytics` está aplicada y su código desplegado. La analítica apagada no crea eventos ni cookies y rechaza activación por preferencia mientras siga deshabilitada. El SHA de una publicación posterior que sólo actualice documentación se registra por separado en el informe de entrega.
 
 Configuración del servicio:
 
@@ -203,7 +205,7 @@ La conversión de video es síncrona y puede usar hasta 180 segundos más la ins
 
 ### Recuperación
 
-El daemon `backup_private` prepara una copia conjunta de PostgreSQL y medios con manifiesto e integridad. Se completó una restauración real en la base aislada `imc_restore_test`, con verificación de 10 archivos. El estado del daemon programado sobre el volumen sigue en verificación. Su almacenamiento en el mismo volumen no cubre la pérdida de ese volumen; **el destino externo S3 todavía no está configurado ni verificado**. Los comandos, variables, compatibilidad de `pg_dump` y límites están en [Operación y recuperación](docs/operations.md).
+El daemon `backup_private` prepara una copia conjunta de PostgreSQL y medios con manifiesto e integridad. Se completó una restauración real en la base aislada `imc_restore_test`, con verificación de 34 tablas y 10 archivos. El panel `/operaciones/` confirmó el último éxito de producción del 15 de septiembre a las **23:35 UTC (17:35 CST)**: 10 archivos, 699,9 KB, estado `local_only`, sin alerta de antigüedad. La frecuencia está configurada en 24 horas; todavía no se ha observado una segunda ejecución a ese intervalo. Su almacenamiento en el mismo volumen no cubre la pérdida de ese volumen; **el destino externo S3 todavía no está configurado ni verificado**. Los comandos, variables, compatibilidad de `pg_dump` y límites están en [Operación y recuperación](docs/operations.md).
 
 Para revertir código, desplegar el último commit validado **sólo si es compatible con el esquema vigente**. No revertir ni borrar migraciones a ciegas. Una migración destructiva necesita una estrategia de restauración o una corrección hacia adelante; ninguna forma parte del arranque habitual. El supervisor y las leases recuperan trabajos interrumpidos hasta el límite de intentos. La restauración aislada no equivale a una prueba de recuperación integral ante pérdida del servicio o volumen de producción.
 
@@ -235,9 +237,9 @@ python manage.py retention --apply
 
 `--apply` elimina sesiones vencidas, contadores de intentos de más de 31 días y analítica anterior a `retention_days` (mínimo 30). Redacta el contenido de avisos de acceso cuyo enlace ya venció y marca como fallidos los que seguían pendientes. Nunca elimina maquinaria, versiones, auditoría ni medios. El inventario local de archivos sin referencia sólo informa candidatos; no borra archivos y no atribuye automáticamente un archivo a abandono. No se programó una purga automática.
 
-La ampliación pendiente incluye `python manage.py audit_media` para auditar referencias, integridad de rutas y archivos sin referencia. Es de sólo lectura por defecto; la limpieza local exige `--apply --older-than 7`, comprobaciones de antigüedad/referencias y revisión operativa. No se ejecutó esa limpieza en producción. Con S3 únicamente se admite inventario, sin eliminación remota. La guía completa está en [operations.md](docs/operations.md).
+`python manage.py audit_media` permite auditar referencias, integridad de rutas y archivos sin referencia. Es de sólo lectura por defecto; la limpieza local exige `--apply --older-than 7`, comprobaciones de antigüedad/referencias y revisión operativa. No se ejecutó esa limpieza en producción. Con S3 únicamente se admite inventario, sin eliminación remota. La guía completa está en [operations.md](docs/operations.md).
 
-La analítica opcional de esa ampliación está desactivada por defecto. Cuando se habilita con consentimiento, las preferencias se ofrecen en el pie de página y rechazarlas no cambia el acceso. La captura evita identidad, IP sin procesar, URL completa y referrer. El modo agregado no usa identificadores de sesión; con consentimiento, la sesión analítica dura 30 minutos. `retention --apply` limpia hashes vencidos y contexto de trabajos expirado, además de los plazos anteriores. Las pruebas locales y PostgreSQL están aprobadas; resta verificar el despliegue público.
+La analítica opcional está desplegada y **apagada en producción**. Se comprobó que no crea eventos ni cookies de analítica y que una petición para permitirla recibe HTTP 400 mientras esté deshabilitada. El consentimiento y sus revocaciones están probados localmente y en PostgreSQL; no se capturaron métricas públicas consentidas antes de validar los legales. Cuando se autorice habilitarla, las preferencias se ofrecen en el pie de página y rechazarlas no cambia el acceso. La captura evita identidad, IP sin procesar, URL completa y referrer. El modo agregado no usa identificadores de sesión; con consentimiento, la sesión analítica dura 30 minutos. `retention --apply` limpia hashes vencidos y contexto de trabajos expirado, además de los plazos anteriores.
 
 Los avisos legales son borradores pendientes de validación del responsable de IMC México. El indicador `legal_validated` registra esa revisión; no acredita cumplimiento legal por sí mismo. Las solicitudes de exportación/eliminación/corrección quedan en administración para atenderlas de forma controlada.
 
