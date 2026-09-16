@@ -58,7 +58,7 @@ class CatalogFetchTests(SimpleTestCase):
         self.assertEqual(str(captured.exception), code)
 
     def test_exact_product_routes_and_query_allowlist(self):
-        for url in (CAT, RITCHIE, RITCHIE.replace('.com/', '.com:443/')):
+        for url in (CAT, CAT.replace('?', '?&'), RITCHIE, RITCHIE.replace('.com/', '.com:443/')):
             with self.subTest(url=url):
                 self.assertTrue(supports_catalog_url(url))
         for url in (PRODUCT, 'https://lectura-specs.com/en/model/example',

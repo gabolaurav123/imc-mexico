@@ -60,7 +60,9 @@ def _validated_url(url):
         if (not re.fullmatch(r'/[A-Za-z0-9._~/-]+', path) or '//' in path
                 or any(part in {'.', '..'} for part in path.split('/'))):
             raise CatalogFetchError('unsupported_url')
-        pairs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+        # Public H-CPC links can start with ?&f=product. Empty leading query
+        # separators carry no value; the remaining key/value policy is strict.
+        pairs = parse_qsl(parsed.query.lstrip('&'), keep_blank_values=True, strict_parsing=True)
         attribution = [(key, value) for key, value in pairs if key == 'utm_source']
         if attribution:
             if len(attribution) != 1 or attribution[0][1] not in {'openai', 'chatgpt.com'}:
