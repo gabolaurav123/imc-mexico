@@ -28,6 +28,20 @@ La información encontrada en una ficha de modelo se presenta como referencia de
 
 ## Integración
 
+### Investigación externa por etapas · versión 2
+
+Con una serie o marca/modelo identificados, la investigación ejecuta **tres consultas independientes**. Una respuesta sin resultados ya no termina el proceso:
+
+1. Si hay serie, busca un registro público de esa unidad. Si falta marca/modelo y una fuente citada los vincula a la serie exacta, valida esa identificación antes de continuar.
+2. Consulta documentación del fabricante por marca y modelo. Para marcas con dominio verificado aplica un filtro real de dominios de `web_search`; para marcas desconocidas busca documentación pública sin inventar un sitio oficial.
+3. Contrasta catálogos externos **LECTURA Specs y RitchieSpecs**. Sin serie, el recorrido es fabricante → catálogos → manuales/PDF y distribuidores. Si aún falta modelo, la última etapa busca identificación documental sin atribuir especificaciones de un modelo supuesto.
+
+Las búsquedas de modelo omiten la serie cuando marca/modelo ya están identificados: una serie que no esté indexada no limita esas consultas. La categoría del catálogo aporta vocabulario controlado para evitar homónimos geográficos; no se envían descripción libre, ubicación, notas ni contactos del anunciante. Las seis marcas y las condiciones de acceso están documentadas en [Fuentes públicas](research-sources.md). Se consultan páginas públicas e índices de documentación; **no se ha contratado una API comercial ni abierto registros privados de fabricantes**.
+
+Cada consulta usa contexto `medium`, hasta 65 segundos y una llamada de herramienta. Se reúnen hasta 36 fragmentos citados, 18.000 caracteres en total y 800 por fragmento; la normalización final compara la evidencia conjunta, por lo que un dato contradictorio se omite en lugar de ser reemplazado por el último resultado. No se adivinan países ni identificadores. Se reconocen etiquetas explícitas de fabricación en español, inglés, alemán, francés, italiano y portugués, conservando el país literal. «Serie HESSEN 016-9020» puede designar una familia comercial; «Número de serie OTRO123» continúa identificando otra unidad y se descarta.
+
+Un fallo de una consulta permite continuar con las demás y conservar sus datos comprobados. Revocar la autorización o eliminar el borrador impide nuevas llamadas y aplicar datos pendientes. Se registran etapa, dominios consultados, conteos, errores sin texto privado y consumo. Las cuotas existentes se respetan; véase [Procesamiento](processing.md) para reservas y recuperación de trabajos anteriores. Esta actualización no modifica el formulario, las etiquetas ni el diseño de las especificaciones.
+
 `POST /api/maquinarias/{id}/analizar/` acepta `research: true`, junto con `consent: true`, `auto_apply: true`, la revisión del borrador y las imágenes. El aviso junto al botón informa de que OpenAI procesa las imágenes y los identificadores se usan en la búsqueda web.
 
 `research` es un booleano estricto y es falso por defecto. Los clientes anteriores continúan con la lectura de imágenes sin activar una nueva finalidad de búsqueda. El trabajo conserva la opción solicitada; el consentimiento de la acción con búsqueda se registra con versión `2026-09-research`. El mero acceso o la consulta del estado no inicia búsquedas nuevas.

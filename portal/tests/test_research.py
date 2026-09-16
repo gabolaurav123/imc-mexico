@@ -14,7 +14,8 @@ from PIL import Image
 
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import MachineAnalysis, _claim_job, enqueue_analysis, ingest_asset, process_analysis, process_next_job
-from portal.research import (CONSENT_VERSION, ResearchCandidate, ResearchCandidates, ResearchExtraction, ResearchField, compose_description,
+from portal.research import (CONSENT_VERSION, RESEARCH_RESERVATION, SEARCH_RESERVATION, NORMALIZE_RESERVATION,
+                             ResearchCandidate, ResearchCandidates, ResearchExtraction, ResearchField, compose_description,
                              citation_passages, is_validated_web_field, merge_research, normalize_research, research_identity,
                              normalize_candidates, research_machine, response_sources, safe_public_url)
 
@@ -349,8 +350,8 @@ class ResearchValidationTests(SimpleTestCase):
         snapshot = {"data": {"contact_public": "SECRET@example.com", "location": "PRIVATE LOCATION", "notes": "SECRET NOTES"}}
         research, usage = research_machine(client, "gpt-4.1-mini", result, snapshot)
         self.assertEqual(research["status"], "completed")
-        self.assertEqual((usage.input_tokens, usage.output_tokens), (8330, 220))
-        self.assertEqual((usage.estimated_tokens, usage.web_search_calls), (8000, 1))
+        self.assertEqual((usage.input_tokens, usage.output_tokens), (24570, 380))
+        self.assertEqual((usage.estimated_tokens, usage.web_search_calls), (24000, 3))
         kwargs = client.responses.create.call_args.kwargs
         self.assertEqual(json.loads(kwargs["input"])["identifiers"], IDENTITY)
         self.assertEqual(kwargs["max_tool_calls"], 1)
@@ -399,14 +400,15 @@ class ResearchValidationTests(SimpleTestCase):
         client.responses.create.side_effect = TimeoutError("secret provider details")
         research, usage = research_machine(client, "gpt-4.1-mini", vision())
         self.assertEqual(research["status"], "degraded")
-        self.assertEqual(usage.estimated_tokens, 12000)
+        self.assertEqual(usage.estimated_tokens, 3 * SEARCH_RESERVATION)
         self.assertNotIn("secret", str(research))
         client.responses.create.side_effect = None
         client.responses.create.return_value = web_response()
         client.responses.parse.side_effect = TimeoutError("private details")
         research, usage = research_machine(client, "gpt-4.1-mini", vision())
         self.assertEqual(research["status"], "degraded")
-        self.assertEqual((usage.input_tokens, usage.output_tokens, usage.estimated_tokens), (16120, 80, 16000))
+        self.assertEqual((usage.input_tokens, usage.output_tokens, usage.estimated_tokens),
+                         (24360 + NORMALIZE_RESERVATION, 240, 24000 + NORMALIZE_RESERVATION))
         self.assertEqual(research["fields"], [])
 
     def test_consent_rechecked_before_each_new_request(self):
@@ -431,7 +433,9 @@ class ResearchPipelineTests(TestCase):
         self.addCleanup(self.media.cleanup)
         self.user = User.objects.create_user(email="research@example.invalid", password="Test-only-483")
         self.machine = Machine.objects.create(owner=self.user)
-        self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=100000, ai_max_attempts=2)
+        self.per_attempt = 12200 + RESEARCH_RESERVATION
+        self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True,
+            ai_daily_token_limit=2 * self.per_attempt + 10000, ai_max_attempts=2)
         Consent.objects.create(user=self.user, machine=self.machine, kind="ai", granted=True)
         image = io.BytesIO()
         Image.new("RGB", (80, 80), "navy").save(image, format="JPEG")
@@ -456,7 +460,7 @@ class ResearchPipelineTests(TestCase):
         legacy.save()
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         self.assertNotEqual(job.fingerprint, legacy.fingerprint)
-        self.assertEqual(job.reserved_tokens, 64400)
+        self.assertEqual(job.reserved_tokens, 2 * self.per_attempt)
         self.assertEqual(Consent.objects.filter(kind="ai").latest("created_at").version, CONSENT_VERSION)
         self.assertEqual(enqueue_analysis(self.machine, self.user, research=True).pk, job.pk)
 
@@ -464,7 +468,7 @@ class ResearchPipelineTests(TestCase):
         previous = AnalysisJob.objects.create(machine=self.machine, revision=self.machine.revision, requested_by=self.user,
                     model="gpt-4.1-mini", prompt_version="previous", fingerprint="already-used", status="completed", input_tokens=50000)
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
-        self.assertEqual(job.reserved_tokens, 32200)
+        self.assertEqual(job.reserved_tokens, self.per_attempt)
         self.assertEqual(job.result["attempt_limit"], 1)
         import httpx2
         from openai import APIConnectionError
@@ -473,7 +477,7 @@ class ResearchPipelineTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, "failed")
         self.assertEqual(job.attempts, 1)
-        self.assertEqual(job.input_tokens + previous.input_tokens, 82200)
+        self.assertEqual(job.input_tokens + previous.input_tokens, self.per_attempt + 50000)
         self.assertEqual(job.reserved_tokens, 0)
         self.assertFalse(process_next_job())
 
@@ -486,10 +490,10 @@ class ResearchPipelineTests(TestCase):
         self.assertIsNone(_claim_job())
         job.refresh_from_db()
         self.assertEqual(job.status, "failed")
-        self.assertEqual(job.input_tokens, 32200)
+        self.assertEqual(job.input_tokens, self.per_attempt)
         self.assertEqual(job.reserved_tokens, 0)
 
-    def test_pipeline_three_calls_usage_and_old_browser_does_not_search(self):
+    def test_pipeline_staged_search_usage_and_old_browser_does_not_search(self):
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         vision_response = SimpleNamespace(status="completed", output_parsed=self.parsed(), usage=SimpleNamespace(input_tokens=300, output_tokens=120))
         research_response = SimpleNamespace(status="completed", output_parsed=ResearchCandidates(fields=[candidate()]), usage=SimpleNamespace(input_tokens=200, output_tokens=90))
@@ -500,7 +504,7 @@ class ResearchPipelineTests(TestCase):
             result, usage = process_analysis(job)
         self.assertEqual(result["research"]["status"], "completed")
         self.assertEqual(result["data"]["power"], "70 kW")
-        self.assertEqual((usage.input_tokens, usage.output_tokens), (8620, 290))
+        self.assertEqual((usage.input_tokens, usage.output_tokens), (24860, 450))
         self.assertIn("70 kW", result["data"]["description"])
         client.close.assert_called_once()
         job.result["research_requested"] = False
@@ -520,7 +524,7 @@ class ResearchPipelineTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, "completed")
         self.assertEqual(job.result["research"]["status"], "degraded")
-        self.assertEqual((job.input_tokens, job.output_tokens), (12300, 120))
+        self.assertEqual((job.input_tokens, job.output_tokens), (3 * SEARCH_RESERVATION + 300, 120))
         self.assertEqual(job.reserved_tokens, 0)
         self.assertEqual(job.result["data"]["brand"], "Caterpillar")
         self.assertNotIn("provider-private", str(job.result))

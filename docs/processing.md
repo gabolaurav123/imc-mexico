@@ -111,27 +111,50 @@ para desarrollo local con un worker.
 - Reintentos de red, timeout, 429 y errores 5xx: máximo inicial de dos intentos,
   espera exponencial de 30 segundos en el primer reintento. El SDK no hace reintentos
   ocultos. Los errores de validación/configuración terminan el trabajo.
-- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 300. Se recuperan trabajos
+- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 600. Cubre hasta tres búsquedas
+  de 65 segundos, dos normalizaciones de 55 segundos y la lectura visual de 90 segundos,
+  con margen de 205 segundos para I/O. Si `OPENAI_TIMEOUT` aumenta sobre 90, ese
+  exceso se suma al mínimo. Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
   el resultado de una lease posterior.
 - Valores por defecto del código: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
 - Reserva conservadora por intento: 9000 tokens más 3200 por imagen; descripción
-  reserva 9000. La investigación añade 20000 por intento. Los nuevos trabajos de
+  reserva 9000. La investigación añade 78000 por intento: hasta tres etapas de búsqueda
+  de 14000 y dos normalizaciones de 18000. La segunda normalización sólo es necesaria
+  cuando una coincidencia exacta de serie permite recuperar marca/modelo faltantes.
+  Los nuevos trabajos de
   descripción con investigación omiten la redacción preliminar y reservan únicamente
-  20000; el marcador de estrategia conserva la reserva anterior de trabajos existentes. Se reserva por adelantado
+  78000. Una fotografía con investigación reserva 90200 por intento. Se reserva por adelantado
   para los intentos que caben en la capacidad disponible, hasta el máximo configurado;
   si sólo cabe uno, el trabajo conserva ese tope y no reintenta sin reserva.
   La reserva no es una predicción de tokens ni un precio. La API devuelve consumo
   real de respuestas completadas; en errores con resultado remoto desconocido se
   contabiliza la reserva del intento conservadoramente. Los trabajos pendientes
   de días anteriores y finalizados hoy también participan en el límite.
+- Cada trabajo conserva su reserva por intento. Antes de reclamar un trabajo de una
+  versión anterior, el worker comprueba la capacidad bajo el mismo bloqueo de
+  configuración que las admisiones: amplía su reserva, limita los intentos si sólo
+  cabe uno o finaliza sin llamar al proveedor si no cabe ninguno. No aumenta las cuotas.
+  Una ejecución antigua interrumpida se contabiliza por su reserva original; sólo
+  su próximo intento se reserva según el coste actual.
+- La búsqueda usa como máximo una llamada a la herramienta web en cada una de sus
+  tres etapas. Las respuestas conocidas acumulan tokens y llamadas; los resultados
+  remotos desconocidos acumulan estimaciones conservadoras sin aparentar consumo
+  medido. La tarifa propia de la herramienta web no se expresa como tokens y debe
+  incluirse por separado en el presupuesto monetario del proveedor.
 - Estos controles limitan la admisión operacional. Un modelo distinto puede tener
   otro coste/tokenización: ajustar la reserva y configurar además un presupuesto
   de proyecto del proveedor. No representan una garantía monetaria rígida.
 - Errores públicos y auditoría no incluyen claves, respuestas crudas del proveedor,
   imágenes ni datos de usuario. La auditoría registra tipo de error, intentos y modelo.
+
+El worker es un proceso separado de Gunicorn; el timeout HTTP de 240 segundos no
+limita estos trabajos. El supervisor permite 20 segundos de salida al detener el
+contenedor: un despliegue durante una llamada puede interrumpirla y requerir recuperación
+del lease, con consumo remoto posiblemente desconocido. La cola persiste ese intento;
+no garantiza que el proveedor deje de procesarlo al cerrar el contenedor.
 
 El correo de notificación se procesa con bloqueo de fila, máximo tres intentos y
 un lote acotado. Estado `sent` significa **aceptado por el backend SMTP**, no prueba
@@ -177,6 +200,11 @@ ausencia de sobrescritura, reintentos/recuperación, sanitización, correo simul
 contenido privado excluido de PDF. `pypdf` se usa para inspeccionar el PDF en pruebas.
 Mocks de OpenAI y SMTP prueban comportamiento del código, no disponibilidad ni entrega
 real. La generación PDF además se revisa visualmente mediante Poppler durante desarrollo.
+
+`portal.tests.test_research_worker_budget` verifica reservas de la investigación ampliada,
+compatibilidad de trabajos antiguos, rechazo por presupuesto antes de llamar al proveedor,
+lease mínimo y ampliado, recuperación acotada, contabilidad parcial y rechazo de resultados
+de un worker con lease antiguo. Estas pruebas usan SQLite aislada y proveedor simulado.
 
 Las direcciones de ensayo terminadas en `.invalid` se suprimen antes de SMTP y quedan
 como `failed`, con motivo explícito; nunca como entregadas. El indicador `is_test` por

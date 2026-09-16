@@ -33,7 +33,8 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v9"
+PROMPT_VERSION = "imc-vision-research-2026-09-v10"
+MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -372,6 +373,62 @@ def _attempt_limit(job, limits):
     return min(configured, reserved) if type(reserved) is int and reserved >= 1 else configured
 
 
+def _reserved_attempt_cost(job, limits):
+    """Use the reservation made for this execution, including pre-upgrade jobs."""
+    recorded = job.result.get("reservation_per_attempt")
+    if type(recorded) is int and recorded > 0:
+        return recorded
+    original_limit = job.result.get("attempt_limit", max(1, limits.ai_max_attempts))
+    if type(original_limit) is not int or original_limit < 1:
+        original_limit = max(1, limits.ai_max_attempts)
+    remaining = max(1, original_limit - job.attempts + int(job.status == "running"))
+    return math.ceil(job.reserved_tokens / remaining)
+
+
+def _ensure_execution_reservation(job, limits, now):
+    """Reconcile old queued strategies while holding settings then job locks."""
+    per_attempt = _reservation(len(job.asset_ids), job.mode,
+        job.result.get("research_requested") is True,
+        research_description_only=job.result.get("research_description_only") is True)
+    remaining = max(0, _attempt_limit(job, limits) - job.attempts)
+    required = per_attempt * remaining
+    if (job.result.get("reservation_per_attempt") == per_attempt
+            and job.reserved_tokens == required):
+        return True
+    today = timezone.localdate(now)
+    totals = AnalysisJob.objects.filter(
+        Q(created_at__date=today) | Q(finished_at__date=today)
+        | Q(status__in=["queued", "running"])).aggregate(
+            used_in=Sum("input_tokens"), used_out=Sum("output_tokens"), reserved=Sum("reserved_tokens"))
+    # The current job's existing reservation is available to replace, not add
+    # again. Measured/estimated consumption remains charged across upgrades.
+    available = limits.ai_daily_token_limit - sum(value or 0 for value in totals.values()) + job.reserved_tokens
+    affordable = min(remaining, max(0, available) // per_attempt)
+    if affordable < 1:
+        job.status = "failed"
+        job.error = "No hay capacidad de análisis disponible hoy. Puedes enviar la ficha con la información disponible."
+        job.reserved_tokens = 0
+        job.locked_at = None
+        job.finished_at = now
+        job.analytics_context = {}
+        job.save()
+        return False
+    job.reserved_tokens = per_attempt * affordable
+    job.result = {**job.result, "reservation_per_attempt": per_attempt,
+                  "attempt_limit": job.attempts + affordable}
+    job.save(update_fields=["reserved_tokens", "result"])
+    return True
+
+
+def _job_lease_seconds():
+    # Three 65s searches, two 55s normalizations and the default 90s vision
+    # request leave 205s for local media/database work inside this minimum.
+    # Preserve that allowance when an installation increases vision timeout.
+    vision_extra = max(0, float(option("OPENAI_TIMEOUT", 90)) - 90)
+    return max(MIN_JOB_LEASE_SECONDS + vision_extra,
+               int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
+
+
 class DraftAnalysisCancelled(ValidationError):
     """The draft was deleted before a provider request; known additional usage is zero."""
     def __init__(self):
@@ -480,8 +537,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     "category_names": category_names, "research": research}
         research_description_only = mode == "description" and research
         if research_description_only:
-            # Separate the two-call strategy from older three-call jobs. Keep
-            # each queued/running job's reservation and execution consistent.
+            # Avoid a preliminary description that research composes locally.
+            # Preserve the strategy marker for older queued/running jobs.
             material["research_description_only"] = True
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         existing = AnalysisJob.objects.select_for_update().filter(fingerprint=fingerprint).first()
@@ -523,7 +580,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         auto_apply=auto_apply,
                                         application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
-                                        result={"attempt_limit": attempt_limit, "research_requested": research,
+                                        result={"attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
+                                                "research_requested": research,
                                                 "research_description_only": research_description_only, "category_names": category_names,
                                                 "input_snapshot": {"title": machine.title,
                                                 "category": machine.category.name if machine.category_id else None,
@@ -721,6 +779,7 @@ def process_analysis(job):
         result["research_requested"] = research_requested
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
+        result["reservation_per_attempt"] = _reserved_attempt_cost(job, platform_settings())
         if research_requested:
             def research_allowed():
                 if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):
@@ -778,9 +837,12 @@ def _lock_query(query):
 
 def _claim_job():
     now = timezone.now()
-    limits = platform_settings()
-    stale_before = now - timedelta(seconds=max(300, int(option("AI_JOB_STALE_SECONDS", 600))))
+    platform_settings()
+    stale_before = now - timedelta(seconds=_job_lease_seconds())
     with transaction.atomic():
+        # Same order as admission: settings before jobs. A deployment can raise
+        # the cost of a queued strategy without racing another admission.
+        limits = PlatformSettings.objects.select_for_update().get(pk=1)
         # Clean up deleted queued work even when analysis is administratively
         # paused. Never acquire a Machine lock while holding a job lock here.
         cancelled = _lock_query(AnalysisJob.objects.filter(status="queued").filter(
@@ -792,6 +854,7 @@ def _claim_job():
         # A dead worker's lease has a bounded retry count. Never overwrite a newer lease.
         stale = _lock_query(AnalysisJob.objects.filter(status="running", locked_at__lt=stale_before)).first()
         if stale:
+            per_attempt = _reserved_attempt_cost(stale, limits)
             deleted = _deleted_analysis(stale)
             if deleted:
                 _mark_deleted_analysis(stale, Machine.all_objects.values_list("revision", flat=True).get(pk=stale.machine_id))
@@ -801,8 +864,6 @@ def _claim_job():
                 stale.error = "El borrador se envió a la papelera; el análisis interrumpido no se reanudará."
             stale.locked_at = None
             # Unknown remote outcome: reserve conservative consumption instead of claiming zero.
-            per_attempt = _reservation(len(stale.asset_ids), stale.mode, stale.result.get("research_requested") is True,
-                                       research_description_only=stale.result.get("research_description_only") is True)
             stale.input_tokens += min(stale.reserved_tokens, per_attempt)
             stale.reserved_tokens = max(0, stale.reserved_tokens - per_attempt) if stale.status == "queued" else 0
             stale.finished_at = now if stale.status == "failed" else None
@@ -822,6 +883,8 @@ def _claim_job():
             job.reserved_tokens = 0
             job.analytics_context = {}
             job.save()
+            return None
+        if not _ensure_execution_reservation(job, limits, now):
             return None
         # CAS also protects development SQLite, which has no SELECT FOR UPDATE.
         changed = AnalysisJob.objects.filter(pk=job.pk, status="queued").update(
@@ -883,6 +946,7 @@ def process_next_job():
             if locked.status != "running" or locked.locked_at != lease:
                 return True
             deleted = _deleted_analysis(locked, machine)
+            per_attempt = _reserved_attempt_cost(locked, platform_settings())
             if deleted:
                 _mark_deleted_analysis(locked, machine.revision)
             retry = not deleted and transient and locked.attempts < _attempt_limit(locked, platform_settings())
@@ -891,8 +955,6 @@ def process_next_job():
                             "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
             if deleted:
                 locked.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
-            per_attempt = _reservation(len(locked.asset_ids), locked.mode, locked.result.get("research_requested") is True,
-                                       research_description_only=locked.result.get("research_description_only") is True)
             accounted = getattr(exc, "accounted_usage", None)
             if accounted is not None:
                 locked.input_tokens += accounted.input_tokens

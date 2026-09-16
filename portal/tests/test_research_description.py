@@ -11,7 +11,7 @@ from django.utils import timezone
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import (DescriptionAnalysis, _claim_job, enqueue_analysis,
                                process_analysis, process_next_job)
-from portal.research import ResearchCandidate, ResearchCandidates
+from portal.research import RESEARCH_RESERVATION, SEARCH_RESERVATION, ResearchCandidate, ResearchCandidates
 
 
 URL = "https://www.cat.com/en_US/products/new/equipment/backhoe-loaders/420f2.html"
@@ -54,8 +54,9 @@ class ResearchDescriptionTests(TestCase):
         return client
 
     def test_existing_daily_usage_allows_one_real_research_reservation_and_deduplicates(self):
+        previous_usage = self.limits.ai_daily_token_limit - RESEARCH_RESERVATION - 1000
         previous = AnalysisJob.objects.create(machine=self.machine, revision=self.machine.revision,
-            requested_by=self.user, fingerprint="a" * 64, status="completed", input_tokens=72417,
+            requested_by=self.user, fingerprint="a" * 64, status="completed", input_tokens=previous_usage,
             finished_at=timezone.now())
         with patch("openai.OpenAI") as provider:
             job = self.enqueue()
@@ -65,15 +66,15 @@ class ResearchDescriptionTests(TestCase):
         self.assertEqual(job.asset_ids, [])
         self.assertTrue(job.result["research_description_only"])
         self.assertEqual(job.result["attempt_limit"], 1)
-        self.assertEqual(job.reserved_tokens, 20000)
+        self.assertEqual(job.reserved_tokens, RESEARCH_RESERVATION)
         previous.refresh_from_db()
         self.limits.refresh_from_db()
-        self.assertEqual(previous.input_tokens, 72417)
+        self.assertEqual(previous.input_tokens, previous_usage)
         self.assertEqual(self.limits.ai_daily_token_limit, 100000)
         self.assertEqual(AnalysisJob.objects.count(), 2)
 
     def test_insufficient_research_budget_still_rejects_before_provider_or_job(self):
-        self.limits.ai_daily_token_limit = 19999
+        self.limits.ai_daily_token_limit = RESEARCH_RESERVATION - 1
         self.limits.save()
         with patch("openai.OpenAI") as provider, self.assertRaisesMessage(ValidationError, "No hay capacidad"):
             self.enqueue()
@@ -85,19 +86,19 @@ class ResearchDescriptionTests(TestCase):
         with patch("openai.OpenAI", return_value=client), patch("portal.processing._image_input") as image:
             self.assertTrue(process_next_job())
         image.assert_not_called()
-        client.responses.create.assert_called_once()
+        self.assertEqual(client.responses.create.call_count, 3)
         client.responses.parse.assert_called_once()
         client.close.assert_called_once()
         self.assertIs(client.responses.parse.call_args.kwargs["text_format"], ResearchCandidates)
         self.assertNotIn("PRIVATE NOTES", str(client.mock_calls))
-        request = json.loads(client.responses.create.call_args.kwargs["input"])
+        request = json.loads(client.responses.create.call_args_list[0].kwargs["input"])
         self.assertEqual(request["identifiers"]["serial"], "OWNER123")
         job.refresh_from_db()
         self.machine.refresh_from_db()
         self.assertEqual(job.status, "completed")
-        self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (8330, 220, 0))
-        self.assertEqual(job.result["usage"]["estimated_tokens"], 8000)
-        self.assertEqual(job.result["usage"]["web_search_calls"], 1)
+        self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (24570, 380, 0))
+        self.assertEqual(job.result["usage"]["estimated_tokens"], 3 * 8000)
+        self.assertEqual(job.result["usage"]["web_search_calls"], 3)
         self.assertEqual(job.result["plates"], [])
         self.assertEqual(self.machine.data["power"], "70 kW")
         self.assertIn("70 kW", self.machine.data["description"])
@@ -124,13 +125,13 @@ class ResearchDescriptionTests(TestCase):
         client.responses.create.side_effect = TimeoutError("provider private details")
         with patch("openai.OpenAI", return_value=client):
             process_next_job()
-        client.responses.create.assert_called_once()
+        self.assertEqual(client.responses.create.call_count, 3)
         client.responses.parse.assert_not_called()
         job.refresh_from_db()
         self.assertEqual(job.status, "completed")
         self.assertEqual(job.result["research"]["status"], "degraded")
-        self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (12000, 0, 0))
-        self.assertEqual(job.result["usage"]["estimated_tokens"], 12000)
+        self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (3 * SEARCH_RESERVATION, 0, 0))
+        self.assertEqual(job.result["usage"]["estimated_tokens"], 3 * SEARCH_RESERVATION)
         self.assertNotIn("private details", str(job.result))
 
     def test_plain_description_keeps_its_original_single_call_and_text(self):
@@ -147,9 +148,11 @@ class ResearchDescriptionTests(TestCase):
         self.assertEqual(result["data"]["description"], "Descripción visual conservada.")
         self.assertEqual((usage.input_tokens, usage.output_tokens), (30, 20))
 
-    def test_legacy_job_without_strategy_marker_keeps_three_call_execution(self):
+    def test_legacy_job_without_strategy_marker_keeps_preliminary_description(self):
         job, client = self.enqueue(), self.provider()
         job.result.pop("research_description_only")
+        job.result.pop("reservation_per_attempt")
+        job.result["attempt_limit"] = 2
         job.reserved_tokens = 58000
         job.save()
         normalization = client.responses.parse.return_value
@@ -159,9 +162,9 @@ class ResearchDescriptionTests(TestCase):
         with patch("openai.OpenAI", return_value=client):
             result, usage = process_analysis(job)
         self.assertEqual(client.responses.parse.call_count, 2)
-        client.responses.create.assert_called_once()
+        self.assertEqual(client.responses.create.call_count, 3)
         self.assertFalse(result["research_description_only"])
-        self.assertEqual((usage.input_tokens, usage.output_tokens), (8360, 240))
+        self.assertEqual((usage.input_tokens, usage.output_tokens), (24600, 400))
 
     def test_expired_lease_accounts_the_strategy_reserved_before_execution(self):
         self.limits.ai_enabled = False
