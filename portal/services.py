@@ -2,6 +2,9 @@
 from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from string import Template
+from urllib.parse import parse_qsl, unquote, urlsplit
+from uuid import UUID
+import ipaddress
 import re
 import unicodedata
 
@@ -19,6 +22,120 @@ from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine,
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"}
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"}
+WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"}
+WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
+                    "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
+                    "engine": "Motor", "transmission": "Transmisión", "year": "Año"}
+
+
+def _reference_text(value):
+    value = str(value or "")
+    for _ in range(3):
+        value = unquote(value)
+    return "".join(c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum())
+
+
+def _public_reference_url(url, serials):
+    """Keep an actual citation intact or withhold it; never invent a substitute."""
+    if not isinstance(url, str) or len(url) > 2000 or any(ord(c) < 32 for c in url):
+        return ""
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname or ""
+        if parsed.scheme not in {"https", "http"} or not host or parsed.username or parsed.password:
+            return ""
+        if host.casefold() in {"localhost", "localhost.localdomain"} or "." not in host:
+            return ""
+        try:
+            if not ipaddress.ip_address(host).is_global:
+                return ""
+        except ValueError:
+            pass
+        if any(_reference_text(key) in {"serial", "serialnumber", "serie", "numerodeserie", "vin", "pin", "sn"}
+               for key, _ in parse_qsl(parsed.query, keep_blank_values=True)):
+            return ""
+        if any(serial in _reference_text(url) for serial in serials):
+            return ""
+    except (ValueError, UnicodeError):
+        return ""
+    return url
+
+
+def public_web_references(snapshot):
+    """Public citation allowlist derived only from the displayed immutable data.
+
+    Evidence, job IDs, plate IDs and serial identifiers never leave this helper.
+    Unit-specific links and titles containing a private serial remain private.
+    """
+    data = snapshot.get("data", {})
+    provenance = snapshot.get("provenance", {})
+    if not isinstance(data, dict) or not isinstance(provenance, dict):
+        return []
+    serials = {_reference_text(data.get(key)) for key in ("serial", "vin") if data.get(key)} - {""}
+    references = []
+    for key, label in WEB_FIELD_LABELS.items():
+        meta = provenance.get(key, {})
+        value = data.get(key)
+        if value is None or value == "" or not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            continue
+        if not isinstance(meta, dict) or meta.get("source") != "web" or meta.get("scope") not in {"model", "exact_serial"}:
+            continue
+        if key == "year" and meta["scope"] != "exact_serial":
+            continue
+        from .research import is_validated_web_field
+        manifests = snapshot.get("web_research", {})
+        manifest = manifests.get(meta.get("analysis_id"), {}) if isinstance(manifests, dict) else {}
+        if not is_validated_web_field({"research": manifest}, key, value, {**meta, "review": "needs_review"}):
+            continue
+        identity = manifest.get("identity", {})
+        private_serials = serials | {_reference_text(identity.get("serial")), _reference_text(meta.get("matched_serial"))} - {""}
+        title = re.sub(r"[\x00-\x1f\x7f]", " ", str(meta.get("source_title") or "Fuente de referencia"))[:500]
+        url = _public_reference_url(meta.get("source_url"), private_serials)
+        private_source = not url or any(serial in _reference_text(title) for serial in private_serials) or (meta["scope"] == "exact_serial" and not private_serials)
+        references.append({"field": key, "label": label, "value": value, "scope": meta["scope"],
+            "scope_label": "Referencia del modelo; confirmar en este equipo" if meta["scope"] == "model" else "Referencia de la unidad; sujeta a revisión",
+            "source_url": "" if private_source else url,
+            "source_title": "Fuente privada" if private_source else title,
+            "private_source": private_source,
+            "review_label": "Confirmado por el anunciante" if meta.get("review") == "confirmed" else "Pendiente de revisión"})
+    return references
+
+
+def web_research_for_provenance(provenance):
+    """Copy source proofs into snapshots so later job changes cannot alter citations."""
+    identifiers = {meta.get("analysis_id") for meta in provenance.values()
+                   if isinstance(meta, dict) and meta.get("source") == "web" and meta.get("analysis_id")}
+    valid_identifiers = set()
+    for value in identifiers:
+        try:
+            valid_identifiers.add(UUID(value))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    return {str(job.pk): deepcopy(job.result.get("research", {}))
+            for job in AnalysisJob.objects.filter(pk__in=valid_identifiers) if isinstance(job.result, dict)}
+
+
+def _web_identity_unchanged(machine, job, scope):
+    identity = job.result.get("research", {}).get("identity", {})
+    if not isinstance(identity, dict):
+        return False
+    for key in ("brand", "model", "serial") if scope == "exact_serial" else ("brand", "model"):
+        researched = identity.get(key)
+        if not researched:
+            continue
+        current = machine.data.get(key)
+        if current not in (None, "") and _reference_text(current) != _reference_text(researched):
+            return False
+        if _empty_suggestion_target(machine, key) and _human_provenance(machine, key):
+            return False
+    return True
+
+
+def _web_value_keeps_serial_private(machine, job, value):
+    identity = job.result.get("research", {}).get("identity", {})
+    serials = {_reference_text(machine.data.get("serial")), _reference_text(machine.data.get("vin")),
+               _reference_text(identity.get("serial") if isinstance(identity, dict) else None)} - {""}
+    return not any(serial in _reference_text(value) for serial in serials)
 
 
 class DraftRevisionConflict(ValidationError):
@@ -60,8 +177,15 @@ def automatic_application_status(job):
 def _clear_automatic_field(job, key, value, meta):
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
         return False
+    if meta.get("source") == "web":
+        if key not in WEB_DATA_FIELDS | {"year"} or meta.get("review") != "needs_review" or meta.get("component") != "machine":
+            return False
+        if meta.get("scope") not in {"model", "exact_serial"} or (key == "year" and meta.get("scope") != "exact_serial"):
+            return False
+        from .research import is_validated_web_field
+        return is_validated_web_field(job.result, key, value, meta)
     if key in {"title", "description"}:
-        return isinstance(value, str) and meta.get("source") in {"visual_proposal", "image", "user"} and meta.get("review") in {"needs_review", "clear"}
+        return isinstance(value, str) and meta.get("source") in {"visual_proposal", "image", "user", "system"} and meta.get("review") in {"needs_review", "clear"}
     if meta.get("component") != "machine" or meta.get("review") != "clear" or meta.get("source") not in {"plate", "image"}:
         return False
     if not meta.get("asset_id") or str(meta["asset_id"]) not in job.asset_ids:
@@ -173,12 +297,25 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         machine.data, machine.provenance = candidate.data, candidate.provenance
         result["applied_fields"].append(key)
 
+    identity_at_completion = deepcopy(machine)
+    research = job.result.get("research")
+    compose_after_research = isinstance(research, dict) and research.get("status") != "disabled"
     for key, value in candidates.items():
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
+            continue
+        if key == "description" and compose_after_research:
+            # Compose from the final accepted fields below, never from a web
+            # candidate discarded because of uncertainty or a human correction.
             continue
         meta = provenance.get(key, {})
         if not isinstance(meta, dict) or not _clear_automatic_field(job, key, value, meta):
             skip(key, "not_identifiable" if value is None or value == "" else "uncertain")
+            continue
+        if meta.get("source") == "web" and not _web_identity_unchanged(identity_at_completion, job, meta.get("scope")):
+            skip(key, "identity_changed")
+            continue
+        if meta.get("source") == "web" and not _web_value_keeps_serial_private(identity_at_completion, job, value):
+            skip(key, "private_identifier")
             continue
         if can_fill(key):
             add_validated(key, value, meta)
@@ -192,6 +329,12 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
+    if compose_after_research and can_fill("description"):
+        from .research import compose_description
+        description = compose_description(machine.data, machine.provenance,
+                                          machine.category.name if machine.category_id else None)
+        if description:
+            add_validated("description", description, {"source": "system", "review": "needs_review"})
     if result["applied_fields"]:
         machine.revision += 1
         if machine.status in {"approved", "rejected", "cancelled"}:
@@ -308,7 +451,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
             raise ValidationError({"provenance": "La procedencia contiene campos no admitidos."})
         valid_assets = {str(pk) for pk in machine.assets.values_list("id", flat=True)}
         for key, value in provenance.items():
-            if not isinstance(value, dict) or set(value) - {"source", "review", "asset_id", "source_url", "source_date", "label", "component", "transcription", "evidence", "analysis_id"}:
+            if not isinstance(value, dict) or set(value) - {"source", "review", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id"}:
                 raise ValidationError({"provenance": "La procedencia debe indicar origen y revisión."})
             if any(item is not None and (not isinstance(item, str) or len(item) > 12000) for item in value.values()):
                 raise ValidationError({"provenance": "Formato de procedencia inválido."})
@@ -379,6 +522,11 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         value = result_data[key]
         if value in (None, ""):
             continue
+        if result_provenance.get(key, {}).get("source") == "web" and (
+                not _clear_automatic_field(job, key, value, result_provenance[key])
+                or not _web_identity_unchanged(machine, job, result_provenance[key].get("scope"))
+                or not _web_value_keeps_serial_private(machine, job, value)):
+            raise ValidationError("La referencia web no está validada para este dato y esta maquinaria.")
         if key == "title":
             payload["title"] = value
         else:
@@ -414,6 +562,7 @@ def snapshot(machine, user):
         "title": machine.title, "category": machine.category_id,
         "category_name": machine.category.name if machine.category_id else "",
         "data": deepcopy(machine.data), "provenance": deepcopy(machine.provenance),
+        "web_research": web_research_for_provenance(machine.provenance),
         "asset_ids": [str(asset.pk) for asset in assets],
         "public_asset_ids": [str(asset.pk) for asset in assets if asset.public_authorized and asset.purpose not in {"plate", "document"}],
         "contact_authorized": bool(contact and contact.granted), "public_contact": public_contact, "revision": machine.revision,
@@ -432,12 +581,23 @@ def submit_machine(machine, user, advertise_consent, contact_consent=False):
         raise ValidationError("Tu permiso de anunciante necesita revisión de IMC antes de enviar otra solicitud.")
     if advertise_consent is not True:
         raise ValidationError("Autoriza el envío de la ficha para revisión y difusión.")
-    if not machine.title.strip() or machine.title == "Mi maquinaria":
-        raise ValidationError({"title": "Indica un título que identifique el equipo."})
-    if not str(machine.data.get("location") or "").strip():
-        raise ValidationError({"location": "Indica la ubicación general del equipo."})
     if not machine.assets.filter(kind="image", processing_status="ready", purpose__in=["general", "detail"]).exists():
         raise ValidationError("Agrega al menos una fotografía general o de detalle del equipo.")
+    # A failed or unavailable analysis must not turn unknown specifications into
+    # mandatory manual work. These neutral labels make no claim about the machine.
+    fallback_fields = []
+    if _empty_suggestion_target(machine, "title") and not _human_provenance(machine, "title"):
+        machine.title = "Maquinaria para revisión"
+        machine.provenance["title"] = {"source": "system", "review": "needs_review"}
+        fallback_fields.append("title")
+    if _empty_suggestion_target(machine, "description") and not _human_provenance(machine, "description"):
+        machine.data["description"] = "Maquinaria presentada para revisión con fotografías adjuntas. Las características, la condición y la disponibilidad están pendientes de confirmar con el anunciante."
+        machine.provenance["description"] = {"source": "system", "review": "needs_review"}
+        fallback_fields.append("description")
+    if fallback_fields:
+        machine.revision += 1
+        machine.save(update_fields=["title", "data", "provenance", "revision", "updated_at"])
+        audit(user, "machine.submission_labels_prepared", machine, {"fields": fallback_fields, "revision": machine.revision})
     Consent.objects.create(user=user, machine=machine, kind="advertise", granted=True)
     Consent.objects.create(user=user, machine=machine, kind="contact", granted=contact_consent is True)
     version = snapshot(machine, user)

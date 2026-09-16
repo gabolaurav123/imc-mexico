@@ -169,7 +169,8 @@ class WorkflowTests(TestCase):
         with self.assertRaises(ValidationError):
             review_submission(first, self.admin, "changes_requested")
         review_submission(first, self.admin, "changes_requested", "Indica el municipio.")
-        changed = save_draft(self.machine, self.owner, {"data": {"location": "Querétaro, municipio de Querétaro"}}, 1)
+        self.machine.refresh_from_db()
+        changed = save_draft(self.machine, self.owner, {"data": {"location": "Querétaro, municipio de Querétaro"}}, self.machine.revision)
         second = submit_machine(changed, self.owner, True)
         with self.assertRaises(ValidationError):
             review_submission(first, self.admin, "approved")
@@ -179,7 +180,7 @@ class WorkflowTests(TestCase):
     def test_public_version_survives_new_draft_and_updates_availability(self):
         self.approve()
         publication = set_publication(self.machine, self.admin, True)
-        changed = save_draft(self.machine, self.owner, {"title": "Borrador nuevo"}, 1)
+        changed = save_draft(self.machine, self.owner, {"title": "Borrador nuevo"}, self.machine.revision)
         self.assertEqual(changed.status, "draft")
         publication.refresh_from_db()
         self.assertEqual(publication.version.data["title"], "Excavadora declarada")

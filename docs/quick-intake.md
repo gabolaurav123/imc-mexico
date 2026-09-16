@@ -2,8 +2,8 @@
 
 ## Recorrido del anunciante
 
-1. **Fotos:** cargar las imágenes y pulsar «Preparar mi ficha». El aviso junto al botón explica el envío a OpenAI y el rellenado del borrador. No hay una segunda casilla de IA ni una selección obligatoria de fotografías. Los documentos se excluyen del análisis.
-2. **Ficha:** ver el resultado, indicar la ubicación general y enviar a IMC. El precio es opcional. «Editar información», las especificaciones, observaciones de IA y el contacto público están plegados. No es necesario aceptar cada dato generado.
+1. **Fotos:** cargar las imágenes y pulsar «Preparar mi ficha». El aviso junto al botón explica el envío a OpenAI, la búsqueda mediante los identificadores de la máquina y el rellenado del borrador. No hay una segunda casilla de IA ni una selección obligatoria de fotografías. Los documentos se excluyen del análisis.
+2. **Ficha:** ver el resultado y enviar a IMC. La ubicación, el precio y los detalles técnicos son opcionales. «Editar información», las especificaciones, observaciones de IA y el contacto público están plegados. No es necesario aceptar cada dato generado.
 
 El botón de envío registra la autorización del anunciante para revisión y preparación del anuncio. La publicación continúa bajo control de IMC. El contacto público conserva su autorización opcional separada, desmarcada por defecto.
 
@@ -21,14 +21,24 @@ La API acepta `auto_apply: true` en la petición de preparación junto con conse
 
 El resultado puede consultarse en la API de estado del análisis. La API anterior de aplicación por selección sigue disponible para clientes anteriores; el asistente nuevo no la exige.
 
+## Referencias externas y fuentes
+
+Con la autorización de investigación se buscan la serie legible de la máquina o la marca y el modelo identificados. Las fuentes normalizadas se firman en el servidor y sólo completan huecos de marca, modelo, potencia, peso, capacidad, dimensiones, combustible, motor o transmisión. Un año requiere coincidencia con la serie exacta y una fuente de fabricante reconocida. Nunca se rellenan desde la web ubicación, horas, precio, condición ni la serie.
+
+Las referencias conservan la etiqueta «Referencia del modelo; confirmar en este equipo» o «Referencia de la unidad; sujeta a revisión». Una corrección humana de la identidad durante el análisis impide aplicar referencias de la identidad anterior. La descripción se prepara a partir de los campos finalmente aceptados, por lo que no recupera sugerencias descartadas.
+
+La versión enviada conserva una copia privada del manifiesto firmado. La ficha web, el PDF y el JSON del ZIP incluyen únicamente citas verificadas de sus valores publicados. Los enlaces son clicables cuando no contienen identificadores privados; si el título o la URL contiene una serie privada, se muestra «Fuente privada» sin sustituir el enlace por una dirección inventada. El manifiesto, la serie de consulta y la evidencia interna no se incluyen en las referencias públicas.
+
+La verificación usa la clave de firma de Django. Una rotación de `SECRET_KEY` debe conservar la clave anterior mediante el mecanismo de claves de respaldo de Django durante la transición; de lo contrario las pruebas históricas dejarán de verificarse y sus referencias se omitirán hasta resolver la rotación. No se consideran válidas por defecto.
+
 ## Fallos y edición manual
 
-Una foto guardada no se pierde por un error de IA. La persona puede pasar a edición manual, añadir un título y ubicación y enviar sin completar especificaciones desconocidas. Las cargas pendientes y los cambios sin guardar se resuelven antes de preparar o enviar. Los errores muestran la acción que falta sin añadir pasos nuevos.
+Una foto guardada no se pierde por un error de IA. La persona puede enviar las fotos recibidas sin completar especificaciones desconocidas. Si faltan título o descripción y no existe una corrección humana, el envío usa textos neutros de preparación, identificados como pendientes de revisión; no inventa ubicación, año, horas ni condición. Las cargas pendientes y los cambios sin guardar se resuelven antes de preparar o enviar. Los errores muestran la acción que falta sin añadir pasos nuevos.
 
 ## Operación
 
 La migración `0007_automatic_draft_completion` añade metadatos de aplicación a los análisis. No modifica las fichas existentes durante la migración. No requiere nuevas credenciales ni variables de entorno.
 
-La versión integrada pasó **146 pruebas Django, sin omisiones**, con ffmpeg/ffprobe reales. Cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, recuperación manual y envío duplicado. `check`, migraciones pendientes y la prueba DOM del catálogo también pasaron. Las evidencias del despliegue se registran por separado en el informe de actualización.
+Esta ampliación pasó **185 pruebas Django, sin omisiones**, con ffmpeg/ffprobe reales, y **16 grupos de pruebas de interfaz**, además del catálogo. Las comprobaciones de configuración y migraciones no detectaron problemas. Las pruebas cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, envío sin campos manuales obligatorios y fuentes en web/PDF/ZIP.
 
 La suite de interfaz se conserva en el repositorio: `npm ci --ignore-scripts` y `npm run test:ui`. Usa jsdom sólo para desarrollo y genera una plantilla sintética sin consultar la base de datos. En Windows puede indicarse `PYTHON` con la ruta del intérprete del entorno virtual. GitHub Actions ejecuta esta suite junto a las pruebas de Django.

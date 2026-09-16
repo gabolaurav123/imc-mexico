@@ -64,7 +64,8 @@ El consentimiento IA queda registrado antes de encolar. Los documentos privados 
 videos no se envían. `asset_ids` permite reanalizar fotos concretas; `mode=description`
 redacta únicamente a partir de datos declarados, sin imágenes. El contexto excluye
 contactos, ubicación y notas privadas. El material se trata como datos, nunca como
-instrucciones; no se conceden herramientas ni acciones administrativas al modelo.
+instrucciones. La lectura inicial no utiliza herramientas. La investigación separada
+utiliza sólo búsqueda web; no se conceden acciones administrativas al modelo.
 
 El esquema contiene título, descripción, categoría sugerida, campos con origen y
 estado de revisión, componentes, transcripciones literales, advertencias y preguntas.
@@ -83,6 +84,12 @@ El trabajo guarda una instantánea de entrada y registra el resultado de aplicac
 para evitar aplicar el mismo análisis dos veces. El envío y la publicación no se
 activan al completar el análisis. La API anterior de selección explícita permanece
 compatible para clientes anteriores.
+
+La interfaz nueva solicita además `research: true`: busca referencias por serie o
+marca/modelo, valida los campos contra las fuentes consultadas y prepara una
+descripción a partir de los datos aceptados. Los clientes anteriores omiten esa
+opción y no activan búsquedas. Los campos técnicos web conservan su alcance de
+modelo o unidad y las citas. [Contrato, privacidad y límites](research.md).
 
 ## Cola persistente y consumo
 
@@ -107,7 +114,9 @@ para desarrollo local con un worker.
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
 - Reserva conservadora por intento: 9000 tokens más 3200 por imagen; descripción
-  reserva 9000. Se reserva para todos los intentos autorizados, por adelantado.
+  reserva 9000. La investigación añade 20000 por intento. Se reserva por adelantado
+  para los intentos que caben en la capacidad disponible, hasta el máximo configurado;
+  si sólo cabe uno, el trabajo conserva ese tope y no reintenta sin reserva.
   La reserva no es una predicción de tokens ni un precio. La API devuelve consumo
   real de respuestas completadas; en errores con resultado remoto desconocido se
   contabiliza la reserva del intento conservadoramente. Los trabajos pendientes

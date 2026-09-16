@@ -18,6 +18,8 @@ La versión integrada pasó **124 pruebas sin omisiones**, la prueba DOM del cat
 
 El recorrido se reduce a **Fotos → Ficha y envío**. La IA completa el borrador automáticamente al pulsar «Preparar mi ficha»; los campos opcionales quedan plegados y la edición sigue disponible. La migración `0007` conserva las fichas existentes. [Comportamiento, protección de cambios y recuperación](docs/quick-intake.md).
 
+La preparación también busca referencias por **serie o modelo**, incorpora especificaciones con sus fuentes y genera la descripción. Ubicación, precio y datos desconocidos no bloquean el envío. Las referencias del modelo se distinguen de los datos de una unidad concreta. [Búsqueda, procedencia y límites](docs/research.md).
+
 ## Servicio y acceso actuales
 
 | Elemento | Estado comprobado |

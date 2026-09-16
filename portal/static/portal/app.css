@@ -83,3 +83,16 @@
 
 .steps-grid.steps-grid-two{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media(max-width:600px){.steps-grid.steps-grid-two{grid-template-columns:minmax(0,1fr)}}
+
+/* Optional web research: distinguish model references from unit evidence. */
+.quick-intake #commercial-details .quick-commercial{padding:0;margin:0}
+.research-summary{padding:12px 14px;background:#eef7fc;border-left:3px solid var(--blue);font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+.research-field-list{margin:16px 0;display:grid;gap:14px}
+.research-field-list>div{border-bottom:1px solid var(--line);padding-bottom:12px;min-width:0}
+.research-field-list dt{font-size:12px;font-weight:700;margin-bottom:4px}
+.research-field-list dd{margin:0;display:grid;gap:4px;font-size:13px;overflow-wrap:anywhere}
+.research-scope{font-size:12px;color:var(--navy);line-height:1.5}
+.research-source-list{padding-left:20px;font-size:12px;line-height:1.6}
+.research-source-list li{margin-block:8px;overflow-wrap:anywhere}
+.research-source-list a,.research-field-list a{overflow-wrap:anywhere;white-space:normal}
+.sheet-web-references{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}

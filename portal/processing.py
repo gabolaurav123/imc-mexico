@@ -29,8 +29,10 @@ from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner)
 from .storage import option
+from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
+                       empty_research, merge_research, research_machine)
 
-PROMPT_VERSION = "imc-vision-2026-09-v3"
+PROMPT_VERSION = "imc-vision-research-2026-09-v4"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -274,16 +276,24 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
             preview.close()
 
 
-def _reservation(image_count, mode):
+def _reservation(image_count, mode, research=False):
     # A conservative operational reservation, not a token prediction or price quote.
-    return 9000 if mode == "description" else 9000 + image_count * 3200
+    return (9000 if mode == "description" else 9000 + image_count * 3200) + (RESEARCH_RESERVATION if research else 0)
+
+
+def _attempt_limit(job, limits):
+    configured = max(1, limits.ai_max_attempts)
+    reserved = job.result.get("attempt_limit", configured)
+    return min(configured, reserved) if type(reserved) is int and reserved >= 1 else configured
 
 
 def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
-                     auto_apply=False, expected_revision=None, authorize_ai=False):
+                     auto_apply=False, expected_revision=None, authorize_ai=False, research=False):
     _check_editor(machine, user)
     if type(auto_apply) is not bool:
         raise ValidationError("Indica si deseas completar el borrador automáticamente.")
+    if type(research) is not bool:
+        raise ValidationError("Indica si deseas consultar referencias públicas de la maquinaria.")
     if auto_apply and machine.owner_id != user.pk:
         raise PermissionDenied("El propietario debe autorizar el completado de su borrador.")
     consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at").first()
@@ -292,7 +302,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
     if mode not in {"analysis", "description"}:
         raise ValidationError("El tipo de análisis no es válido.")
     if not option("OPENAI_API_KEY", ""):
-        raise ValidationError("El análisis asistido aún no está configurado. Puedes completar la ficha manualmente.")
+        raise ValidationError("El análisis asistido aún no está configurado. Puedes enviar la ficha con la información disponible.")
     with transaction.atomic():
         platform_settings()
         limits = PlatformSettings.objects.select_for_update().get(pk=1)
@@ -301,14 +311,17 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if auto_apply and (type(expected_revision) is not int or machine.revision != expected_revision):
             raise DraftRevisionConflict("El borrador cambió. Actualiza la página antes de preparar la ficha.")
         consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at", "-pk").first()
-        if authorize_ai is True and (not consent or not consent.granted):
+        if authorize_ai is True and (not consent or not consent.granted or (research and consent.version != CONSENT_VERSION)):
             # Insert only after the platform->machine locks; inserting a FK row
             # first can deadlock concurrent first-time requests in PostgreSQL.
-            consent = Consent.objects.create(user=user, machine=machine, kind="ai", granted=True)
+            consent = Consent.objects.create(user=user, machine=machine, kind="ai", granted=True,
+                                             version=CONSENT_VERSION if research else "2026-09")
         if not consent or not consent.granted:
             raise ValidationError("Autoriza el análisis asistido antes de continuar.")
+        if research and consent.version != CONSENT_VERSION:
+            raise ValidationError("Autoriza la lectura de fotografías y la búsqueda de identificadores públicos antes de continuar.")
         if not limits.ai_enabled:
-            raise ValidationError("El análisis asistido está pausado. Puedes completar la ficha manualmente.")
+            raise ValidationError("El análisis asistido está pausado. Puedes enviar la ficha con la información disponible.")
         selected = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
         if asset_ids:
             if not isinstance(asset_ids, list) or len(asset_ids) > limits.max_images:
@@ -327,7 +340,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
-                    "category_names": category_names}
+                    "category_names": category_names, "research": research}
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         existing = AnalysisJob.objects.select_for_update().filter(fingerprint=fingerprint).first()
         if existing:
@@ -345,18 +358,21 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         today = timezone.localdate()
         jobs = AnalysisJob.objects.filter(created_at__date=today)
         if jobs.filter(requested_by=user).count() >= limits.ai_user_daily_limit:
-            raise ValidationError("Alcanzaste el límite diario de análisis. Puedes continuar manualmente.")
+            raise ValidationError("Alcanzaste el límite diario de análisis. Puedes enviar la ficha con la información disponible.")
         if jobs.count() >= limits.ai_global_daily_limit:
-            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes continuar manualmente o intentarlo mañana.")
-        reserve = _reservation(len(assets), mode) * max(1, limits.ai_max_attempts)
+            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes enviar la ficha con la información disponible o intentarlo mañana.")
+        per_attempt = _reservation(len(assets), mode, research)
         # Include unfinished prior-day work and any work completed today, so a
         # midnight rollover cannot bypass the reservation budget.
         budget_jobs = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
                                                 | Q(status__in=["queued", "running"]))
         totals = budget_jobs.aggregate(used_in=Sum("input_tokens"), used_out=Sum("output_tokens"),
                                 reserved=Sum("reserved_tokens"))
-        if sum(v or 0 for v in totals.values()) + reserve > limits.ai_daily_token_limit:
-            raise ValidationError("No hay capacidad de análisis disponible hoy. Puedes continuar manualmente.")
+        available = limits.ai_daily_token_limit - sum(v or 0 for v in totals.values())
+        attempt_limit = min(max(1, limits.ai_max_attempts), available // per_attempt)
+        if attempt_limit < 1:
+            raise ValidationError("No hay capacidad de análisis disponible hoy. Puedes enviar la ficha con la información disponible.")
+        reserve = per_attempt * attempt_limit
         job = AnalysisJob.objects.create(machine=machine, revision=machine.revision, requested_by=user,
                                         asset_ids=[str(a.pk) for a in assets], mode=mode,
                                         fingerprint=fingerprint, model=model, prompt_version=PROMPT_VERSION,
@@ -364,7 +380,9 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         auto_apply=auto_apply,
                                         application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
-                                        result={"category_names": category_names, "input_snapshot": {"title": machine.title,
+                                        result={"attempt_limit": attempt_limit, "research_requested": research, "category_names": category_names,
+                                                "input_snapshot": {"title": machine.title,
+                                                "provenance": {k: v for k, v in machine.provenance.items() if k in {"brand", "model", "serial"}},
                                                 "data": {k: v for k, v in machine.data.items()
                                                          if k in AI_KEYS | {"description", "condition", "attachments"}}}})
         audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode})
@@ -436,7 +454,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
 
 
 def process_analysis(job):
-    """One API attempt. SDK retries disabled so all retries are durable/accounted."""
+    """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     from openai import OpenAI
     consent = Consent.objects.filter(user=job.requested_by, machine=job.machine, kind="ai").order_by("-created_at").first()
     if not job.requested_by.is_active or not consent or not consent.granted:
@@ -460,6 +478,7 @@ def process_analysis(job):
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
                     timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
+    usage = UsageTotals()
     try:
         response = client.responses.parse(
             model=job.model, instructions=SYSTEM_PROMPT,
@@ -467,11 +486,51 @@ def process_analysis(job):
             text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
             max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
         )
+        usage.add(response.usage)
+        if response.output_parsed is None or response.status != "completed":
+            raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
+        result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode)
+        research_requested = job.result.get("research_requested") is True
+        result["research_requested"] = research_requested
+        result["attempt_limit"] = _attempt_limit(job, platform_settings())
+        if research_requested:
+            def research_allowed():
+                latest = Consent.objects.filter(user=job.requested_by, user__is_active=True,
+                                                machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
+                return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
+
+            research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed)
+            usage.add(research_usage)
+            usage.estimated_tokens += research_usage.estimated_tokens
+            usage.web_search_calls += research_usage.web_search_calls
+            merge_research(result, research, snapshot)
+            # Text is composed only from locally accepted suggestions. Services
+            # recomposes once more from the actual saved values after concurrent
+            # edits/field validation, so discarded web facts cannot leak through.
+            accepted_data = {**result["data"], **{k: v for k, v in snapshot.get("data", {}).items() if v not in (None, "")}}
+            accepted_meta = {**result["provenance"], **snapshot.get("provenance", {})}
+            result["data"]["description"] = compose_description(accepted_data, accepted_meta, result.get("category"))
+            result["description"] = result["data"]["description"]
+            result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
+        else:
+            result["research"] = empty_research()
+        if not str(result["data"].get("title", "")).strip() and job.mode == "analysis":
+            result["data"]["title"] = result.get("category") or "Maquinaria para revisión"
+            result["title"] = result["data"]["title"]
+            result["provenance"]["title"] = {"source": "system", "review": "needs_review", "asset_id": None}
+        if not str(result["data"].get("description", "")).strip():
+            result["data"]["description"] = compose_description(result["data"], result["provenance"], result.get("category"))
+            result["description"] = result["data"]["description"]
+            result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
+        result["usage"] = usage.as_dict()
+        return result, usage
+    except Exception as exc:
+        if usage.input_tokens or usage.output_tokens:
+            # Preserve known consumption if a later local validation fails.
+            exc.accounted_usage = usage
+        raise
     finally:
         client.close()
-    if response.output_parsed is None or response.status != "completed":
-        raise ValidationError("No se pudo completar el análisis. Intenta con fotos más claras o completa los datos manualmente.")
-    return normalize_analysis(response.output_parsed, job.asset_ids, job.mode), response.usage
 
 
 def _lock_query(query):
@@ -486,11 +545,11 @@ def _claim_job():
         # A dead worker's lease has a bounded retry count. Never overwrite a newer lease.
         stale = _lock_query(AnalysisJob.objects.filter(status="running", locked_at__lt=stale_before)).first()
         if stale:
-            stale.status = "failed" if stale.attempts >= limits.ai_max_attempts else "queued"
-            stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Puedes continuar manualmente."
+            stale.status = "failed" if stale.attempts >= _attempt_limit(stale, limits) else "queued"
+            stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Puedes enviar la ficha con la información disponible."
             stale.locked_at = None
             # Unknown remote outcome: reserve conservative consumption instead of claiming zero.
-            per_attempt = _reservation(len(stale.asset_ids), stale.mode)
+            per_attempt = _reservation(len(stale.asset_ids), stale.mode, stale.result.get("research_requested") is True)
             stale.input_tokens += min(stale.reserved_tokens, per_attempt)
             stale.reserved_tokens = max(0, stale.reserved_tokens - per_attempt) if stale.status == "queued" else 0
             stale.finished_at = now if stale.status == "failed" else None
@@ -503,7 +562,7 @@ def _claim_job():
             Q(locked_at__isnull=True) | Q(locked_at__lte=now)).order_by("created_at")).first()
         if not job:
             return None
-        if job.attempts >= limits.ai_max_attempts:
+        if job.attempts >= _attempt_limit(job, limits):
             job.status, job.error, job.finished_at = "failed", "Se alcanzó el límite de intentos.", now
             job.reserved_tokens = 0
             job.analytics_context = {}
@@ -563,12 +622,17 @@ def process_next_job():
             locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
             if locked.status != "running" or locked.locked_at != lease:
                 return True
-            retry = transient and locked.attempts < platform_settings().ai_max_attempts
+            retry = transient and locked.attempts < _attempt_limit(locked, platform_settings())
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
-                            "No pudimos analizar las fotografías. Tus archivos están guardados; puedes completar la ficha manualmente.")
-            per_attempt = _reservation(len(locked.asset_ids), locked.mode)
-            locked.input_tokens += min(locked.reserved_tokens, per_attempt)
+                            "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
+            per_attempt = _reservation(len(locked.asset_ids), locked.mode, locked.result.get("research_requested") is True)
+            accounted = getattr(exc, "accounted_usage", None)
+            if accounted is not None:
+                locked.input_tokens += accounted.input_tokens
+                locked.output_tokens += accounted.output_tokens
+            else:
+                locked.input_tokens += min(locked.reserved_tokens, per_attempt)
             locked.reserved_tokens = max(0, locked.reserved_tokens - per_attempt) if retry else 0
             locked.locked_at = timezone.now() + timedelta(seconds=min(300, 15 * 2 ** locked.attempts)) if retry else None
             locked.finished_at = None if retry else timezone.now()

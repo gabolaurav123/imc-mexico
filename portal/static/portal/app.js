@@ -107,10 +107,11 @@
   const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set();
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false;
+  let analysisOutcome = null;
   let activeJob = null, pollTimer, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
   const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión' };
-  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar' };
+  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
   const fieldValue = (snapshot,key) => key === 'title' || key === 'category' ? snapshot[key] : snapshot.data?.[key];
@@ -338,11 +339,11 @@
     if (editable && !conflict && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
       legacyAttempts.add(job.id);
       try { await save(); const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
-      catch (error) { analysisStatus(`${error.message} Puedes completar tu ficha manualmente.`,'failed'); renderResults(job); return; }
+      catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
     renderResults(job);
     const metadata = job.auto_apply || {}, count = metadata.applied_fields?.length || 0;
-    const message = metadata.status === 'skipped' ? 'Conservamos tus datos. Las fotos o la ficha cambiaron durante la lectura; puedes editar la información o volver a prepararla con las fotos actuales.' : count ? `Ficha preparada. Completamos ${count} dato${count === 1 ? '' : 's'} disponible${count === 1 ? '' : 's'} y conservamos tus correcciones.` : 'Tu ficha está lista para revisar. Conservamos la información que ya tenías; puedes completar los datos que falten.';
+    const message = metadata.status === 'skipped' ? 'Conservamos tus datos. Las fotos o la ficha cambiaron durante la lectura; puedes editar la información o volver a prepararla con las fotos actuales.' : count ? `Ficha preparada. Completamos ${count} dato${count === 1 ? '' : 's'} disponible${count === 1 ? '' : 's'} y conservamos tus correcciones.` : 'Tu ficha está lista para revisar. Los datos que no se encontraron quedan sin indicar.';
     analysisStatus(message,'completed'); $('#ready-heading').textContent = 'Tu ficha está preparada.';
     if (currentStep === 1 && !conflict) displayStep(2);
   }
@@ -351,15 +352,16 @@
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(`/api/analisis/${id}/`);
+      analysisOutcome = job.status;
       if (job.status === 'completed') { jobPending = false; await completedJob(job); }
-      else if (job.status === 'failed') { jobPending = false; await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas: puedes completar la ficha manualmente o volver a intentarlo con otras imágenes.','failed'); $('#ready-heading').textContent = 'Completa tu ficha a tu ritmo.'; }
+      else if (job.status === 'failed') { jobPending = false; await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
       else {
         jobPending = true;
-        analysisStatus(job.status === 'running' ? 'Estamos preparando tu ficha. Puedes ir indicando la ubicación; tus cambios se conservarán.' : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
-        if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes continuar manualmente o consultar su estado después.','queued'); }
+        analysisStatus(job.status === 'running' ? 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.' : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
+        if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else pollTimer = setTimeout(() => pollJob(id),2500);
       }
-    } catch (error) { jobPending = false; analysisStatus(`${error.message} Tus datos siguen aquí; puedes continuar manualmente.`,'failed'); $('#analysis-resume').hidden = false; }
+    } catch (error) { jobPending = false; analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
     finally { polling = false; prepareLabel(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
@@ -369,18 +371,68 @@
     try {
       await uploadsReady(); await save();
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
-      if (!assetIds.length) throw new Error('Agrega una fotografía de la maquinaria o continúa con la ficha manualmente.');
-      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
+      if (!assetIds.length) throw new Error('Agrega al menos una fotografía para preparar la ficha.');
+      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       displayStep(2); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
-    } catch (error) { problem(error.message); analysisStatus('Puedes completar tu ficha manualmente. Tus datos y fotos recibidas siguen guardados.','failed'); }
+    } catch (error) { analysisOutcome = 'failed'; renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
     finally { preparing = false; prepareLabel(); }
   });
+  function safeSourceUrl(value) {
+    if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) return null;
+    try {
+      const url = new URL(value);
+      if (!['https:','http:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
+      return url.href;
+    } catch { return null; }
+  }
+  function researchSource(source) {
+    const href = safeSourceUrl(source?.url || source?.source_url);
+    if (!href) return null;
+    const link = el('a','text-link small',source.title || source.source_title || new URL(href).hostname);
+    link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    return link;
+  }
+  function renderResearch(research,target) {
+    if (!research || typeof research !== 'object') return;
+    const fields = Array.isArray(research.fields) ? research.fields : [];
+    const summaries = {
+      no_results:'No se encontraron especificaciones verificables en la búsqueda. Conservamos la información de tus fotos.',
+      insufficient_identifiers:'No se identificaron datos suficientemente claros para buscar especificaciones. Conservamos la información de tus fotos.',
+      degraded:'No se pudo completar la búsqueda web. Conservamos la información disponible.',
+      disabled:'Este análisis no incluye una búsqueda web.'
+    };
+    const scopeLabels = {model:'Referencia del modelo; confirmar en este equipo',exact_serial:'Referencia de la unidad; pendiente de revisión'};
+    const summary = summaries[research.status] || (research.match === 'exact_serial'
+      ? 'Se encontró una referencia que coincide con la serie. La información de la unidad queda pendiente de revisión.'
+      : research.match === 'model'
+        ? 'Se encontraron referencias del modelo. No confirman la configuración ni el estado de esta unidad.'
+        : 'La búsqueda no confirmó especificaciones para esta maquinaria.');
+    const brief = $('#research-brief');
+    if (brief) { brief.textContent = summary; brief.hidden = research.status === 'disabled'; }
+    target.append(el('p','research-summary',summary));
+    const list = el('dl','research-field-list');
+    for (const field of fields) {
+      if (!field || typeof field !== 'object' || missing(field.value)) continue;
+      const row = el('div'), value = typeof field.value === 'object' ? JSON.stringify(field.value) : String(field.value), definition = el('dd');
+      definition.append(el('strong','',value),el('span','research-scope',scopeLabels[field.scope] || 'Referencia por revisar'));
+      const source = researchSource(field); if (source) definition.append(source);
+      row.append(el('dt','',keyLabels[field.key] || field.key || 'Especificación'),definition); list.append(row);
+    }
+    if (list.children.length) target.append(list);
+    const sources = el('ul','research-source-list'), seen = new Set();
+    for (const source of Array.isArray(research.sources) ? research.sources : []) {
+      const link = researchSource(source); if (!link || seen.has(link.href)) continue;
+      seen.add(link.href); const item = el('li'); item.append(link); sources.append(item);
+    }
+    if (sources.children.length) target.append(el('h3','','Fuentes consultadas'),sources);
+  }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
     const wasOpen = target.open; target.replaceChildren(); target.hidden = false; target.open = wasOpen;
-    const observations = [...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : [])];
-    target.append(el('summary','',observations.length ? `Detalles de la lectura · ${observations.length} observaciones` : 'Detalles de la lectura con IA'),el('p','small muted','Los datos visibles se completan como lectura de IA, no como especificaciones certificadas. Puedes corregirlos en Editar información.'));
+    const observations = [...new Set([...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : []),...(Array.isArray(result.research?.warnings) ? result.research.warnings : [])].map(item => typeof item === 'string' ? item : JSON.stringify(item)))];
+    target.append(el('summary','',observations.length ? `Fuentes y detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Fuentes y detalles de la preparación'),el('p','small muted','La lectura de las fotos y las referencias web se conservan con su procedencia. Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
+    renderResearch(result.research,target);
     if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }
     const data = result.data || {};
@@ -391,14 +443,13 @@
   }
   function renderPreview() {
     const value = collect(); $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Tu maquinaria';
-    $('#preview-description').textContent = value.data.description || 'La descripción aparecerá aquí. Puedes añadirla en Editar información.';
+    $('#preview-description').textContent = value.data.description || (['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
     const images = $$('.asset-card[data-kind=image]',wizard).filter(card => !['plate','document'].includes(card.dataset.purpose));
     const cover = images.find(card => !$('.asset-cover',card).hidden) || images[0], coverBox = $('#preview-cover');
     if (cover && $('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) { const image = el('img'); image.src = `/archivos/${cover.dataset.assetId}/`; image.dataset.assetId = cover.dataset.assetId; image.alt = 'Fotografía de tu maquinaria'; coverBox.replaceChildren(image); } else if (!cover) coverBox.replaceChildren();
     const specs = $('#preview-specs'); specs.replaceChildren();
     for (const [label,text] of [['Marca',value.data.brand],['Modelo',value.data.model],['Año',value.data.year],['Horas',value.data.hours]]) if (!missing(text)) { const row = el('div'); row.append(el('dt','',label),el('dd','',String(text))); specs.append(row); }
   }
-  function focusField(id) { displayStep(2); const input = $(`#${id}`); for (let parent = input.parentElement; parent && parent !== wizard; parent = parent.parentElement) if (parent.tagName === 'DETAILS') parent.open = true; setTimeout(() => input.focus(),0); }
   $('#submit-machine').addEventListener('click',async () => {
     if (!editable || submitting) return;
     submitting = true; clearProblem(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
@@ -406,9 +457,6 @@
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
     try {
       await uploadsReady(); await save();
-      const value = collect();
-      if (!value.data.location) { focusField('location'); throw new Error('Indica la ciudad, estado y país donde está el equipo.'); }
-      if (!value.title || value.title === 'Mi maquinaria') { focusField('machine-title'); throw new Error('Escribe un nombre para identificar la maquinaria.'); }
       if (!$('.asset-card[data-kind=image][data-purpose=general],.asset-card[data-kind=image][data-purpose=detail]',wizard)) { displayStep(1); throw new Error('Agrega al menos una fotografía general o de detalle antes de enviar.'); }
       const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
       pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
