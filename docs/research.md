@@ -58,6 +58,8 @@ Cuando el fragmento omite la identidad pero el título real de esa misma fuente 
 
 La validación distingue sufijos de variantes, incluso separados por espacios: `420F2 IT` no aporta cifras a `420F2`. Un documento compartido necesita un fragmento que identifique expresamente el modelo consultado. El campo combustible sólo admite nombres explícitos de combustible o energía y combinaciones; las frases de ahorro o consumo no se convierten en su valor. Estas regresiones proceden de la inspección de resultados reales, además de las pruebas simuladas.
 
+Las referencias de identidad admiten frases como «modelo Caterpillar 420F2 IT» y componentes como «motor diésel Caterpillar C4.4». Palabras narrativas breves no son sufijos. Los descartes de identidad registran campo y motivo específico, sin copiar la frase ni los identificadores privados al diagnóstico.
+
 ## Conservación de datos y fallos
 
 - Las correcciones humanas y los ceros se conservan, igual que en el formulario de dos pasos.

@@ -283,7 +283,7 @@ def response_sources(response, diagnostics=None, context_titles=None):
     return selected[:12], calls
 
 
-def _model_suffix(text):
+def _model_suffix(text, *, in_title=False):
     """Read a compact alphabetic variant, not prose, units or document format."""
     match = re.match(r"^[ \t-]+([A-Za-z]{1,6})(?![A-Za-z0-9-])", text)
     if not match:
@@ -294,19 +294,25 @@ def _model_suffix(text):
                            "for", "the", "has", "with", "net", "gross", "new", "pdf", "html",
                            "kw", "hp", "kg", "mm", "cm", "rpm"}:
         return ""
-    return token if token.isupper() or len(token) <= 3 else ""
+    # Short words in prose ('usa', 'se', 'que', 'una', 'sus') are not model
+    # suffixes. Established variant codes remain codes in lowercase prose;
+    # other lowercase abbreviations require a delimiter. A title may contain
+    # ordinary prose too, so title position alone never turns a word into code.
+    delimited = bool(re.match(r"\s*(?:$|[:;,/])", text[match.end():]))
+    return token if (token.isupper() or token.casefold() in {"it", "lc", "lgp"}
+                     or (len(token) <= 3 and delimited)) else ""
 
 
-def _model_variant_conflict(text, model):
+def _model_variant_conflict_reason(text, model, *, in_title=False):
     """A base-code occurrence cannot stand in for a suffixed/comparison model."""
     if not model or not re.fullmatch(r"[\w\s-]+", str(model)):
-        return False
+        return ""
     characters = [c for c in str(model) if c.isalnum()]
     pattern = r"(?<![^\W_])(?<![\w]-)" + r"[\s-]*".join(re.escape(c) for c in characters) + r"(?!\d)"
     for match in re.finditer(pattern, str(text), re.I):
         tail = str(text)[match.end():]
-        if re.match(r"^[A-Za-z]{1,6}(?!\w)", tail) or _model_suffix(tail):
-            return True
+        if re.match(r"^[A-Za-z]{1,6}(?!\w)", tail) or _model_suffix(tail, in_title=in_title):
+            return "model_variant_suffix"
         # A slash or explicit comparison following the known code introduces
         # another model, never the engine/technical figure later in a sentence.
         alternative = re.match(r"\s*(?:[/&+]|\b(?:vs\.?|versus|and|or|y|o)\b)\s*"
@@ -314,8 +320,12 @@ def _model_variant_conflict(text, model):
         if alternative:
             token = alternative.group(1)
             if (any(c.isdigit() for c in token) or (token.isalpha() and token.isupper() and len(token) <= 6)):
-                return True
-    return False
+                return "model_comparison"
+    return ""
+
+
+def _model_variant_conflict(text, model, *, in_title=False):
+    return bool(_model_variant_conflict_reason(text, model, in_title=in_title))
 
 
 def _source_title_context(title, identity, passage):
@@ -323,7 +333,8 @@ def _source_title_context(title, identity, passage):
     if (not isinstance(title, str) or not identity.get("brand") or not identity.get("model")
             or not _contains_brand(title, identity["brand"]) or not _contains_identifier(title, identity["model"])):
         return ""
-    if any(_model_variant_conflict(text, identity["model"]) for text in (title, passage)):
+    if (_model_variant_conflict(title, identity["model"], in_title=True)
+            or _model_variant_conflict(passage, identity["model"])):
         return ""
     # Fail closed on comparison pages and explicit conflicting identities.
     brand_names = ("Caterpillar", "CAT", "Komatsu", "John Deere", "Deere", "Volvo", "JCB", "Hitachi",
@@ -331,13 +342,11 @@ def _source_title_context(title, identity, passage):
     for text in (title, passage):
         if any(_brand_key(brand) != _brand_key(identity["brand"]) and _contains_brand(text, brand) for brand in brand_names):
             return ""
-        for match in re.finditer(r"\b(?:modelo?|model)\s*(?:es\s+|is\s+)?[:=-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,39})", text, re.I):
-            reference = match.group(1) + _model_suffix(text[match.end():])
-            if identifier_key(reference) != identifier_key(identity["model"]):
-                return ""
+        if _conflicting_explicit_model(text, identity, in_title=text is title):
+            return ""
     model_codes = re.finditer(r"\b(?=[A-Za-z0-9-]*[A-Za-z])(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\b", title)
     for match in model_codes:
-        reference = match.group() + _model_suffix(title[match.end():])
+        reference = match.group() + _model_suffix(title[match.end():], in_title=True)
         if identifier_key(reference) != identifier_key(identity["model"]):
             return ""
     # A body explicitly naming another model takes precedence over its heading.
@@ -361,15 +370,21 @@ def _authority(url, brand):
     return any(host == domain or host.endswith("." + domain) for domain in MANUFACTURER_DOMAINS.get(_brand_key(brand), ()))
 
 
-def _conflicting_explicit_model(evidence, identity):
+def _conflicting_explicit_model_reason(evidence, identity, *, in_title=False):
     """A missing provider match label cannot hide another explicit model."""
     model = identity.get("model")
     if not model:
-        return False
-    if _model_variant_conflict(evidence, model):
-        return True
-    patterns = [r"\b(?:modelo?|model)\s*(?:es\s+|is\s+)?[:=-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,39})"]
-    for alias in _brand_aliases(identity.get("brand")):
+        return ""
+    variant_reason = _model_variant_conflict_reason(evidence, model, in_title=in_title)
+    if variant_reason:
+        return variant_reason
+    aliases = [alias for alias in _brand_aliases(identity.get("brand")) if alias]
+    optional_brand = (r"(?:(?:" + "|".join(re.escape(alias) for alias in sorted(aliases, key=len, reverse=True))
+                      + r")\s+)?") if aliases else ""
+    code_shape = r"(?=[A-Za-z0-9-]*\d)" if any(c.isdigit() for c in str(model)) else ""
+    patterns = [r"\b(?:modelo?|model)\s*(?:es\s+|is\s+)?[:=-]?\s*" + optional_brand
+                + r"(" + code_shape + r"[A-Za-z0-9][A-Za-z0-9-]{1,39})"]
+    for alias in aliases:
         if alias:
             patterns.append(r"\b" + re.escape(alias) + r"\s+((?=[A-Za-z0-9-]*\d)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?![A-Za-z0-9])")
     complete = r"[\s-]*".join(re.escape(c) for c in str(model) if c.isalnum()) + r"(?![^\W_]|-[^\W_])"
@@ -377,19 +392,26 @@ def _conflicting_explicit_model(evidence, identity):
         for match in re.finditer(pattern, evidence, re.I):
             # A directly labeled component has its own manufacturer/model.
             # 'Motor: Caterpillar C4.4' is not an alternate machine identity.
-            if re.search(r"\b(?:motor|engine|transmisi[oó]n|transmission)\s*"
-                         r"(?:(?:modelo?|model)\s*)?[:=-]?\s*$",
-                         evidence[max(0, match.start() - 60):match.start()], re.I):
+            component = r"(?:motor|engine|transmisi[oó]n|transmission)"
+            if (re.match(r"\b(?:modelo?|model)\s+(?:de[l]?\s+)?" + component + r"\b",
+                         evidence[match.start():], re.I)
+                    or re.search(r"\b" + component + r"\s*(?:(?:di[eé]sel|gasolina|gas|el[eé]ctrico|electric|"
+                                 r"modelo?|de|marca)\s*){0,3}[:=-]?\s*$",
+                                 evidence[max(0, match.start() - 60):match.start()], re.I)):
                 continue
-            reference = match.group(1) + _model_suffix(evidence[match.end():])
+            reference = match.group(1) + _model_suffix(evidence[match.end():], in_title=in_title)
             if identifier_key(reference) == identifier_key(model):
                 continue
             # The token scanner may stop at a formatting space in '420 F2'.
             # Compare the full known identifier at that exact reference start.
             if re.match(complete, evidence[match.start(1):], re.I):
                 continue
-            return True
-    return False
+            return "explicit_model_mismatch"
+    return ""
+
+
+def _conflicting_explicit_model(evidence, identity, *, in_title=False):
+    return bool(_conflicting_explicit_model_reason(evidence, identity, in_title=in_title))
 
 
 def citation_passages(response):
@@ -485,11 +507,17 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                    "candidate_evidence_brand_count": 0, "candidate_evidence_model_count": 0,
                    "candidate_cited_passage_brand_count": 0, "candidate_cited_passage_model_count": 0,
                    "candidate_source_title_context_count": 0,
-                   "rejection_counts": {}}
+                   "rejection_counts": {}, "field_rejection_counts": {}}
     result["diagnostics"] = diagnostics
 
-    def reject(reason):
+    def reject(reason, detail=None):
         diagnostics["rejection_counts"][reason] = diagnostics["rejection_counts"].get(reason, 0) + 1
+        # Only fixed field names/reason codes; never candidate values, source
+        # prose, URLs or identifiers. At most forty candidates are inspected.
+        key = item.key if item.key in WEB_KEYS else "unsupported"
+        counts = diagnostics["field_rejection_counts"].setdefault(key, {})
+        specific = detail or reason
+        counts[specific] = counts.get(specific, 0) + 1
 
     for item in parsed.fields[:40]:
         url = safe_public_url(item.source_url)
@@ -541,8 +569,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                                           brand=identity.get("brand"), model=identity.get("model")):
             reject("different_unit")
             continue
-        if _conflicting_explicit_model(evidence, identity):
-            reject("model_conflict")
+        model_reason = _conflicting_explicit_model_reason(evidence, identity)
+        if model_reason:
+            reject("model_conflict", model_reason)
             continue
         exact_match = (item.scope == "exact_serial" and basis == "exact_serial" and identity.get("serial")
                        and identifier_key(item.matched_serial) == identifier_key(identity["serial"])
@@ -552,12 +581,13 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if exact_match and identity.get("brand") and (
                 (item.matched_brand and _brand_key(item.matched_brand) != _brand_key(identity["brand"]))
                 or not (_contains_brand(evidence, identity["brand"]) or _authority(url, identity["brand"]))):
-            reject("brand_conflict")
+            reject("brand_conflict", "candidate_brand_mismatch" if item.matched_brand and
+                   _brand_key(item.matched_brand) != _brand_key(identity["brand"]) else "brand_not_literal")
             continue
         if exact_match and identity.get("model") and (
                 (item.matched_model and identifier_key(item.matched_model) != identifier_key(identity["model"]))
                 or _conflicting_explicit_model(evidence, identity)):
-            reject("model_conflict")
+            reject("model_conflict", "candidate_model_mismatch")
             continue
         # The full cited passage may explicitly say no record was found for the
         # queried serial before describing the model. Mere serial presence in
@@ -576,7 +606,8 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                 reject("model_identity_missing")
                 continue
             if _brand_key(item.matched_brand) != _brand_key(identity["brand"]) or identifier_key(item.matched_model) != identifier_key(identity["model"]):
-                reject("model_not_matched")
+                reject("model_not_matched", "candidate_brand_mismatch" if
+                       _brand_key(item.matched_brand) != _brand_key(identity["brand"]) else "candidate_model_mismatch")
                 continue
             identification_text = evidence
             if not (_contains_identifier(evidence, identity["model"]) and _contains_brand(evidence, identity["brand"])):
@@ -595,10 +626,10 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             if item.scope == "exact_serial":
                 diagnostics["scope_adjusted_to_model"] = diagnostics.get("scope_adjusted_to_model", 0) + 1
         if identity.get("brand") and item.key == "brand" and _brand_key(item.value) != _brand_key(identity["brand"]):
-            reject("brand_conflict")
+            reject("brand_conflict", "field_brand_mismatch")
             continue
         if identity.get("model") and item.key == "model" and identifier_key(item.value) != identifier_key(identity["model"]):
-            reject("model_conflict")
+            reject("model_conflict", "field_model_mismatch")
             continue
         authoritative = _authority(url, identity.get("brand") or item.matched_brand)
         if item.key == "year" and (scope != "exact_serial" or not authoritative

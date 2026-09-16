@@ -98,6 +98,12 @@ class SourceTitleContextTests(SimpleTestCase):
                           item=candidate(scope="exact_serial", matched_serial="UNIT123", matched_model=None),
                           identity={**IDENTITY, "serial": "UNIT123"})
         self.assertEqual(exact["fields"], [])
+        for suffix in ("it", "lc", "lgp"):
+            with self.subTest(lowercase_suffix=suffix):
+                result = normalize(body=f"Caterpillar 420F2 {suffix} tiene potencia 70 kW.")
+                self.assertEqual(result["fields"], [])
+                self.assertEqual(result["diagnostics"]["field_rejection_counts"],
+                                 {"power": {"model_variant_suffix": 1}})
 
     def test_shared_model_document_requires_explicit_base_model_in_its_own_passage(self):
         for title in ("CAT 420F2/420F2 IT", "Caterpillar 420F2 and 420F2 IT", "CAT 420F2/IT"):
@@ -139,6 +145,49 @@ class SourceTitleContextTests(SimpleTestCase):
                            item=candidate(scope="exact_serial", matched_serial="CAT-SN1234"))
         self.assertEqual(result["fields"][0]["value"], "70 kW")
         self.assertEqual(result["fields"][0]["scope"], "exact_serial")
+
+    def test_natural_model_and_component_phrases_do_not_create_machine_conflicts(self):
+        phrases = ("El modelo Caterpillar 420F2 IT tiene una potencia de 70 kW.",
+                   "Caterpillar 420F2 IT usa un motor con potencia 70 kW.",
+                   "Caterpillar 420F2 IT: motor diésel Caterpillar C4.4 ACERT DIT, potencia 70 kW.",
+                   "Caterpillar 420F2 IT: modelo de motor C4.4 ACERT DIT, potencia 70 kW.",
+                   "El modelo CAT 420F2 IT tiene una potencia de 70 kW.",
+                   "Caterpillar 420F2 IT se equipa con un motor de potencia 70 kW.",
+                   "Caterpillar 420F2 IT que incorpora un motor de potencia 70 kW.",
+                   "Caterpillar 420F2 IT una potencia de 70 kW.",
+                   "Caterpillar 420F2 IT sus datos indican potencia 70 kW.",
+                   "La Caterpillar 420F2 IT es una máquina. Este modelo tiene potencia 70 kW.")
+        for body in phrases:
+            with self.subTest(body=body):
+                result = normalize(body=body, title="Caterpillar 420F2 IT Backhoe Loader Specifications",
+                                   identity={**IDENTITY, "model": "420F2 IT"},
+                                   item=candidate(matched_model="420F2 IT"))
+                self.assertEqual(result["fields"][0]["value"], "70 kW")
+        engine = normalize(body="Modelo de motor C4.4 ACERT DIT.",
+                           title="Caterpillar 420F2 IT Backhoe Loader Specifications",
+                           identity={**IDENTITY, "model": "420F2 IT"},
+                           item=candidate(key="engine", value="C4.4 ACERT DIT", matched_model="420F2 IT"))
+        self.assertEqual(engine["fields"][0]["key"], "engine")
+        title_prose = normalize(body="Potencia 70 kW.", title="Caterpillar 420F2 IT usa motor diésel",
+                                identity={**IDENTITY, "model": "420F2 IT"},
+                                item=candidate(matched_model="420F2 IT"))
+        self.assertEqual(title_prose["fields"][0]["value"], "70 kW")
+
+    def test_diagnostics_explain_fixed_field_causes_without_copying_private_text(self):
+        cases = (("Caterpillar 420F2 IT: potencia 70 kW.", "model_variant_suffix"),
+                 ("Caterpillar 420F2/430F2: potencia 70 kW.", "model_comparison"),
+                 ("El modelo Caterpillar 430F2 tiene potencia 70 kW.", "explicit_model_mismatch"))
+        for body, reason in cases:
+            with self.subTest(reason=reason):
+                result = normalize(body=body)
+                self.assertEqual(result["fields"], [])
+                self.assertEqual(result["diagnostics"]["field_rejection_counts"], {"power": {reason: 1}})
+                diagnostic_text = json.dumps(result["diagnostics"])
+                for forbidden in (body, "70 kW", "Caterpillar", "420F2", URL):
+                    self.assertNotIn(forbidden, diagnostic_text)
+        mismatch = normalize(body="Caterpillar 420F2: potencia 70 kW.",
+                             item=candidate(matched_model="430F2"))
+        self.assertEqual(mismatch["diagnostics"]["field_rejection_counts"], {"power": {"candidate_model_mismatch": 1}})
 
     def test_only_retrieved_and_cited_title_is_exposed_as_identity_context(self):
         context = {}
