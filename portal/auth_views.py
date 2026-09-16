@@ -35,8 +35,8 @@ def activation_email(user,kind='activation'):
 
 def register(request):
     if request.user.is_authenticated:return redirect('/panel/')
-    configuration=PlatformSettings.objects.filter(pk=1).first()
-    if not configuration or not configuration.registration_open or not configuration.legal_validated:
+    configuration=PlatformSettings.load()
+    if not configuration.registration_open:
         return auth_render(request,None,'Próximamente podrás anunciar tu maquinaria','',intro='El registro de nuevos anunciantes todavía no está abierto. Puedes consultar cómo funciona el portal o comunicarte con el equipo desde Contacto.')
     form=RegisterForm(request.POST or None)
     if request.method=='POST':

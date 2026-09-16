@@ -1,6 +1,12 @@
 # Aceptación y evidencias · IMC México
 
-Estado comprobado al **15 de septiembre de 2026**. La aplicación está publicada y tiene recorridos reales verificados. El registro público sigue cerrado y existen pendientes de operación; este documento no declara completada toda la entrega.
+Estado comprobado al **15 de septiembre de 2026**. La aplicación está publicada y tiene recorridos reales verificados. El registro estaba cerrado en ese recorrido; por solicitud posterior del propietario, el código incluye su apertura mediante `0006_open_user_registration`. Queda pendiente verificar esta corrección tras desplegar. Existen otros pendientes de operación; este documento no declara completada toda la entrega.
+
+## Corrección del registro · 16 de septiembre de 2026
+
+Se habilitó el registro por solicitud del propietario para probar cuentas y borradores. La migración `0006_open_user_registration` sigue a la migración de analítica `0005` y abre las instalaciones existentes una sola vez. Las nuevas configuraciones permiten registros; las pausas administrativas posteriores se respetan.
+
+Verificación local sobre el código integrado: **120 pruebas aprobadas, sin omisiones**, con Python 3.12.14, Django 5.2.17 y SQLite en memoria. `check` no reportó incidencias y `makemigrations --check --dry-run` confirmó que no faltan migraciones. Se comprobaron registro con y sin configuración previa, CSRF, consentimiento, correo duplicado, sesión inicial, creación de borradores, entrada posterior y restricciones administrativas. La migración conserva los valores de IA, analítica, revisión documental y contacto. Los avisos de verificación se encolan; esta prueba no confirma su recepción. La comprobación pública de esta corrección queda pendiente de desplegarla.
 
 ## Servicio publicado
 
@@ -65,7 +71,7 @@ Comandos: `python manage.py test`, `python manage.py check` y `node --check port
 - Acceso administrativo central con límite de intentos; perfil y administración impiden elevar permisos propios.
 - Correo normalizado y único; cambios de correo revocan su verificación; activación de un uso e invalidación de sesiones al cambiar credenciales.
 - Recuperación con respuesta no reveladora; tokens ocultos en listados, logs y errores; cabeceras de no almacenamiento/no referencia en páginas de acceso.
-- Registro cerrado por defecto: exige `registration_open` y `legal_validated` simultáneamente.
+- Registro abierto por defecto y actualizable mediante `0006`; respeta pausas administrativas posteriores. La revisión documental es independiente. Se comprueban CSRF, consentimiento, correo duplicado, sesión inicial, borradores, entrada posterior y restricciones administrativas.
 - Ficha pública basada en versión aprobada, sin notas internas ni series; archivos sujetos a lista aprobada y autorización vigente. Conocer un UUID o token no evita comprobar permisos.
 - Consultas vinculadas sólo a maquinaria autorizada; exportación editorial no borra confirmaciones existentes de publicación externa.
 
@@ -153,7 +159,7 @@ El daemon está configurado cada 24 horas. El panel `/operaciones/` mostró un �
 ## Pendientes de operación y alcance
 
 1. **Activación personal:** el titular establece contraseña y TOTP mediante la invitación recibida.
-2. **Legales y apertura:** validar datos del responsable, textos, consentimientos y datos comerciales. Mantener registro cerrado hasta aprobar la apertura; `legal_validated` no acredita por sí sola cumplimiento legal.
+2. **Legales y registro:** validar datos del responsable, textos, consentimientos y datos comerciales. La apertura del registro para pruebas fue solicitada por el propietario y se aplica con `0006`, sin cambiar `legal_validated` ni declarar validados los documentos.
 3. **Correo general:** verificar dominio/remitente y recepción para destinatarios distintos del propietario permitido por Resend; revisar entregabilidad.
 4. **Respaldo:** observar una segunda ejecución a las 24 horas, configurar copia externa privada y probar recuperación integral. El último éxito real ya está confirmado. Revisar capacidad conjunta de medios y copias en 5 GB.
 5. **Analítica opcional:** mantenerla apagada hasta validar los legales y autorizar su uso. El código está desplegado y su estado apagado comprobado; una posterior activación deberá comprobar consentimiento, origen/campaña y exportación desde la URL pública.

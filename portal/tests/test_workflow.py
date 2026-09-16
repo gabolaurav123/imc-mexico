@@ -277,6 +277,13 @@ class WorkflowTests(TestCase):
         self.assertEqual(Machine.objects.count(), count)
         self.assertFalse(PlatformSettings.load().ai_enabled)
         self.assertFalse(PlatformSettings.load().legal_validated)
+        configuration=PlatformSettings.load()
+        self.assertTrue(configuration.registration_open)
+        configuration.registration_open=False
+        configuration.save(update_fields=["registration_open"])
+        call_command("seed", stdout=StringIO())
+        configuration.refresh_from_db()
+        self.assertFalse(configuration.registration_open)
         review = Group.objects.get(name="Revisión IMC")
         self.assertTrue(review.permissions.filter(codename="review_submission").exists())
         self.assertFalse(review.permissions.filter(codename="change_group").exists())

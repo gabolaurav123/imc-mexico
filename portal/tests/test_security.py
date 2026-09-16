@@ -150,24 +150,67 @@ class WebSecurityTests(TestCase):
         self.assertEqual(self.owner.email,"owner@example.com")
 
     def test_registration_creates_regular_account_consents_and_real_mail_job(self):
-        PlatformSettings.objects.create(registration_open=True,legal_validated=True)
-        response=self.client.post("/registro/",{"first_name":"Prueba","email":"New@Example.com","phone":"+52 55 1234 5678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on","is_superuser":"on"})
-        self.assertEqual(response.status_code,302)
+        configuration=PlatformSettings.objects.create()
+        self.assertFalse(configuration.legal_validated)
+        self.assertContains(self.client.get("/registro/"),"Crear mi cuenta")
+        response=self.client.post("/registro/",{"first_name":"Prueba","email":"New@Example.com","phone":"+52 55 1234 5678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on","is_superuser":"on","is_staff":"on","advertiser_status":"approved","email_verified":"on"})
+        self.assertRedirects(response,"/panel/")
         user=User.objects.get(email="new@example.com")
+        self.assertEqual(str(user.pk),self.client.session["_auth_user_id"])
+        self.assertFalse(user.is_staff)
         self.assertFalse(user.is_superuser)
         self.assertFalse(user.email_verified)
+        self.assertEqual(user.advertiser_status,"pending")
         self.assertEqual(user.consents.count(),2)
         self.assertTrue(Notification.objects.filter(user=user,kind="verify",status="pending").exists())
+        self.assertTrue(AuditEvent.objects.filter(actor=user,action="account.register").exists())
+        response=self.post_json("/api/maquinarias/",{})
+        self.assertEqual(response.status_code,201)
+        self.assertTrue(Machine.objects.filter(owner=user,status="draft").exists())
+        self.assertEqual(self.client.get("/operaciones/").status_code,403)
+        self.client.post("/cerrar-sesion/")
+        self.assertRedirects(self.client.post("/iniciar-sesion/",{"username":"NEW@example.com","password":"New-password-long123!"}),"/panel/")
+        configuration.refresh_from_db()
+        self.assertFalse(configuration.legal_validated)
 
-    def test_registration_closed_until_both_operational_and_legal_approval(self):
-        configuration=PlatformSettings.objects.create(registration_open=False,legal_validated=False)
+    def test_registration_can_be_paused_without_blocking_existing_accounts(self):
+        configuration=PlatformSettings.objects.create(registration_open=False)
         payload={"first_name":"Prueba","email":"closed@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
-        for open_value,legal_value in [(False,False),(True,False),(False,True)]:
-            configuration.registration_open=open_value;configuration.legal_validated=legal_value;configuration.save()
-            response=self.client.post("/registro/",payload)
-            self.assertEqual(response.status_code,200)
-            self.assertFalse(User.objects.filter(email="closed@example.com").exists())
-            self.assertContains(response,"todavía no está abierto")
+        for legal_value in (False,True):
+            with self.subTest(legal_validated=legal_value):
+                configuration.legal_validated=legal_value;configuration.save()
+                self.assertContains(self.client.get("/registro/"),"todavía no está abierto")
+                response=self.client.post("/registro/",payload)
+                self.assertContains(response,"todavía no está abierto")
+                self.assertFalse(User.objects.filter(email="closed@example.com").exists())
+        self.assertRedirects(self.client.post("/iniciar-sesion/",{"username":self.owner.email,"password":"Owner-password-long123"}),"/panel/")
+
+    def test_registration_without_seed_requires_csrf_and_accepts_valid_form(self):
+        self.assertFalse(PlatformSettings.objects.exists())
+        client=Client(enforce_csrf_checks=True)
+        response=client.get("/registro/")
+        self.assertContains(response,'name="password1"')
+        self.assertContains(response,'name="terms"')
+        payload={"first_name":"Prueba","email":"unseeded@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        self.assertEqual(client.post("/registro/",payload).status_code,403)
+        self.assertFalse(User.objects.filter(email=payload["email"]).exists())
+        payload["csrfmiddlewaretoken"]=client.cookies["csrftoken"].value
+        response=client.post("/registro/",payload)
+        self.assertRedirects(response,"/panel/",fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(email=payload["email"]).exists())
+
+    def test_registration_rejects_duplicate_email_and_missing_consent(self):
+        payload={"first_name":"Prueba","email":"OWNER@EXAMPLE.COM","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        count=User.objects.count()
+        response=self.client.post("/registro/",payload)
+        self.assertContains(response,"Ya existe una cuenta con este correo")
+        payload["email"]="no-consent@example.com"
+        payload.pop("terms")
+        response=self.client.post("/registro/",payload)
+        self.assertEqual(response.status_code,200)
+        self.assertIn("terms",response.context["form"].errors)
+        self.assertEqual(User.objects.count(),count)
+        self.assertFalse(Notification.objects.filter(kind="verify").exists())
 
     def test_recovery_response_does_not_reveal_account_existence(self):
         self.assertEqual(self.client.post("/recuperar-acceso/",{"email":self.owner.email}).status_code,302)
