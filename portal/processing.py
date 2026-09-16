@@ -32,7 +32,7 @@ from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
                        empty_research, merge_research, research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v5"
+PROMPT_VERSION = "imc-vision-research-2026-09-v6"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -48,6 +48,23 @@ potencia, capacidad, peso, dimensiones, año, horas, kilometraje, historial, con
 interna, documentación o precio. Todo dato desconocido debe ser null. No adivines
 caracteres de series ilegibles. Una serie parcialmente legible debe ser null y
 quedar una pregunta; conserva la transcripción literal con [ilegible] donde corresponda.
+Primero revisa el texto de TODAS las fotografías: logotipos, rótulos y denominaciones
+de modelo sobre carrocería, brazo, contrapeso o cabina, además de las placas.
+Leer literalmente una marca o un modelo legibles sobre la máquina NO es inferir
+su identidad por apariencia. NO se requiere una placa para extraer brand o model.
+Por cada marca/modelo inequívocamente legible, debes incluir un elemento en fields:
+key brand o model, value con la lectura literal, source image, review clear,
+component machine, asset_id de la fotografía y evidence con el texto leído.
+Si la lectura está en una placa, conserva source plate en lugar de image.
+No amplíes abreviaturas ni deduzcas caracteres tapados. No confundas números de
+flota/inventario, rótulos de un propietario o distribuidor, o placas de componentes
+con el modelo o fabricante de la máquina. Si esa interpretación es dudosa, usa
+needs_review y explica la duda; no la presentes como lectura clara.
+No dejes la identificación sólo en el título: toda marca/modelo LEÍDOS que uses en
+el título deben estar también en sus fields. Extrae cada uno de forma independiente;
+que falte uno o la serie no impide devolver el otro que sí sea legible.
+La ausencia de placa sólo limita los datos que requieren esa placa; no la uses
+como motivo para omitir marca/modelo claramente rotulados en la carrocería.
 Distingue placas de machine, engine, transmission, other y unknown. Una placa de motor
 NO identifica la máquina completa. Campos de componentes llevan component explícito.
 Si hay contradicciones entre fuentes, emite advertencia y pregunta, no elijas en silencio.
