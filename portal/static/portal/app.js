@@ -347,29 +347,37 @@
     if (uploadFailures.size) throw new Error('Hay archivos que no pudieron subir. Reinténtalos o descártalos para continuar.');
   }
 
-  const pdfDownload = $('#download-draft-pdf'), pdfStatus = $('#draft-pdf-status');
+  const pdfDownload = $('#download-draft-pdf'), pdfStatus = $('#draft-pdf-status'), sheetLinks = $$('[data-open-sheet]',wizard);
+  let documentMode = 'pdf';
   function pdfLabel() {
-    pdfDownload.setAttribute('aria-disabled',String(downloading || submitting || preparing || jobPending || polling || deleting));
-    pdfDownload.setAttribute('aria-busy',String(downloading));
-    pdfDownload.textContent = downloading ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
+    const busy = downloading || submitting || preparing || jobPending || polling || deleting;
+    pdfDownload.setAttribute('aria-disabled',String(busy));
+    pdfDownload.setAttribute('aria-busy',String(downloading && documentMode === 'pdf'));
+    pdfDownload.textContent = downloading && documentMode === 'pdf' ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
+    sheetLinks.forEach(link => { link.setAttribute('aria-disabled',String(busy)); link.setAttribute('aria-busy',String(downloading && documentMode === 'screen')); });
+    $('#view-draft-sheet').textContent = downloading && documentMode === 'screen' ? 'Abriendo tu ficha…' : 'Ver ficha en pantalla →';
   }
-  pdfDownload.addEventListener('click',async event => {
+  async function openDocument(event,mode) {
     event.preventDefault();
     if (downloading) return;
-    if (submitting || preparing || jobPending || polling || deleting) return problem('Espera a que termine la operación en curso para descargar la ficha.');
-    downloading = true; clearProblem(); prepareLabel();
+    if (submitting || preparing || jobPending || polling || deleting) return problem('Espera a que termine la operación en curso para consultar la ficha.');
+    const destination = event.currentTarget.href;
+    documentMode = mode; downloading = true; clearProblem(); prepareLabel();
     pdfStatus.hidden = false; pdfStatus.textContent = 'Terminando cargas y guardando tus cambios…';
     try {
       await uploadsReady(); await save();
-      if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios; recarga la versión actual antes de descargar.');
-      // The native download uses the server's filename and keeps this draft open.
-      const link = el('a'); link.href = pdfDownload.href; link.download = ''; link.hidden = true;
+      if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios; recarga la versión actual antes de consultar la ficha.');
+      // Navigation happens only after uploads, asset mutations and every dirty edit settle.
+      const link = el('a'); link.href = destination; link.hidden = true;
+      if (mode === 'pdf') link.download = ''; else link.dataset.sheetNavigation = 'true';
       document.body.append(link); link.click(); link.remove();
-      pdfStatus.textContent = 'Descarga solicitada. Tus cambios están guardados.';
+      pdfStatus.textContent = mode === 'pdf' ? 'Descarga solicitada. Tus cambios están guardados.' : 'Abriendo la ficha guardada en pantalla…';
     } catch (error) {
-      problem(error.message); pdfStatus.textContent = 'No se descargó el PDF. Conservamos tus cambios para que puedas reintentar.';
+      problem(error.message); pdfStatus.textContent = mode === 'pdf' ? 'No se descargó el PDF. Conservamos tus cambios para que puedas reintentar.' : 'No se abrió la ficha. Conservamos tus cambios para que puedas reintentar.';
     } finally { downloading = false; prepareLabel(); }
-  });
+  }
+  pdfDownload.addEventListener('click',event => openDocument(event,'pdf'));
+  sheetLinks.forEach(link => link.addEventListener('click',event => openDocument(event,'screen')));
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
   function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {

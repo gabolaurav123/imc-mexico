@@ -20,7 +20,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings
-from .security import throttle, login_destination, safe_next_url, management_home, needs_management_mfa
+from .security import throttle, login_destination, safe_next_url, management_home
 from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
@@ -107,7 +107,8 @@ def activate(request,uidb64,token):
             audit(user,'account.activated',user)
         login(request,user)
         return redirect('/panel/seguridad/' if user.is_staff else '/panel/')
-    response=auth_render(request,form,'Establece tu contraseña','Guardar y entrar')
+    response=auth_render(request,form,'Establece tu contraseña','Guardar y entrar',
+        intro='Elige una contraseña que recuerdes. Después continuarás con la verificación de tu acceso administrativo.' if user.is_staff else 'Elige la contraseña que usarás para entrar a tu cuenta.')
     response['Referrer-Policy']='same-origin'
     return response
 
@@ -133,12 +134,22 @@ def security(request):
     action=request.POST.get('action','otp')
     otp_form=OTPForm(request.POST if request.method=='POST' and action=='otp' else None)
     password_form=PasswordChangeForm(request.user,request.POST if request.method=='POST' and action=='password' else None)
-    if needs_management_mfa(request.user):
-        password_form.fields['old_password'].widget.attrs.pop('autofocus',None)
-        otp_form.fields['token'].widget.attrs['autofocus']=True
+    # Keep the account identity and recovery action visible on entry rather
+    # than scrolling into the OTP field or a collapsed password form.
+    password_form.fields['old_password'].widget.attrs.pop('autofocus',None)
     account_form=AccountRequestForm(request.POST if request.method=='POST' and action=='account_request' else None)
     if request.method=='POST':
-        if action=='otp' and device and otp_form.is_valid() and throttle(request,'otp',10,600,str(request.user.pk)):
+        if action=='recover_password':
+            # The existing authenticated session can request a link, but it
+            # cannot select a password or verify MFA on the user's behalf.
+            if throttle(request,'authenticated-recovery',3,3600,str(request.user.pk)):
+                activation_email(request.user,'recovery')
+                audit(request.user,'password.recovery_requested',request.user)
+                messages.success(request,f'Te enviaremos a {request.user.email} un enlace para elegir una nueva contraseña. No necesitas escribir la anterior.')
+            else:
+                messages.error(request,'Ya solicitaste varios enlaces. Usa el último correo recibido o vuelve a intentarlo dentro de una hora.')
+            return redirect(request.get_full_path())
+        elif action=='otp' and device and otp_form.is_valid() and throttle(request,'otp',10,600,str(request.user.pk)):
             with transaction.atomic():
                 device=TOTPDevice.objects.select_for_update().get(pk=device.pk)
                 valid=device.verify_token(otp_form.cleaned_data['token'])

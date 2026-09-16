@@ -29,6 +29,10 @@ function captureDownloads(w,downloads){
  const original=w.HTMLAnchorElement.prototype.click;
  w.HTMLAnchorElement.prototype.click=function(){if(this.hasAttribute('download')&&this.id!=='download-draft-pdf'){downloads.push({url:this.href,filename:this.download});return;}return original.call(this);};
 }
+function captureSheetNavigation(w,navigations){
+ const original=w.HTMLAnchorElement.prototype.click;
+ w.HTMLAnchorElement.prototype.click=function(){if(this.dataset.sheetNavigation==='true'){navigations.push(this.href);return;}return original.call(this);};
+}
 function completed(state,extra={},metadata={}){return {id:'job',status:'completed',result:{data:extra,provenance:{},warnings:[],questions:[]},machine:{...state,revision:state.revision+1,data:{...state.data,...extra}},auto_apply:{requested:true,status:'applied',applied_fields:Object.keys(extra),skipped_fields:[],revision_before:state.revision,revision_after:state.revision+1,...metadata}};}
 (async()=>{
  let saves=[],release;
@@ -151,6 +155,14 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
 
  const readonlyDownloads=[];
  const readonlyPdf=setup(async()=>{throw Error('Read-only PDF should not save');},{readonly:true,before(w){captureDownloads(w,readonlyDownloads);}});click(readonlyPdf,'download-draft-pdf');await pause(20);assert.equal(readonlyDownloads.length,1);assert.equal(readonlyPdf.doc.querySelector('#brand').disabled,true);readonlyPdf.close();pass('read-only owner sheet can download its saved PDF without any mutation');
+
+ let screenRelease;const screenSaves=[],screenNav=[];
+ const screen=setup(async(url,o)=>{assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);screenSaves.push(body);if(screenSaves.length===1)await new Promise(resolve=>screenRelease=resolve);return response(200,{revision:body.revision+1});},{before(w){captureSheetNavigation(w,screenNav);}});
+ const screenLink=screen.doc.querySelector('#view-draft-sheet');assert.equal(screenLink.closest('[data-step-panel]').dataset.stepPanel,'2');assert.equal(screenLink.closest('details'),null);assert.equal(screenLink.hasAttribute('download'),false);assert.equal(screenLink.target,'');
+ input(screen,'model','Primero');click(screen,'view-draft-sheet');click(screen,'view-draft-sheet');await pause(15);assert.equal(screenNav.length,0);assert.equal(screen.doc.querySelector('#submit-machine').disabled,true);input(screen,'model','Último');screenRelease();await pause(40);assert.equal(screenSaves.length,2);assert.deepEqual(screenSaves[1].data,{model:'Último'});assert.equal(screenNav.length,1);assert.match(screenNav[0],/\/panel\/maquinarias\/[^/]+\/ficha\/$/);const screenLeave=new screen.w.Event('beforeunload',{cancelable:true});screen.w.dispatchEvent(screenLeave);assert.equal(screenLeave.defaultPrevented,false);screen.close();pass('virtual sheet waits for all in-flight edits, navigates once in same app and preserves two-step intake');
+ for(const status of [400,409]){const blockedNav=[];const blockedScreen=setup(async()=>response(status,{error:'Guardado rechazado',revision:8}),{before(w){captureSheetNavigation(w,blockedNav);}});input(blockedScreen,'serial','SERIE-PENDIENTE');click(blockedScreen,'view-draft-sheet');await pause(25);assert.equal(blockedNav.length,0);assert.equal(blockedScreen.doc.querySelector('#serial').value,'SERIE-PENDIENTE');assert.match(blockedScreen.doc.querySelector('#draft-pdf-status').textContent,/No se abrió.*Conservamos/);blockedScreen.close();}pass('virtual sheet never opens stale data after rejected save or conflict');
+ let screenUploadDone;const uploadedScreenNav=[];const screenUpload=setup(async()=>{throw Error('Unexpected write');},{before(w){captureSheetNavigation(w,uploadedScreenNav);w.XMLHttpRequest=class extends w.EventTarget{constructor(){super();this.upload=new w.EventTarget();}open(){}setRequestHeader(){}send(){screenUploadDone=()=>{this.status=200;this.responseText=JSON.stringify({id:'screen-photo',kind:'image',purpose:'general',revision:2});this.dispatchEvent(new w.Event('load'));};}};}});const screenGallery=screenUpload.doc.querySelector('#gallery-input');Object.defineProperty(screenGallery,'files',{value:[new screenUpload.w.File(['photo'],'screen.jpg',{type:'image/jpeg'})]});screenGallery.dispatchEvent(new screenUpload.w.Event('change'));click(screenUpload,'view-draft-sheet');await pause(20);assert.equal(uploadedScreenNav.length,0);screenUploadDone();await pause(30);assert.equal(uploadedScreenNav.length,1);screenUpload.close();pass('virtual sheet also waits for queued images');
+ const readonlyScreenNav=[];const readonlyScreen=setup(async()=>{throw Error('Readonly screen must not save');},{readonly:true,before(w){captureSheetNavigation(w,readonlyScreenNav);}});readonlyScreen.doc.querySelector('[data-open-sheet]').click();await pause(20);assert.equal(readonlyScreenNav.length,1);assert.equal(readonlyScreen.doc.querySelector('#brand').disabled,true);readonlyScreen.close();pass('header sheet link uses the same safe route; readonly navigation makes no writes');
 
 
  let cancelledCalls=0,cancelledPrompts=[];

@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'portal/admin-brand.css' %}">{% endblock %}
-{% block extrahead %}{{ block.super }}<link rel="icon" type="image/png" href="{% static 'portal/imc-logo.png' %}">{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'portal/admin-brand.css' %}"><link rel="stylesheet" href="{% static 'portal/password-visibility.css' %}">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="icon" type="image/png" href="{% static 'portal/imc-logo.png' %}"><script src="{% static 'portal/password-visibility.js' %}" defer></script>{% endblock %}
 {% block branding %}<div id="site-name"><a href="{% url 'admin:index' %}" class="imc-admin-brand"><img src="{% static 'portal/imc-logo.png' %}" width="56" height="56" alt="IMC México"><span>IMC MÉXICO<small>Administración del portal</small></span></a></div>{% endblock %}

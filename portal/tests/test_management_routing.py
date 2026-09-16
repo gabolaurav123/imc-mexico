@@ -59,7 +59,7 @@ class ManagementRoutingTests(TestCase):
         self.assertFalse(response.context['verified'])
         self.assertFalse(response.context['is_advertiser_mode'])
         self.assertTrue(response.context['qr'])
-        self.assertTrue(response.context['otp_form'].fields['token'].widget.attrs.get('autofocus'))
+        self.assertNotIn('autofocus', response.context['otp_form'].fields['token'].widget.attrs)
         self.assertNotIn('autofocus', response.context['password_form'].fields['old_password'].widget.attrs)
         self.assertFalse(TOTPDevice.objects.get(user=self.admin, name='IMC').confirmed)
 

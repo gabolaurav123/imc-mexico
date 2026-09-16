@@ -302,6 +302,12 @@ def api_machine_action(request,pk):
 
 def safe_public_data(snapshot):
     data=copy.deepcopy(snapshot.get('data',{}))
+    # Keep exclusions from this version before removing its private fields.
+    identifiers={services._reference_text(data.get(key)) for key in ('serial','vin')} - {''}
+    technical_keys=set(services.WEB_FIELD_LABELS) | {'hours','kilometers','attachments'}
+    for key in technical_keys:
+        if key in data and any(identifier in services._reference_text(data[key]) for identifier in identifiers):
+            data.pop(key)
     for key in ['serial','vin','plate_transcription','plate_kind','plate_type','no_plate','notes','document','owner_email','owner_phone','email','phone']:data.pop(key,None)
     if not snapshot.get('contact_authorized'):data.pop('contact_public',None)
     return data
@@ -312,6 +318,8 @@ def public_record(token):
     return publication
 
 def sheet_context(machine,version=None,public=False,token=None):
+    from .sheet_details import build_sheet_details
+    original_data=version.data.get('data',{}) if version else machine.data
     plate_ids=services.detected_plate_asset_ids(machine)
     if version:plate_ids |= set(version.data.get('private_plate_asset_ids',[]))
     if version:
@@ -319,7 +327,7 @@ def sheet_context(machine,version=None,public=False,token=None):
         ids=version.data.get('public_asset_ids' if public else 'asset_ids',[])
         assets=machine.assets.filter(pk__in=ids,processing_status='ready')
         title=version.data.get('title',machine.title)
-    else:data=machine.data;assets=machine.assets.filter(processing_status='ready');title=machine.title
+    else:data=safe_public_data({'data':original_data}) if public else original_data;assets=machine.assets.filter(processing_status='ready');title=machine.title
     if public:assets=assets.filter(public_authorized=True).exclude(purpose__in=['plate','document']).exclude(pk__in=plate_ids)
     # Render approved title rather than the current draft title.
     machine=copy.copy(machine);machine.title=title;machine._detected_plate_asset_ids=plate_ids
@@ -329,17 +337,32 @@ def sheet_context(machine,version=None,public=False,token=None):
             if str(asset.pk) in plate_ids:
                 asset.purpose='plate'
     category_name=version.data.get('category_name','') if version else (machine.category.name if machine.category_id else '')
+    field_provenance=version.data.get('provenance',{}) if version else machine.provenance
+    def origin_label(key):
+        meta=field_provenance.get(key,{})
+        if not isinstance(meta,dict):return 'Dato de la ficha'
+        if meta.get('review_reason')=='conflicting_reading':return 'Lectura en conflicto · por revisar'
+        if meta.get('source')=='user':return 'Editado en la ficha'
+        if meta.get('source')=='web':return 'Referencia web' + (' · confirmada' if meta.get('review')=='confirmed' else ' · por revisar')
+        label={'plate':'Lectura de placa','image':'Lectura de fotografía'}.get(meta.get('source'),'Dato de la ficha')
+        return label + (' · por revisar' if meta.get('review') in {'needs_review','not_identifiable'} else '')
+    field_origins={key:origin_label(key) for key in data if data.get(key) not in (None,'')}
     labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS}
-    extra_fields=[{'label':label,'value':data[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
+    extra_fields=[{'key':key,'label':label,'value':data[key],'source_label':field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
+    # The helper needs private exclusions, but returns only allowlisted reading aids.
+    technical_interpretation=build_sheet_details(original_data,field_provenance)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
     web_references=services.public_web_references(reference_snapshot)
+    if public:
+        technical_interpretation=[item for item in technical_interpretation if item['key'] in data]
+        web_references=[item for item in web_references if item['field'] in data and item['value']==data[item['field']]]
     whatsapp_url=''
     if public:
         contact_settings=PlatformSettings.objects.filter(pk=1).first()
         phone=re.sub(r'[\s()-]','',contact_settings.contact_phone if contact_settings else '')
         if re.fullmatch(r'\+[1-9]\d{7,14}',phone):
             whatsapp_url=f'https://wa.me/{phone[1:]}?'+urlencode({'text':f'Hola IMC México. Quiero información sobre {machine.folio}: {title}.'})
-    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else (version.data.get('provenance',{}) if version else machine.provenance)}
+    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance}
 
 @login_required
 def machine_sheet(request,pk):

@@ -1,0 +1,97 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {JSDOM} = require('jsdom');
+const source = fs.readFileSync(path.join(__dirname, '../static/portal/password-visibility.js'), 'utf8');
+const pause = () => new Promise(resolve => setTimeout(resolve, 0));
+let checks = 0;
+function pass(name) { checks++; console.log(`PASS ${name}`); }
+
+(async () => {
+  const dom = new JSDOM('<form id="login"><label for="email">Correo</label><input id="email" type="email" name="email"><label for="password">Contraseña</label><span class="password-field"><input id="password" name="password" type="password" autocomplete="current-password" required minlength="12" aria-describedby="hint"></span><small id="hint">Ayuda</small><input id="confirmation" type="password" name="confirmation" autocomplete="new-password"><input id="otp" type="text" autocomplete="one-time-code"><button id="submit" type="submit">Entrar</button></form>', {runScripts:'outside-only', url:'https://example.invalid/'});
+  const w = dom.window, doc = w.document;
+  const input = doc.getElementById('password'), second = doc.getElementById('confirmation'), form = doc.getElementById('login');
+  doc.getElementById('email').focus();
+  w.eval(source);
+  await pause();
+  assert.equal(doc.querySelectorAll('.password-visibility-toggle').length, 2);
+  assert.equal(doc.activeElement.id, 'email', 'initialization must not steal focus');
+  const button = input.parentElement.querySelector('button');
+  assert.equal(button.type, 'button');
+  assert.equal(button.getAttribute('aria-controls'), input.id);
+  assert.equal(button.getAttribute('aria-pressed'), 'false');
+  assert.equal(button.getAttribute('aria-label'), 'Mostrar contraseña');
+  assert.equal(input.type, 'password');
+  assert.equal(second.type, 'password');
+  assert.equal(doc.getElementById('otp').parentElement, form);
+  pass('all password fields enhanced; default masked; non-passwords and focus untouched');
+
+  input.value = 'Synthetic-selection-123!';
+  input.focus(); input.setSelectionRange(3, 11, 'backward');
+  let edits = 0, submits = 0;
+  input.addEventListener('input', () => edits++);
+  input.addEventListener('change', () => edits++);
+  form.addEventListener('submit', event => { submits++; event.preventDefault(); });
+  button.click();
+  assert.equal(input.type, 'text');
+  assert.equal(input.value, 'Synthetic-selection-123!');
+  assert.equal(input.selectionStart, 3); assert.equal(input.selectionEnd, 11);
+  assert.equal(input.selectionDirection, 'backward');
+  assert.equal(button.getAttribute('aria-pressed'), 'true');
+  assert.equal(button.getAttribute('aria-label'), 'Ocultar contraseña');
+  assert.equal(new w.FormData(form).get('password'), 'Synthetic-selection-123!');
+  assert.equal(second.type, 'password');
+  assert.equal(edits, 0); assert.equal(submits, 0);
+  assert.equal(input.autocomplete, 'current-password');
+  assert.equal(input.required, true); assert.equal(input.minLength, 12);
+  assert.equal(input.getAttribute('aria-describedby'), 'hint');
+  assert.equal(input.labels[0].textContent, 'Contraseña');
+  assert.ok(!button.outerHTML.includes(input.value));
+  button.click(); assert.equal(input.type, 'password');
+  pass('show/hide preserves value, selection, payload, validation, labels and autocomplete');
+
+  const admin = doc.createElement('div');
+  admin.innerHTML = '<form id="admin"><label for="admin-password">Contraseña nueva</label><input id="admin-password" name="new_password1" type="password" autocomplete="new-password"><input name="new_password2" type="password" disabled></form>';
+  doc.body.append(admin); await pause();
+  const fields = admin.querySelectorAll('input');
+  assert.equal(admin.querySelectorAll('.password-visibility-toggle').length, 2);
+  assert.equal(fields[0].labels[0].textContent, 'Contraseña nueva');
+  const generated = fields[1].parentElement.querySelector('button');
+  assert.ok(fields[1].id); assert.equal(generated.getAttribute('aria-controls'), fields[1].id);
+  assert.equal(generated.disabled, true);
+  fields[1].disabled = false; await pause(); assert.equal(generated.disabled, false);
+  pass('dynamic Django admin-style forms and disabled fields supported');
+
+  w.eval(source); await pause();
+  const original = doc.querySelectorAll('.password-visibility-toggle').length;
+  admin.remove(); doc.body.append(admin); await pause();
+  assert.equal(doc.querySelectorAll('.password-visibility-toggle').length, original);
+  const adminButton = fields[0].parentElement.querySelector('button'); adminButton.click();
+  const clone = fields[0].parentElement.cloneNode(true);
+  clone.querySelector('input').id = 'cloned-admin-password';
+  admin.append(clone); await pause();
+  assert.equal(clone.querySelectorAll('button').length, 1);
+  assert.equal(clone.querySelector('input').type, 'password', 'cloned revealed controls must start masked');
+  assert.equal(clone.querySelector('button').getAttribute('aria-controls'), 'cloned-admin-password');
+  clone.querySelector('button').click(); assert.equal(clone.querySelector('input').type, 'text');
+  pass('idempotent initialization, reinsertion and cloned formsets');
+
+  button.click(); assert.equal(input.type, 'text');
+  form.dispatchEvent(new w.Event('submit', {bubbles:true, cancelable:true}));
+  assert.equal(input.type, 'password'); assert.equal(button.getAttribute('aria-pressed'), 'false');
+  assert.equal(input.value, 'Synthetic-selection-123!');
+  button.click(); form.reset();
+  assert.equal(input.type, 'password'); assert.equal(button.getAttribute('aria-label'), 'Mostrar contraseña');
+  assert.equal(input.value, '', 'native reset owns the value');
+  pass('submit and native reset restore masked state without altering submit values');
+
+  input.focus();
+  const pointer = new w.Event('pointerdown', {bubbles:true, cancelable:true});
+  button.dispatchEvent(pointer); assert.equal(pointer.defaultPrevented, true);
+  button.focus(); button.click();
+  assert.equal(doc.activeElement, button, 'keyboard activation keeps normal button focus');
+  assert.equal(input.hasAttribute('autofocus'), false);
+  pass('pointer caret retention and accessible keyboard button focus');
+  dom.window.close();
+  console.log(`Password visibility DOM: ${checks} groups PASS`);
+})().catch(error => { console.error(error); process.exitCode = 1; });

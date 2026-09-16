@@ -5,8 +5,16 @@
   <p class="eyebrow">{% if is_management_user %}ADMINISTRACIÓN DE IMC MÉXICO{% else %}ACCESO Y PRIVACIDAD{% endif %}</p>
   <h1>{% if is_management_user and not verified %}Verifica tu acceso administrativo{% else %}Seguridad de tu cuenta{% endif %}</h1>
   {% if is_management_user and not verified %}<p>Tu cuenta tiene acceso {% if user.is_superuser %}de superadministrador{% else %}al equipo administrativo{% endif %}. Completa la verificación en dos pasos para entrar a tus herramientas de gestión.</p>{% else %}<p>Gestiona la seguridad de tu sesión y tus datos personales.</p>{% endif %}
+  <p class="small">Cuenta conectada: <strong>{{ user.email }}</strong>{% if user.is_superuser %} · Superadministrador{% endif %}</p>
 </div></div>
 <div class="profile-grid security-layout"><div>
+  <section class="surface security-recovery" aria-labelledby="password-recovery-heading">
+    <p class="eyebrow">TU CONTRASEÑA</p>
+    <h2 id="password-recovery-heading">¿No recuerdas tu contraseña?</h2>
+    <p>Puedes elegir una nueva sin escribir la anterior. Te enviaremos un enlace privado a <strong>{{ user.email }}</strong>.</p>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="recover_password"><button class="button button-outline" type="submit">Elegir una nueva contraseña por correo →</button></form>
+    <p class="small muted">Si ya conoces tu contraseña, puedes continuar con el acceso de abajo.</p>
+  </section>
   {% if user.is_staff %}
   <form method="post" class="surface management-verification" id="management-verification">{% csrf_token %}<input type="hidden" name="action" value="otp">
     <p class="eyebrow">ACCESO DE ADMINISTRADOR</p>
@@ -15,7 +23,7 @@
     <p class="notice success">Esta sesión ya está verificada.</p>
     <a class="button button-navy" href="{{ next_url|default:management_url }}">Entrar al panel administrativo →</a>
     {% else %}
-      {% if qr %}<ol class="verification-steps"><li>Abre tu aplicación de autenticación y escanea el código QR.</li><li>Escribe el código temporal de seis dígitos que aparece en la aplicación.</li></ol><img class="otp-qr" src="data:image/png;base64,{{ qr }}" alt="Código QR privado para configurar tu aplicación de autenticación"><p class="small muted">Este QR es privado. No lo compartas ni lo envíes por mensaje.</p>
+      {% if qr %}<p>Falta conectar tu aplicación autenticadora. Después entrarás directamente a tus herramientas administrativas.</p><ol class="verification-steps"><li>En tu teléfono, abre tu aplicación de autenticación y elige añadir una cuenta.</li><li>Escanea este QR y escribe abajo el código de seis dígitos que aparece en la aplicación.</li></ol><img class="otp-qr" src="data:image/png;base64,{{ qr }}" alt="Código QR privado para configurar tu aplicación de autenticación"><p class="small muted">Sólo necesitas registrar este QR una vez. En siguientes accesos usarás el código de la aplicación. No compartas el QR.</p>
       {% elif device %}<p>Escribe el código temporal de tu aplicación de autenticación para verificar esta sesión.</p>{% endif %}
       {% if otp_form %}{% include 'portal/form_fields.html' with form=otp_form %}<button class="button button-navy" type="submit">Verificar y entrar a administración →</button>{% endif %}
     {% endif %}
