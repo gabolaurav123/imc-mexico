@@ -39,6 +39,6 @@ Una foto guardada no se pierde por un error de IA. La persona puede enviar las f
 
 La migración `0007_automatic_draft_completion` añade metadatos de aplicación a los análisis. No modifica las fichas existentes durante la migración. No requiere nuevas credenciales ni variables de entorno.
 
-Esta ampliación pasó **201 pruebas Django, sin omisiones**, con ffmpeg/ffprobe reales, y **16 grupos de pruebas de interfaz**, además del catálogo. Las comprobaciones de configuración y migraciones no detectaron problemas. Las pruebas cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, envío sin campos manuales obligatorios y fuentes en web/PDF/ZIP.
+Esta ampliación pasó **204 pruebas Django, sin omisiones**, con ffmpeg/ffprobe reales, y **16 grupos de pruebas de interfaz**, además del catálogo. Las comprobaciones de configuración y migraciones no detectaron problemas. Las pruebas cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, envío sin campos manuales obligatorios y fuentes en web/PDF/ZIP.
 
 La suite de interfaz se conserva en el repositorio: `npm ci --ignore-scripts` y `npm run test:ui`. Usa jsdom sólo para desarrollo y genera una plantilla sintética sin consultar la base de datos. En Windows puede indicarse `PYTHON` con la ruta del intérprete del entorno virtual. GitHub Actions ejecuta esta suite junto a las pruebas de Django.

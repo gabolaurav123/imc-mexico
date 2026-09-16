@@ -11,7 +11,7 @@ from django.utils import timezone
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import (DescriptionAnalysis, _claim_job, enqueue_analysis,
                                process_analysis, process_next_job)
-from portal.research import ResearchExtraction, ResearchField
+from portal.research import ResearchCandidate, ResearchCandidates
 
 
 URL = "https://www.cat.com/en_US/products/new/equipment/backhoe-loaders/420f2.html"
@@ -48,8 +48,8 @@ class ResearchDescriptionTests(TestCase):
                     }]}]}])
         client.responses.parse.return_value = SimpleNamespace(
             status="completed", usage=SimpleNamespace(input_tokens=210, output_tokens=140),
-            output_parsed=ResearchExtraction(fields=[ResearchField(
-                key="power", value="70 kW", scope="model", source_url=URL, evidence=TEXT,
+            output_parsed=ResearchCandidates(fields=[ResearchCandidate(
+                key="power", value="70 kW", scope="model", passage_index=0,
                 matched_serial=None, matched_brand="Caterpillar", matched_model="420F2")]))
         return client
 
@@ -88,7 +88,7 @@ class ResearchDescriptionTests(TestCase):
         client.responses.create.assert_called_once()
         client.responses.parse.assert_called_once()
         client.close.assert_called_once()
-        self.assertIs(client.responses.parse.call_args.kwargs["text_format"], ResearchExtraction)
+        self.assertIs(client.responses.parse.call_args.kwargs["text_format"], ResearchCandidates)
         self.assertNotIn("PRIVATE NOTES", str(client.mock_calls))
         request = json.loads(client.responses.create.call_args.kwargs["input"])
         self.assertEqual(request["identifiers"]["serial"], "OWNER123")

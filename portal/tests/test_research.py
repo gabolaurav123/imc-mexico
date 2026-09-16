@@ -14,9 +14,9 @@ from PIL import Image
 
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import MachineAnalysis, _claim_job, enqueue_analysis, ingest_asset, process_analysis, process_next_job
-from portal.research import (CONSENT_VERSION, ResearchExtraction, ResearchField, compose_description,
+from portal.research import (CONSENT_VERSION, ResearchCandidate, ResearchCandidates, ResearchExtraction, ResearchField, compose_description,
                              citation_passages, is_validated_web_field, merge_research, normalize_research, research_identity,
-                             research_machine, response_sources, safe_public_url)
+                             normalize_candidates, research_machine, response_sources, safe_public_url)
 
 URL = "https://www.cat.com/en_US/products/new/equipment/backhoe-loaders/420f2.html"
 IDENTITY = {"serial": None, "brand": "Caterpillar", "model": "420F2"}
@@ -28,6 +28,11 @@ def fact(**changes):
                 matched_serial=None, matched_brand="Caterpillar", matched_model="420F2")
     data.update(changes)
     return ResearchField(**data)
+
+
+def candidate(passage_index=0, **changes):
+    data = fact(**changes).model_dump(exclude={"source_url", "evidence"})
+    return ResearchCandidate(passage_index=passage_index, **data)
 
 
 def normalized(fields=None, identity=None, text=TEXT, sources=None):
@@ -217,6 +222,52 @@ class ResearchValidationTests(SimpleTestCase):
             research = normalized([candidate], {**identity, "brand": declared}, text)
             self.assertEqual(research["fields"][0]["scope"], "model")
 
+    def test_passage_index_retains_identity_that_freeform_subphrase_omits(self):
+        passage = "Caterpillar 420F2. Potencia 70 kW."
+        sources = [{"url": URL, "title": "Cat"}]
+        old = normalize_research(ResearchExtraction(fields=[fact(evidence="Potencia 70 kW.")]),
+                                 IDENTITY, "model", sources, passage, citations={URL: [passage]})
+        self.assertEqual(old["fields"], [])
+        self.assertEqual(old["diagnostics"]["candidate_evidence_model_count"], 0)
+        self.assertEqual(old["diagnostics"]["candidate_cited_passage_model_count"], 1)
+        passages = [{"source_url": URL, "text": passage}]
+        result = normalize_candidates(ResearchCandidates(fields=[candidate()]), IDENTITY, "model", sources, passage, passages)
+        self.assertEqual(result["fields"][0]["value"], "70 kW")
+        self.assertEqual(result["fields"][0]["evidence"], passage)
+        self.assertEqual(result["diagnostics"]["candidate_evidence_brand_count"], 1)
+        self.assertEqual(result["diagnostics"]["candidate_evidence_model_count"], 1)
+
+    def test_index_cannot_borrow_identity_from_another_citation_or_invalid_position(self):
+        other_url = "https://www.komatsu.com/spec"
+        passages = [{"source_url": URL, "text": "Caterpillar 420F2."},
+                    {"source_url": other_url, "text": "Potencia 70 kW."}]
+        sources = [{"url": URL, "title": "Cat"}, {"url": other_url, "title": "Other"}]
+        text = " ".join(p["text"] for p in passages)
+        result = normalize_candidates(ResearchCandidates(fields=[candidate(1), candidate(-1), candidate(20)]),
+                                      IDENTITY, "model", sources, text, passages)
+        self.assertEqual(result["fields"], [])
+        self.assertEqual(result["diagnostics"]["rejection_counts"], {"model_not_literal": 1, "invalid_passage_index": 2})
+        for other_text in ("Komatsu 420F2: potencia 70 kW.", "Caterpillar 420F2IT: potencia 70 kW."):
+            passages = [{"source_url": other_url, "text": other_text}]
+            result = normalize_candidates(ResearchCandidates(fields=[candidate()]), IDENTITY, "model", sources, other_text, passages)
+            self.assertEqual(result["fields"], [])
+
+    def test_full_passage_denial_of_serial_match_never_becomes_exact_unit(self):
+        identity = {**IDENTITY, "serial": "FAKE123"}
+        for denial in ("No encontré datos de serie FAKE123", "No se encontró registro de serie FAKE123",
+                       "No se encontraron datos de serie FAKE123", "Sin coincidencia para la serie FAKE123",
+                       "No exact match for serial FAKE123", "Serial FAKE123 not found"):
+            text = denial + ". Caterpillar 420F2: potencia 70 kW."
+            result = normalize_candidates(ResearchCandidates(fields=[candidate(scope="exact_serial", matched_serial="FAKE123")]),
+                identity, "exact_serial", [{"url": URL, "title": "Cat"}], text, [{"source_url": URL, "text": text}])
+            self.assertEqual(result["match"], "model")
+            self.assertEqual(result["fields"][0]["scope"], "model")
+            self.assertIsNone(result["fields"][0]["matched_serial"])
+            year_text = denial + ". Caterpillar 420F2: año 2018."
+            year = normalize_candidates(ResearchCandidates(fields=[candidate(key="year", value="2018", scope="exact_serial", matched_serial="FAKE123")]),
+                identity, "exact_serial", [{"url": URL, "title": "Cat"}], year_text, [{"source_url": URL, "text": year_text}])
+            self.assertEqual(year["fields"], [])
+
     def test_exact_serial_rejects_longer_prefix_matches_but_accepts_internal_formatting(self):
         identity = {**IDENTITY, "serial": "ABC123"}
         for literal in ("ABC1234", "XABC123", "ABC123-4"):
@@ -290,7 +341,7 @@ class ResearchValidationTests(SimpleTestCase):
     def test_search_requests_only_identifiers_and_accounts_all_calls(self):
         client = Mock()
         client.responses.create.return_value = web_response()
-        client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=ResearchExtraction(fields=[fact()]),
+        client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=ResearchCandidates(fields=[candidate()]),
                                                               usage=SimpleNamespace(input_tokens=210, output_tokens=140))
         result = vision(serial="ENGINE999", component="engine")
         snapshot = {"data": {"contact_public": "SECRET@example.com", "location": "PRIVATE LOCATION", "notes": "SECRET NOTES"}}
@@ -307,7 +358,7 @@ class ResearchValidationTests(SimpleTestCase):
         self.assertNotIn("SECRET", str(client.mock_calls))
         self.assertNotIn("ENGINE999", str(client.mock_calls))
         extraction_input = json.loads(client.responses.parse.call_args.kwargs["input"])
-        self.assertEqual(extraction_input["cited_passages"], [{"source_url": URL, "source_title": "Caterpillar 420F2", "text": TEXT}])
+        self.assertEqual(extraction_input["cited_passages"], [{"passage_index": 0, "source_url": URL, "source_title": "Caterpillar 420F2", "text": TEXT}])
         self.assertNotIn("search_text", extraction_input)
         self.assertEqual(research["diagnostics"]["accepted_field_count"], 1)
 
@@ -320,7 +371,7 @@ class ResearchValidationTests(SimpleTestCase):
         response.output[1]["content"] = [{"text": text + marker, "annotations": [{"type": "url_citation", "url": URL,
             "title": "Caterpillar 420F2", "start_index": len(text), "end_index": len(text + marker)}]}]
         client.responses.create.return_value = response
-        client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=ResearchExtraction(fields=[fact()]),
+        client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=ResearchCandidates(fields=[candidate()]),
                                                               usage=SimpleNamespace(input_tokens=200, output_tokens=100))
         research, _ = research_machine(client, "gpt-4.1-mini", vision())
         self.assertEqual(research["status"], "completed")
@@ -439,7 +490,7 @@ class ResearchPipelineTests(TestCase):
     def test_pipeline_three_calls_usage_and_old_browser_does_not_search(self):
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         vision_response = SimpleNamespace(status="completed", output_parsed=self.parsed(), usage=SimpleNamespace(input_tokens=300, output_tokens=120))
-        research_response = SimpleNamespace(status="completed", output_parsed=ResearchExtraction(fields=[fact()]), usage=SimpleNamespace(input_tokens=200, output_tokens=90))
+        research_response = SimpleNamespace(status="completed", output_parsed=ResearchCandidates(fields=[candidate()]), usage=SimpleNamespace(input_tokens=200, output_tokens=90))
         with patch("openai.OpenAI") as provider:
             client = provider.return_value
             client.responses.parse.side_effect = [vision_response, research_response]
