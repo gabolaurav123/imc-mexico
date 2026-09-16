@@ -3,11 +3,62 @@ import hashlib
 import logging
 import re
 from functools import wraps
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.http import JsonResponse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+
+
+def is_management_user(user):
+    return bool(user and user.is_authenticated and user.is_active and user.is_staff)
+
+
+def management_home(user):
+    if not is_management_user(user):
+        return '/panel/'
+    return '/operaciones/' if user.has_perm('portal.operate_platform') else '/admin/'
+
+
+def needs_management_mfa(user):
+    # A freshly authenticated User has not yet passed through OTPMiddleware.
+    return (is_management_user(user) and settings.STAFF_MFA_REQUIRED
+            and not getattr(user, 'is_verified', lambda: False)())
+
+
+def safe_next_url(request, value, fallback=None):
+    fallback = fallback or management_home(request.user)
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        return fallback
+    if not url_has_allowed_host_and_scheme(value, {request.get_host()}, require_https=not settings.DEBUG):
+        return fallback
+    parsed = urlsplit(value)
+    if not parsed.path.startswith('/') or parsed.path.startswith('//'):
+        return fallback
+    # Normalize same-host absolute links to local paths; never return an origin.
+    return urlunsplit(('', '', parsed.path, parsed.query, parsed.fragment))
+
+
+def login_destination(request, requested=None):
+    destination = safe_next_url(request, requested)
+    parsed = urlsplit(destination)
+    if parsed.path.startswith('/admin/') and not is_management_user(request.user):
+        # Django admin sends non-staff sessions back to its login. Returning the
+        # same next value from our authenticated login would create a loop.
+        destination = '/panel/'
+        parsed = urlsplit(destination)
+    if parsed.path in {'/iniciar-sesion/', '/registro/'}:
+        destination = management_home(request.user)
+        parsed = urlsplit(destination)
+    if (is_management_user(request.user) and parsed.path == '/panel/'
+            and parse_qs(parsed.query).get('modo') != ['anunciante']):
+        destination = management_home(request.user)
+        parsed = urlsplit(destination)
+    if needs_management_mfa(request.user) and parsed.path.startswith(('/admin/', '/operaciones/')):
+        return '/panel/seguridad/?' + urlencode({'next': destination}, safe='/')
+    return destination
 
 
 def redact_sensitive_urls(value):

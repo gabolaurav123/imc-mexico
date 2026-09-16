@@ -29,6 +29,21 @@ Variables principales: `SECRET_KEY`, `DATABASE_URL`, `DIRECT_URL`, `PUBLIC_URL`,
 Se almacenan en secretos del proveedor, nunca en Git ni en documentación pública.
 `DIRECT_URL` debe apuntar al endpoint directo, no al pooler, para migraciones y backups.
 
+## Entrada del administrador
+
+Las cuentas activas del equipo entran por su panel de gestión al iniciar sesión o
+visitar `/panel/`: `/operaciones/` para quienes tienen `operate_platform` y `/admin/`
+para los demás usuarios staff. Si falta verificar el segundo factor, la entrada
+lleva primero a `/panel/seguridad/` y conserva un destino interno seguro. El código
+de la aplicación autenticadora debe introducirlo el titular; no se desactiva MFA
+ni se cambia su contraseña para resolver problemas de navegación.
+
+La navegación identifica al superadministrador y muestra leads, usuarios,
+solicitudes y configuración según sus permisos. El panel de operaciones filtra
+también los datos y contadores en el servidor: ocultar un enlace no concede ni
+revoca por sí solo acceso. `/panel/?modo=anunciante` permite usar explícitamente
+las herramientas personales de maquinaria sin alterar el rol administrativo.
+
 ## Supervisión
 
 - `/salud/` verifica conectividad a la base. También revisar logs de Gunicorn y

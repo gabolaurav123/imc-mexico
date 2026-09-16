@@ -18,7 +18,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_GET
 from .models import *
 from .forms import ContactForm
-from .security import operator_required, staff_authorized, throttle
+from .security import operator_required, staff_authorized, throttle, is_management_user, login_destination
 from . import services
 from .analytics import capture_context,record_event
 from .backup_status import get_backup_status
@@ -99,6 +99,8 @@ def contact(request):
 
 @login_required
 def panel(request):
+    if is_management_user(request.user) and request.GET.get('modo')!='anunciante':
+        return redirect(login_destination(request))
     qs=request.user.machines.all()
     counts={'total':qs.count(),'drafts':qs.filter(status='draft').count(),'pending':qs.filter(status__in=['submitted','in_review']).count(),'approved':qs.filter(approved_version__isnull=False).count(),'corrections':qs.filter(status='changes_requested').count()}
     return render(request,'portal/dashboard.html',{'machines':qs.prefetch_related('assets')[:6],'counts':counts,'recent_messages':Message.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True,internal=False).select_related('machine','sender')[:5]})
@@ -398,7 +400,18 @@ def health(request):
 
 @operator_required()
 def operations(request):
-    qs=Submission.objects.filter(machine__deleted_at__isnull=True).select_related('machine','machine__owner','version')
+    def allowed(*permissions):
+        return any(request.user.has_perm('portal.'+permission) for permission in permissions)
+    capabilities={
+        'can_view_submissions':allowed('view_submission','change_submission','review_submission'),
+        'can_view_leads':allowed('view_lead','change_lead'),
+        'can_view_jobs':allowed('view_analysisjob','change_analysisjob'),
+        'can_view_users':allowed('view_user','change_user','manage_advertisers'),
+        'can_view_machines':allowed('view_machine','change_machine'),
+        'can_view_publications':allowed('view_publication','change_publication','publish_machine'),
+        'can_view_settings':allowed('view_platformsettings','change_platformsettings'),
+    }
+    qs=(Submission.objects.filter(machine__deleted_at__isnull=True) if capabilities['can_view_submissions'] else Submission.objects.none()).select_related('machine','machine__owner','version')
     q=request.GET.get('q','').strip()[:100]
     if q:
         folio_query=q.removeprefix('IMC-').removeprefix('imc-').replace('-','')
@@ -407,9 +420,24 @@ def operations(request):
     if state:qs=qs.filter(status=state)
     live=Machine.objects.filter(owner__is_test=False)
     live_jobs=AnalysisJob.objects.filter(requested_by__is_test=False)
-    counts={'users':User.objects.filter(is_test=False).count(),'pending':live.filter(status__in=['submitted','in_review']).count(),'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count(),'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False,machine__deleted_at__isnull=True).count(),'sold':live.filter(availability='sold').count(),'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count(),'failed_jobs':live_jobs.filter(machine__deleted_at__isnull=True,status='failed').count(),'tokens':live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0,'leads':Lead.objects.filter(status='new',is_test=False).filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)).count()}
+    visible_leads=Lead.objects.filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)) if capabilities['can_view_leads'] else Lead.objects.none()
+    visible_jobs=AnalysisJob.objects.filter(machine__deleted_at__isnull=True) if capabilities['can_view_jobs'] else AnalysisJob.objects.none()
+    counts={
+        'users':User.objects.filter(is_test=False).count() if capabilities['can_view_users'] else None,
+        'pending':live.filter(status__in=['submitted','in_review']).count() if capabilities['can_view_submissions'] else None,
+        'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count() if capabilities['can_view_users'] else None,
+        'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False,machine__deleted_at__isnull=True).count() if capabilities['can_view_publications'] else None,
+        'sold':live.filter(availability='sold').count() if capabilities['can_view_machines'] else None,
+        'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count() if capabilities['can_view_machines'] else None,
+        'failed_jobs':live_jobs.filter(machine__deleted_at__isnull=True,status='failed').count() if capabilities['can_view_jobs'] else None,
+        'tokens':(live_jobs.aggregate(total=Sum('input_tokens')+Sum('output_tokens'))['total'] or 0) if capabilities['can_view_jobs'] else None,
+        'leads':visible_leads.filter(status='new',is_test=False).count() if capabilities['can_view_leads'] else None,
+    }
     page=Paginator(qs,20).get_page(request.GET.get('page'))
-    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,'jobs':AnalysisJob.objects.filter(machine__deleted_at__isnull=True).select_related('machine').order_by('-created_at')[:10],'leads':Lead.objects.filter(Q(machine__isnull=True)|Q(machine__deleted_at__isnull=True)).order_by('-created_at')[:10],'q':q,'backup_status':get_backup_status()})
+    return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,
+        'jobs':visible_jobs.select_related('machine').order_by('-created_at')[:10],
+        'leads':visible_leads.order_by('-created_at')[:10],'q':q,
+        'backup_status':get_backup_status() if capabilities['can_view_settings'] else None,**capabilities})
 
 @operator_required('portal.review_submission')
 def review(request,pk):

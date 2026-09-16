@@ -1,1 +1,43 @@
-{% extends 'portal/base.html' %}{% block body_class %}panel-page{% endblock %}{% block content %}<div class="wrap panel-layout"><aside class="sidebar"><p class="eyebrow">MI ESPACIO</p><nav aria-label="Panel del anunciante"><a href="/panel/" {% if request.path == '/panel/' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Resumen</a><a href="/panel/maquinarias/" {% if '/panel/maquinarias/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▱</span> Mis maquinarias</a><a href="/panel/solicitudes/" {% if '/panel/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Mis solicitudes</a><a href="/panel/mensajes/" {% if '/panel/mensajes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">☷</span> Mensajes</a><a href="/panel/perfil/" {% if '/panel/perfil/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">◎</span> Mi cuenta</a>{% if user.is_staff %}<a href="/operaciones/"><span aria-hidden="true">⌘</span> Operaciones</a>{% endif %}</nav><div class="sidebar-help"><span class="eyebrow">AQUÍ PARA AYUDARTE</span><p>¿Te falta un dato o tienes una duda?</p><a href="/contacto/">Contactar al equipo ↗</a></div><form action="/cerrar-sesion/" method="post">{% csrf_token %}<button class="link-button muted" type="submit">Cerrar sesión</button></form></aside><div class="panel-main">{% block panel_content %}{% endblock %}</div></div>{% endblock %}
+{% extends 'portal/base.html' %}
+{% block body_class %}panel-page{% if is_management_user %} management-page{% endif %}{% endblock %}
+{% block content %}
+<div class="wrap panel-layout">
+  <aside class="sidebar{% if is_management_user %} management-sidebar{% endif %}">
+    {% if is_management_user %}
+    <div class="management-identity"><p class="eyebrow">ADMINISTRACIÓN</p><b>{% if user.is_superuser %}Superadministrador{% else %}Equipo IMC México{% endif %}</b>{% if needs_management_mfa %}<a href="/panel/seguridad/">Verificación pendiente →</a>{% else %}<span>Acceso del equipo</span>{% endif %}</div>
+    <details class="management-navigation{% if needs_management_mfa %} is-pending{% endif %}"{% if not needs_management_mfa %} open{% endif %}>
+    <summary>Herramientas administrativas</summary>
+    <nav class="management-nav" aria-label="Administración">
+      <a href="{{ management_url }}" {% if request.path == '/operaciones/' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Panel administrativo</a>
+      {% if perms.portal.operate_platform %}{% if perms.portal.view_submission or perms.portal.change_submission or perms.portal.review_submission %}<a href="/operaciones/#solicitudes" {% if '/operaciones/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Solicitudes</a>{% endif %}{% endif %}
+      {% if perms.portal.view_lead or perms.portal.change_lead %}<a href="/admin/portal/lead/"><span aria-hidden="true">◎</span> Leads y seguimiento</a>{% endif %}
+      {% if perms.portal.view_user or perms.portal.change_user %}<a href="/admin/portal/user/"><span aria-hidden="true">♙</span> Usuarios</a>{% if perms.portal.manage_advertisers %}<a href="/admin/portal/user/?advertiser_status__exact=pending"><span aria-hidden="true">✓</span> Permisos de anunciantes</a>{% endif %}{% endif %}
+      {% if perms.auth.view_group or perms.auth.change_group %}<a href="/admin/auth/group/"><span aria-hidden="true">⌘</span> Roles y permisos</a>{% endif %}
+      {% if perms.portal.view_platformsettings or perms.portal.change_platformsettings %}<a href="/admin/portal/platformsettings/"><span aria-hidden="true">⚙</span> Configuración</a>{% endif %}
+    </nav>
+    </details>
+    <nav class="management-account-nav" aria-label="Mi cuenta y vistas">
+      <a href="/panel/seguridad/" {% if request.path == '/panel/seguridad/' %}aria-current="page"{% endif %}>Seguridad</a>
+      <a href="/panel/perfil/" {% if request.path == '/panel/perfil/' %}aria-current="page"{% endif %}>Mi cuenta</a>
+      <a href="/panel/?modo=anunciante" {% if is_advertiser_mode %}aria-current="page"{% endif %}>Vista de anunciante</a>
+    </nav>
+    {% endif %}
+    {% if not is_management_user or is_advertiser_mode %}
+    <p class="eyebrow">{% if is_advertiser_mode %}MI VISTA DE ANUNCIANTE{% else %}MI ESPACIO{% endif %}</p>
+    <nav class="advertiser-nav" aria-label="Panel del anunciante">
+      <a href="/panel/{% if is_management_user %}?modo=anunciante{% endif %}" {% if request.path == '/panel/' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Resumen</a>
+      <a href="/panel/maquinarias/" {% if '/panel/maquinarias/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▱</span> Mis maquinarias</a>
+      <a href="/panel/solicitudes/" {% if '/panel/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Mis solicitudes</a>
+      <a href="/panel/mensajes/" {% if '/panel/mensajes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">☷</span> Mensajes</a>
+      {% if not is_management_user %}<a href="/panel/perfil/" {% if '/panel/perfil/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">◎</span> Mi cuenta</a><a href="/panel/seguridad/" {% if request.path == '/panel/seguridad/' %}aria-current="page"{% endif %}>Seguridad</a>{% endif %}
+    </nav>
+    {% endif %}
+    {% if not is_management_user %}<div class="sidebar-help"><span class="eyebrow">AQUÍ PARA AYUDARTE</span><p>¿Te falta un dato o tienes una duda?</p><a href="/contacto/">Contactar al equipo ↗</a></div>{% endif %}
+    <form action="/cerrar-sesion/" method="post">{% csrf_token %}<button class="link-button muted" type="submit">Cerrar sesión</button></form>
+  </aside>
+  <div class="panel-main">
+    {% if is_management_user and is_advertiser_mode %}<div class="management-mode-notice"><div><b>Vista de anunciante</b><p>Aquí están tus propias maquinarias. Tu acceso administrativo sigue disponible.</p></div><a class="button button-navy button-small" href="{{ management_url }}">Volver a administración →</a></div>{% endif %}
+    {% block panel_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

@@ -14,13 +14,13 @@ from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode, url_has_allowed_host_and_scheme
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.views.decorators.http import require_POST
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings
-from .security import throttle
+from .security import throttle, login_destination, safe_next_url, management_home, needs_management_mfa
 from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
@@ -63,6 +63,8 @@ def register(request):
     return auth_render(request,form,'Empieza con tu maquinaria','Crear mi cuenta')
 
 def sign_in(request):
+    if request.user.is_authenticated and request.method=='GET':
+        return redirect(login_destination(request,request.GET.get('next')))
     form=LoginForm(request,data=request.POST or None)
     if request.method=='POST':
         if not throttle(request,'login',15,900) or not throttle(request,'login-account',12,900,request.POST.get('username','').lower()):
@@ -70,9 +72,7 @@ def sign_in(request):
         elif form.is_valid():
             login(request,form.get_user())
             audit(request.user,'account.login',request.user)
-            dest=request.GET.get('next','/panel/')
-            if not url_has_allowed_host_and_scheme(dest,{request.get_host()},require_https=not settings.DEBUG):dest='/panel/'
-            return redirect(dest)
+            return redirect(login_destination(request,request.GET.get('next')))
     return auth_render(request,form,'Qué bueno verte de nuevo','Entrar a mi cuenta')
 
 @require_POST
@@ -125,11 +125,17 @@ def profile(request):
 
 @login_required
 def security(request):
+    next_url=safe_next_url(request,request.GET.get('next'))
+    if next_url.split('?',1)[0].split('#',1)[0] in {'/panel/seguridad/','/iniciar-sesion/'}:
+        next_url=management_home(request.user)
     device=TOTPDevice.objects.filter(user=request.user,name='IMC').first()
     if request.user.is_staff and device is None:device=TOTPDevice.objects.create(user=request.user,name='IMC',confirmed=False)
     action=request.POST.get('action','otp')
     otp_form=OTPForm(request.POST if request.method=='POST' and action=='otp' else None)
     password_form=PasswordChangeForm(request.user,request.POST if request.method=='POST' and action=='password' else None)
+    if needs_management_mfa(request.user):
+        password_form.fields['old_password'].widget.attrs.pop('autofocus',None)
+        otp_form.fields['token'].widget.attrs['autofocus']=True
     account_form=AccountRequestForm(request.POST if request.method=='POST' and action=='account_request' else None)
     if request.method=='POST':
         if action=='otp' and device and otp_form.is_valid() and throttle(request,'otp',10,600,str(request.user.pk)):
@@ -141,7 +147,7 @@ def security(request):
             if valid:
                 otp_login(request,device)
                 messages.success(request,'Segundo factor verificado. Ya puedes acceder a la administración.')
-                return redirect('/operaciones/')
+                return redirect(login_destination(request,next_url))
             otp_form.add_error('token','El código no es válido o ya fue utilizado.')
         elif action=='password' and password_form.is_valid():
             user=password_form.save();update_session_auth_hash(request,user)
@@ -161,4 +167,4 @@ def security(request):
     qr=None
     if device and not device.confirmed:
         buffer=BytesIO();qrcode.make(device.config_url).save(buffer,format='PNG');qr=base64.b64encode(buffer.getvalue()).decode()
-    return render(request,'portal/security.html',{'form':otp_form,'otp_form':otp_form,'password_form':password_form,'account_form':account_form,'device':device,'qr':qr,'verified':request.user.is_verified()})
+    return render(request,'portal/security.html',{'form':otp_form,'otp_form':otp_form,'password_form':password_form,'account_form':account_form,'device':device,'qr':qr,'verified':request.user.is_verified(),'next_url':next_url})

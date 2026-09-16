@@ -1,13 +1,14 @@
 from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from .security import login_destination
 
 class StaffMFAMiddleware:
     def __init__(self, get_response): self.get_response = get_response
     def __call__(self, request):
         protected = request.path.startswith(('/admin/', '/operaciones/'))
         if protected and request.user.is_authenticated and request.user.is_staff and settings.STAFF_MFA_REQUIRED and not request.user.is_verified():
-            return redirect('/panel/seguridad/?next=' + request.path)
+            return redirect(login_destination(request, request.get_full_path()))
         return self.get_response(request)
 
 class SecurityHeadersMiddleware:

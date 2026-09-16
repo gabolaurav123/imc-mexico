@@ -28,7 +28,7 @@ La serie puede escribirse de forma opcional junto a las fotos, antes de preparar
 |---|---|
 | Sitio y acceso | [Portal](https://imc-mexico.seenode.app) · [Iniciar sesión](https://imc-mexico.seenode.app/iniciar-sesion/) |
 | Administración | `/operaciones/` y `/admin/`, con rol autorizado y MFA |
-| Cuenta del titular | `gabolaurav@gmail.com`; invitación y recuperación recibidas en Spam de Gmail, enlace válido en producción; el titular debe establecer su contraseña y configurar TOTP |
+| Cuenta del titular | `gabolaurav@gmail.com`; superadministrador activo, contraseña establecida y correo verificado. El acceso a gestión requiere confirmar el segundo factor de la sesión |
 | Seenode | Servicio `974953`, `imc-mexico`; Basic 512 MB, una réplica |
 | Almacenamiento | Volumen privado persistente de 5 GB en `/data`; medios en `/data/media` |
 | Coste contratado | Servicio US$4/mes + volumen US$2.50/mes = **US$6.50/mes**, sin incluir consumos de proveedores externos |

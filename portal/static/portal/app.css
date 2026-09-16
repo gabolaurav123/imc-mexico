@@ -115,6 +115,43 @@
 @media(max-width:600px){.quick-intake .quick-pdf-row>.button{width:100%}.quick-intake .quick-pdf-row p{font-size:11px}}
 
 /* Drafts move to a recoverable trash view. */
+/* Management is a distinct workspace; staff verify their session before access. */
+.management-primary-nav>a:nth-child(2){display:block}
+.management-identity{padding:16px;background:var(--navy);color:#fff;border-radius:var(--radius);margin-bottom:16px}
+.management-identity .eyebrow{color:#d2d5e2;font-size:9px;margin-bottom:7px}
+.management-identity>b{display:block;font-size:15px;line-height:1.4}
+.management-identity>span,.management-identity>a{display:block;font-size:11px;margin-top:8px;color:#fff}
+.management-navigation{min-width:0;margin-bottom:18px}
+.management-navigation>summary{display:none}
+.management-navigation.is-pending>summary{display:list-item;cursor:pointer;min-height:44px;padding-block:10px;font-size:12px;font-weight:650}
+.management-sidebar nav>a{white-space:normal;line-height:1.5;min-height:44px}
+.management-sidebar .management-account-nav{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+.management-sidebar .management-account-nav>a{font-size:12px}
+.management-sidebar>.eyebrow{margin-top:25px}
+.management-mode-notice{display:flex;align-items:center;justify-content:space-between;gap:15px;padding:16px 20px;border:1px solid #c5dcec;background:#eef7fc;border-radius:var(--radius);margin-bottom:25px}
+.management-mode-notice b{font-size:14px}
+.management-mode-notice p{font-size:12px;margin:3px 0 0}
+.management-mode-notice .button{flex-shrink:0}
+.management-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:27px}
+.management-actions>a{display:grid;grid-template-columns:1fr;align-content:start;gap:9px;background:white;border:1px solid var(--line);border-radius:var(--radius);padding:21px;min-width:0}
+.management-actions>a:hover{border-color:var(--blue);text-decoration:none;background:#fafdff}
+.management-actions b{font-size:18px;line-height:1.25;letter-spacing:-.02em}
+.management-actions span:not(.management-action-icon){font-size:12px;color:var(--muted);line-height:1.6}
+.management-action-icon{font-size:22px;color:var(--navy);width:36px;height:36px;display:grid;place-items:center;border-radius:50%;background:#fff3df;margin-bottom:4px}
+.management-tools>summary,.security-password>summary{font-size:16px;font-weight:650;cursor:pointer;min-height:28px}
+.management-tools .operations-links{margin-bottom:0}
+.management-verification{border-top:4px solid var(--accent)}
+.management-verification h2{font-size:29px}
+.management-verification .eyebrow{margin-bottom:12px}
+.management-verification .otp-qr{width:220px;margin-block:18px}
+.management-verification .button{white-space:normal;text-align:center;min-height:48px}
+.verification-steps{padding-left:20px;font-size:14px;line-height:1.7;margin-bottom:18px}
+.verification-steps li+li{margin-top:7px}
+.security-password[open]>summary{margin-bottom:20px}
+.security-password .form-field:last-of-type{margin-bottom:20px}
+@media(max-width:959px){.management-sidebar{display:block;overflow:visible;margin-right:0}.management-identity{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 15px;margin-bottom:12px}.management-identity .eyebrow{margin:0}.management-identity>b{font-size:13px}.management-identity>span,.management-identity>a{margin:0}.management-sidebar .management-nav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));white-space:normal;padding:0}.management-sidebar .management-account-nav{display:flex;flex-wrap:wrap;padding:9px 0 0;gap:6px;margin-top:0}.management-sidebar .management-account-nav>a{font-size:11px}.management-sidebar .advertiser-nav{flex-wrap:wrap;white-space:normal;padding:0}.management-sidebar>form{display:block;margin-top:10px}.management-sidebar>form button{min-height:40px;font-size:11px}.management-navigation{margin-bottom:8px}.management-navigation.is-pending>summary{font-size:13px}.management-sidebar>.eyebrow{display:block;margin:18px 0 8px}.management-actions{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.management-sidebar .management-nav{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}.management-sidebar nav>a{font-size:11px;padding:10px;min-height:44px}.management-sidebar nav>a>span{flex-shrink:0}.management-sidebar{padding-bottom:12px;margin-bottom:24px}.management-actions{gap:10px}.management-actions>a{padding:16px 13px;gap:8px}.management-actions b{font-size:16px;overflow-wrap:anywhere}.management-actions span:not(.management-action-icon){font-size:11px}.management-mode-notice{display:block;padding:15px}.management-mode-notice .button{margin-top:12px;font-size:11px}.management-verification h2{font-size:25px}.management-verification .button{width:100%;font-size:12px}.verification-steps{font-size:13px}.management-primary-nav .button{min-height:44px}}
+
 .machine-list-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
 .machine-list-actions .button{min-height:44px}
 .draft-delete{color:var(--danger);min-height:44px;text-align:left}
