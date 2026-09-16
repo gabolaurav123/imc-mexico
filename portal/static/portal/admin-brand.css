@@ -2,8 +2,18 @@
 :root,html[data-theme="light"]{--primary:#000033;--secondary:#142453;--accent:#e38c1a;--header-bg:#000033;--header-color:#fff;--header-link-color:#fff;--breadcrumbs-bg:#142453;--breadcrumbs-fg:#e9edf5;--link-fg:#006493;--link-hover-color:#000033;--button-bg:#000033;--button-hover-bg:#142453;--default-button-bg:#e38c1a;--default-button-hover-bg:#cd7912;--selected-row:#fff2dc}
 html[data-theme="dark"]{--primary:#0095d9;--secondary:#142453;--accent:#e38c1a;--header-bg:#000033;--header-color:#fff;--header-link-color:#fff;--breadcrumbs-bg:#142453;--breadcrumbs-fg:#e9edf5;--link-fg:#83d2f5;--link-hover-color:#e38c1a;--button-bg:#000033;--button-hover-bg:#142453;--default-button-bg:#e38c1a;--default-button-hover-bg:#efaa50;--selected-row:#333342}
 #header{border-bottom:3px solid #e38c1a;gap:18px}
+#header{flex-wrap:wrap}
+.imc-admin-return{display:flex;align-items:center;gap:18px;flex-basis:100%;border-top:1px solid #526080;padding-top:16px;min-width:0}
+#header .imc-admin-return-link{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;box-sizing:border-box;padding:10px 17px;border-radius:5px;background:#e38c1a;color:#171725;font-size:14px;line-height:1.4;font-weight:700;text-decoration:none;text-align:center}
+#header a.imc-admin-return-link:link,#header a.imc-admin-return-link:visited{color:#171725}
+#header a.imc-admin-return-link:hover{background:#f2a638;color:#171725}
+#header .imc-admin-return-link:focus-visible{outline:3px solid #fff;outline-offset:3px}
+.imc-admin-section{color:#e3e8f3;font-size:12px;line-height:1.5}
+#header .imc-admin-account-link{color:#fff;text-decoration:underline;text-underline-offset:3px}
 #site-name .imc-admin-brand{display:flex;align-items:center;gap:14px;color:#fff;font-size:21px;letter-spacing:.08em;line-height:1.2;text-decoration:none}
 .imc-admin-brand img{display:block;object-fit:contain;flex-shrink:0;background:#fff;border:4px solid #fff;border-radius:3px}
 .imc-admin-brand small{display:block;letter-spacing:0;font-size:12px;margin-top:5px;font-weight:400}
 .button.default,input[type="submit"].default,.submit-row input.default{color:#231f20}
 @media(max-width:767px){#site-name .imc-admin-brand{font-size:18px;gap:11px}.imc-admin-brand img{width:48px;height:48px}.imc-admin-brand small{font-size:10px}}
+@media(max-width:1024px){#header{flex-wrap:nowrap}.imc-admin-return{flex-basis:auto;width:100%}}
+@media(max-width:767px){.imc-admin-return{flex-direction:column;gap:9px;padding-top:13px}.imc-admin-return-link{width:100%}.imc-admin-section{font-size:11px}}

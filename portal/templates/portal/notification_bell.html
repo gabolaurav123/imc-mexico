@@ -1,0 +1,4 @@
+<a id="notification-bell" class="notification-bell" href="/panel/notificaciones/" data-summary-url="/panel/notificaciones/resumen/" data-unread-count="{{ notification_unread_count|default:0 }}" data-latest-id="{{ notification_latest_unread.id|default:'' }}" data-viewer="{{ user.pk }}" aria-label="Notificaciones: {{ notification_unread_count|default:0 }} sin leer" title="Mis notificaciones">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>
+  <span id="notification-badge" class="notification-badge" aria-hidden="true"{% if not notification_unread_count %} hidden{% endif %}>{% if notification_unread_count > 99 %}99+{% else %}{{ notification_unread_count|default:0 }}{% endif %}</span>
+</a>

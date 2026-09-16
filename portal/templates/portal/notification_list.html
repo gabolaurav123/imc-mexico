@@ -4,10 +4,10 @@
 {% block panel_content %}
 <div class="notification-inbox">
   <div class="page-heading"><div><p class="eyebrow">AVISOS DE TU CUENTA</p><h1>Mis notificaciones</h1><p class="muted">Actualizaciones y avisos de IMC México, disponibles aquí para consultarlos.</p></div></div>
-  <div class="notification-inbox-tools"><p class="small muted">Los avisos más recientes aparecen primero.</p><a class="text-link" href="/panel/mensajes/">Mis mensajes →</a></div>
+  <div class="notification-inbox-tools"><p class="small muted">Los avisos más recientes aparecen primero. Abrir un aviso no lo marca como leído.</p>{% if notification_unread_count %}<form method="post" action="/panel/notificaciones/leer-todas/" data-notification-read data-mark-all>{% csrf_token %}<button type="submit" class="button button-outline button-small">Marcar todas como leídas</button><p class="notification-read-status" role="status" hidden></p></form>{% endif %}</div>
   {% if notifications %}
   <ol class="notification-inbox-list" aria-label="Notificaciones de mi cuenta">
-    {% for notice in notifications %}<li><article class="surface notification-card"><header><h2>{{ notice.subject }}</h2><time datetime="{{ notice.created_at|date:'c' }}">{{ notice.created_at|date:'d/m/Y · H:i' }}</time></header><div class="notification-body">{{ notice.body|linebreaks }}</div></article></li>{% endfor %}
+    {% for notice in notifications %}<li><article class="surface notification-card{% if not notice.read_at %} is-unread{% endif %}" data-notification-item="{{ notice.id }}"><header><h2><a href="/panel/notificaciones/{{ notice.id }}/">{{ notice.subject }}</a></h2><time datetime="{{ notice.created_at|date:'c' }}">{{ notice.created_at|date:'d/m/Y · H:i' }}</time></header><div class="notification-body">{{ notice.body|linebreaks }}</div><div class="notification-card-actions"><span class="notification-read-state">{% if notice.read_at %}Leída{% else %}Sin leer{% endif %}</span><a class="text-link" href="/panel/notificaciones/{{ notice.id }}/">Ver observación →</a>{% if not notice.read_at %}<form method="post" action="/panel/notificaciones/{{ notice.id }}/leer/" data-notification-read>{% csrf_token %}<button type="submit" class="button button-outline button-small">Marcar como leída</button><p class="notification-read-status" role="status" hidden></p></form>{% endif %}</div></article></li>{% endfor %}
   </ol>
   {% include 'portal/pagination.html' %}
   {% else %}

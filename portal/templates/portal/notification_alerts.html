@@ -1,0 +1,6 @@
+<section id="notification-pending-banner" class="wrap notification-pending-banner" aria-label="Avisos pendientes"{% if not notification_unread_count %} hidden{% endif %}>
+  <div><strong id="notification-pending-title">{% if notification_unread_count == 1 %}Tienes 1 aviso sin leer{% else %}Tienes {{ notification_unread_count|default:0 }} avisos sin leer{% endif %}</strong><p id="notification-pending-subject">{{ notification_latest_unread.subject }}</p></div>
+  <a id="notification-pending-link" class="button button-navy button-small" href="{% if notification_latest_unread %}/panel/notificaciones/{{ notification_latest_unread.id }}/{% else %}/panel/notificaciones/{% endif %}">Ver observación →</a>
+  <button type="button" class="notification-dismiss" data-dismiss-notification="banner" aria-label="Ocultar aviso por ahora">×</button>
+</section>
+<div id="notification-arrival" class="notification-arrival" hidden><div role="status" aria-live="polite" aria-atomic="true"><strong>Nuevo aviso de IMC México</strong><p id="notification-arrival-subject"></p></div><a id="notification-arrival-link" class="text-link" href="/panel/notificaciones/">Ver observación →</a><button type="button" class="notification-dismiss" data-dismiss-notification="arrival" aria-label="Cerrar aviso">×</button></div>

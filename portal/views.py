@@ -105,7 +105,7 @@ def panel(request):
         return redirect(login_destination(request))
     qs=request.user.machines.all()
     counts={'total':qs.count(),'drafts':qs.filter(status='draft').count(),'pending':qs.filter(status__in=['submitted','in_review']).count(),'approved':qs.filter(approved_version__isnull=False).count(),'corrections':qs.filter(status='changes_requested').count()}
-    return render(request,'portal/dashboard.html',{'machines':qs.prefetch_related('assets')[:6],'counts':counts,'recent_messages':Message.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True,internal=False).select_related('machine','sender')[:5]})
+    return render(request,'portal/dashboard.html',{'machines':qs.prefetch_related('assets')[:6],'counts':counts,'recent_messages':Message.objects.filter(machine__owner=request.user,machine__deleted_at__isnull=True,internal=False).select_related('machine','sender').order_by('-created_at','-pk')[:5]})
 
 @login_required
 def machines(request):
@@ -490,10 +490,56 @@ def operations(request):
 @login_required
 @require_GET
 def notification_list(request):
-    notices=Notification.objects.filter(user=request.user,channel='in_app').exclude(
-        kind__in=['activation','admin_activation','verify','recovery']).order_by('-created_at')
+    from .notifications import visible_notifications
+    notices=visible_notifications(request.user)
     page=Paginator(notices,20).get_page(request.GET.get('page'))
     return render(request,'portal/notification_list.html',{'notifications':page,'page_obj':page})
+
+
+@require_GET
+@api
+def notification_summary(request):
+    from django.db import OperationalError,ProgrammingError
+    from .notifications import notification_summary as summarize
+    try:
+        with transaction.atomic():
+            result=summarize(request.user)
+    except (OperationalError,ProgrammingError):
+        return JsonResponse({'error':'Los avisos no están disponibles temporalmente. Inténtalo de nuevo.'},status=503)
+    return JsonResponse(result)
+
+
+@login_required
+@require_GET
+def notification_detail(request,pk):
+    from .notifications import visible_notifications,notification_target
+    notice=get_object_or_404(visible_notifications(request.user).select_related('machine'),pk=pk)
+    target_url,target_label=notification_target(notice,request.user)
+    return render(request,'portal/notification_detail.html',{'notification':notice,
+        'notification_target_url':target_url,'notification_target_label':target_label})
+
+
+def _notification_read_response(request,pk=None):
+    if 'application/json' in request.headers.get('Accept','') or request.content_type=='application/json':
+        from .notifications import notification_summary as summarize
+        return JsonResponse(summarize(request.user))
+    return redirect('notification_detail',pk=pk) if pk is not None else redirect('notification_list')
+
+
+@require_POST
+@api
+def notification_read(request,pk):
+    from .notifications import mark_notification_read
+    mark_notification_read(request.user,pk)
+    return _notification_read_response(request,pk)
+
+
+@require_POST
+@api
+def notification_read_all(request):
+    from .notifications import mark_all_notifications_read
+    mark_all_notifications_read(request.user)
+    return _notification_read_response(request)
 
 
 @operator_required('portal.add_notification')
@@ -523,9 +569,11 @@ def review(request,pk):
                 body=request.POST.get('body','').strip()
                 if not body or len(body)>5000:raise ValidationError('Escribe un mensaje de hasta 5 000 caracteres.')
                 internal=request.POST.get('internal') in ['1','on','true']
-                message=Message.objects.create(machine=machine,sender=request.user,body=body,internal=internal)
-                services.audit(request.user,'message.internal' if internal else 'message.reply',message)
-                if not internal:Notification.objects.create(user=machine.owner,machine=machine,kind='reply',subject=f'{machine.folio}: tienes una respuesta',body=body,channel='email')
+                with transaction.atomic():
+                    current=get_object_or_404(Machine.objects.select_for_update().select_related('owner'),pk=machine.pk)
+                    message=Message.objects.create(machine=current,sender=request.user,body=body,internal=internal)
+                    services.audit(request.user,'message.internal' if internal else 'message.reply',message)
+                    if not internal:services._notify(current.owner,current,'reply',f'{current.folio}: tienes una respuesta',body)
             elif action=='authorize_assets':
                 if not request.user.has_perm('portal.publish_machine'):raise PermissionDenied
                 if sub.status not in ['submitted','in_review']:raise ValidationError('La autorización de imágenes se fija antes de aprobar la solicitud.')

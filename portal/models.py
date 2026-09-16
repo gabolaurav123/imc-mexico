@@ -452,11 +452,13 @@ class Notification(models.Model):
     attempts = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     sent_at = models.DateTimeField(null=True, blank=True)
+    read_at = models.DateTimeField("leída el", null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
         verbose_name = "notificación"
         verbose_name_plural = "notificaciones"
+        indexes = [models.Index(fields=["user", "channel", "status", "read_at"], name="notification_inbox_unread")]
 
 
 class NotificationTemplate(models.Model):

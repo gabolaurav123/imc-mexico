@@ -1,0 +1,8 @@
+{% extends 'portal/panel_base.html' %}{% load static %}
+{% block title %}{{ notification.subject }} · Aviso · IMC México{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'portal/notifications.css' %}">{% endblock %}
+{% block panel_content %}
+<div class="notification-inbox notification-detail"><a href="/panel/notificaciones/" class="back-link">← Todas mis notificaciones</a><div class="page-heading"><div><p class="eyebrow">AVISO DE IMC MÉXICO</p><h1>{{ notification.subject }}</h1></div></div>
+<article class="surface notification-card{% if not notification.read_at %} is-unread{% endif %}" data-notification-item="{{ notification.id }}"><header><h2>Detalle del aviso</h2><time datetime="{{ notification.created_at|date:'c' }}">{{ notification.created_at|date:'d/m/Y · H:i' }}</time></header><div class="notification-body">{{ notification.body|linebreaks }}</div><div class="notification-card-actions"><span class="notification-read-state">{% if notification.read_at %}Leída{% else %}Sin leer{% endif %}</span>{% if notification_target_url %}<a class="button button-navy" href="{{ notification_target_url }}">{{ notification_target_label|default:'Ver detalle relacionado' }} →</a>{% endif %}{% if not notification.read_at %}<form method="post" action="/panel/notificaciones/{{ notification.id }}/leer/" data-notification-read>{% csrf_token %}<button type="submit" class="button button-outline">Marcar como leída</button><p class="notification-read-status" role="status" hidden></p></form>{% endif %}</div></article>
+<p class="small muted">Tú decides cuándo marcar este aviso como leído. Puedes volver a consultarlo después en tu bandeja.</p></div>
+{% endblock %}
