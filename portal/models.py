@@ -451,7 +451,7 @@ class SiteContent(models.Model):
 
 
 class PlatformSettings(models.Model):
-    registration_open=models.BooleanField("registro público abierto",default=False,help_text="Sólo abre registros cuando los documentos legales también estén validados.")
+    registration_open=models.BooleanField("registro público abierto",default=True,help_text="Permite crear cuentas y preparar borradores. Puedes desactivarlo para pausar nuevos registros; no concede permisos de anunciante ni de administración.")
     analytics_enabled=models.BooleanField("analítica de adquisición habilitada",default=False)
     analytics_require_consent=models.BooleanField("analítica sólo con consentimiento",default=True,help_text="Si se desactiva este requisito, sólo se recogen contadores agregados sin cookies ni identificadores hasta una aceptación expresa. Un rechazo siempre detiene la captura.")
     ai_enabled = models.BooleanField("IA habilitada", default=False)
