@@ -14,7 +14,7 @@ La información encontrada en una ficha de modelo se presenta como referencia de
 
 La investigación utiliza la herramienta `web_search` de Responses con el modelo ya configurado. La documentación oficial describe la [búsqueda, las fuentes devueltas y la selección obligatoria de la herramienta](https://developers.openai.com/api/docs/guides/tools-web-search). No requiere otra cuenta de buscador. La compatibilidad del modelo se documenta en [GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini).
 
-El resultado incluye `research.status`, el alcance de la coincidencia, campos con procedencia y fuentes. Se conservan enlaces de fuentes realmente devueltas por la herramienta, no enlaces propuestos libremente como prueba. Las referencias y su alcance acompañan a los datos en la revisión y las exportaciones. Las fuentes que revelarían una serie privada se ocultan en las salidas públicas.
+El resultado incluye `research.status`, el alcance de la coincidencia, campos con procedencia y fuentes. Se conservan enlaces de fuentes realmente devueltas por la herramienta, no enlaces propuestos libremente como prueba. Las fuentes citadas tienen prioridad sobre el resto de los resultados. El normalizador recibe únicamente fragmentos vinculados a una URL recuperada; reconoce citas en líneas consecutivas y conserva la comprobación literal de identidad y valor. Los diagnósticos registran conteos y motivos de descarte, sin guardar la respuesta completa del proveedor. Las referencias y su alcance acompañan a los datos en la revisión y las exportaciones. Las fuentes que revelarían una serie privada se ocultan en las salidas públicas.
 
 ## Conservación de datos y fallos
 

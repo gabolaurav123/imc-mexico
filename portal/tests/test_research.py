@@ -15,7 +15,7 @@ from PIL import Image
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import MachineAnalysis, _claim_job, enqueue_analysis, ingest_asset, process_analysis, process_next_job
 from portal.research import (CONSENT_VERSION, ResearchExtraction, ResearchField, compose_description,
-                             is_validated_web_field, merge_research, normalize_research, research_identity,
+                             citation_passages, is_validated_web_field, merge_research, normalize_research, research_identity,
                              research_machine, response_sources, safe_public_url)
 
 URL = "https://www.cat.com/en_US/products/new/equipment/backhoe-loaders/420f2.html"
@@ -99,6 +99,43 @@ class ResearchValidationTests(SimpleTestCase):
         sources, calls = response_sources(web_response())
         self.assertEqual(sources, [{"url": URL, "title": "Caterpillar 420F2"}])
         self.assertEqual(calls, 1)
+
+    def test_cited_source_beyond_first_twelve_is_kept_before_unused_sources(self):
+        response = web_response(sources=[{"url": f"https://www.cat.com/retrieved-{i}"} for i in range(25)] + [{"url": URL}])
+        diagnostics = {}
+        sources, calls = response_sources(response, diagnostics)
+        self.assertEqual(len(sources), 12)
+        self.assertEqual(sources[0]["url"], URL)
+        self.assertEqual(diagnostics, {"tool_source_count": 26, "cited_source_count": 1, "selected_source_count": 12})
+
+    def test_only_openai_tracking_tags_may_differ_and_real_cited_url_is_preserved(self):
+        response = web_response(sources=[{"url": URL + "?utm_source=openai"}])
+        self.assertEqual(response_sources(response)[0][0]["url"], URL)
+        response.output[1]["content"][0]["annotations"][0]["url"] = URL + "?utm_source=chatgpt.com"
+        self.assertEqual(response_sources(response)[0][0]["url"], URL + "?utm_source=chatgpt.com")
+        response.output[1]["content"][0]["annotations"][0]["url"] = URL + "?model=another"
+        sources, _ = response_sources(response)
+        self.assertNotIn(URL + "?model=another", [source["url"] for source in sources])
+
+    def test_wrapped_sentence_and_next_line_annotation_keep_only_same_paragraph(self):
+        text = "Unrelated unquoted paragraph.\n\nCaterpillar 420F2: potencia\n70 kW.\n"
+        marker = "【cita】"
+        response = SimpleNamespace(output_text=text + marker, output=[{"type": "message", "content": [{
+            "text": text + marker, "annotations": [{"type": "url_citation", "url": URL,
+                "start_index": len(text), "end_index": len(text + marker)}]}]}])
+        passages = citation_passages(response)
+        self.assertEqual(passages[URL], [TEXT])
+        self.assertNotIn("Unrelated", str(passages))
+
+    def test_diagnostics_count_rejection_reasons_without_rejected_private_text(self):
+        research = normalized([fact(source_url="https://other.example.com/private"),
+                               fact(value="PRIVATE DISCARDED TEXT"), fact(evidence="SECRET PASSPHRASE")])
+        self.assertEqual(research["diagnostics"]["normalized_candidate_count"], 3)
+        self.assertEqual(research["diagnostics"]["accepted_field_count"], 0)
+        self.assertEqual(research["diagnostics"]["rejection_counts"], {
+            "source_not_retrieved": 1, "value_not_literal": 1, "evidence_not_literal": 1})
+        self.assertNotIn("SECRET", str(research))
+        self.assertNotIn("PRIVATE DISCARDED", str(research))
 
     def test_manifest_binds_fact_url_scope_value_and_identity(self):
         research = normalized()
@@ -220,6 +257,28 @@ class ResearchValidationTests(SimpleTestCase):
         self.assertEqual(kwargs["include"], ["web_search_call.action.sources"])
         self.assertNotIn("SECRET", str(client.mock_calls))
         self.assertNotIn("ENGINE999", str(client.mock_calls))
+        extraction_input = json.loads(client.responses.parse.call_args.kwargs["input"])
+        self.assertEqual(extraction_input["cited_passages"], [{"source_url": URL, "source_title": "Caterpillar 420F2", "text": TEXT}])
+        self.assertNotIn("search_text", extraction_input)
+        self.assertEqual(research["diagnostics"]["accepted_field_count"], 1)
+
+    def test_wrapped_annotation_beyond_source_twelve_reaches_normalizer_and_fills(self):
+        client = Mock()
+        text = "Search context unrelated to the cited specification.\n\nCaterpillar 420F2:\npotencia 70 kW.\n"
+        marker = "【cita】"
+        response = web_response(sources=[{"url": f"https://www.cat.com/unused-{i}"} for i in range(20)] + [{"url": URL}])
+        response.output_text = text + marker
+        response.output[1]["content"] = [{"text": text + marker, "annotations": [{"type": "url_citation", "url": URL,
+            "title": "Caterpillar 420F2", "start_index": len(text), "end_index": len(text + marker)}]}]
+        client.responses.create.return_value = response
+        client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=ResearchExtraction(fields=[fact()]),
+                                                              usage=SimpleNamespace(input_tokens=200, output_tokens=100))
+        research, _ = research_machine(client, "gpt-4.1-mini", vision())
+        self.assertEqual(research["status"], "completed")
+        self.assertEqual(research["fields"][0]["value"], "70 kW")
+        request = json.loads(client.responses.parse.call_args.kwargs["input"])
+        self.assertEqual(request["cited_passages"][0]["text"], TEXT)
+        self.assertNotIn("unrelated", str(request))
 
     def test_no_identifiers_no_remote_call_and_no_results_is_not_failure(self):
         client = Mock()
