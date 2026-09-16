@@ -14,6 +14,8 @@ Volver a preparar la ficha puede corregir un título o una especificación gener
 
 Cuando cambia la identidad, las especificaciones web no confirmadas de otro modelo se retiran antes de regenerar la descripción. Sus trabajos e instantáneas históricos se conservan. Las exportaciones tampoco presentan fuentes de una identidad anterior como referencias del modelo actual; una referencia web nunca sustituye una lectura clara de la propia placa.
 
+Si una nueva lectura de la misma fotografía contradice una cifra de placa o imagen obtenida anteriormente, el sistema conserva el valor previo como dudoso y lo excluye de la descripción automática. El conflicto no desaparece por repetir el análisis: se resuelve con una corrección del anunciante o con una fotografía nueva. Las diferencias sólo de espacios o mayúsculas no son contradicciones. Las imágenes pequeñas se amplían en memoria para facilitar la lectura; esto no recupera detalle perdido ni garantiza una transcripción exacta.
+
 La vista previa y las exportaciones muestran las especificaciones disponibles aunque no estén configuradas como campos particulares de la categoría. Las fotos identificadas como primeros planos de placas se presentan como evidencia privada. Esta clasificación no modifica el archivo original y queda conservada en la instantánea; la aprobación no vuelve a incluirlas entre las fotos públicas.
 
 La serie es un campo opcional visible en el primer paso: se guarda antes de encolar el análisis, incluso si el usuario acaba de corregirla. No hace falta una foto de placa. Sin serie, una marca y un modelo claramente legibles en fotos generales permiten la misma investigación de modelo.

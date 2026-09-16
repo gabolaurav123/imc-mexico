@@ -52,11 +52,13 @@ class PlateCompletionTests(TestCase):
         self.machine, summary = apply_analysis_automatically(self.machine, self.owner, job, self.machine.revision)
         return summary
 
-    def test_new_reading_updates_untouched_ai_values_and_displays_all_plate_specs(self):
+    def test_new_reading_completes_plate_specs_and_flags_conflicting_same_image_numbers(self):
         job = self.job()
         summary = self.apply(job)
         self.assertEqual(self.machine.title, "Compactadora de placa de prueba")
-        self.assertEqual(self.machine.data["power"], "4.8 kW / 6.5 HP")
+        self.assertEqual(self.machine.data["power"], "4.5 kW")
+        self.assertEqual(self.machine.provenance["power"]["review"], "needs_review")
+        self.assertEqual(summary["field_reasons"]["power"], "conflicting_reading")
         self.assertNotIn("tornillos", self.machine.data["description"])
         for key in ("vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"):
             self.assertIn(key, summary["applied_fields"])

@@ -28,6 +28,22 @@ WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions"
 WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
                     "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS}
+NUMERIC_READING_FIELDS = {"serial", "year", "hours", "kilometers", "power", "weight", "capacity", "dimensions",
+                          "vibration_frequency", "centrifugal_force", "compaction_depth"}
+
+
+def _same_image_numeric_conflict(machine, key, value, meta):
+    previous = machine.provenance.get(key, {})
+    if (key not in NUMERIC_READING_FIELDS or _human_provenance(machine, key)
+            or not isinstance(previous, dict) or not previous.get("analysis_id")
+            or previous.get("source") not in {"plate", "image"} or meta.get("source") not in {"plate", "image"}
+            or not meta.get("asset_id") or previous.get("asset_id") != meta["asset_id"]
+            or machine.data.get(key) in (None, "")
+            or (previous.get("review") != "clear" and previous.get("review_reason") != "conflicting_reading")):
+        return False
+    def literal(text):
+        return "".join(unicodedata.normalize("NFKC", str(text)).casefold().split())
+    return previous.get("review_reason") == "conflicting_reading" or literal(machine.data[key]) != literal(value)
 
 
 def _reference_text(value):
@@ -443,14 +459,15 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
 
     research = job.result.get("research")
     compose_after_research = isinstance(research, dict) and research.get("status") != "disabled"
+    conflicting_fields = []
     # Apply clear readings before model references so a corrected AI identity
     # can receive its own research, while human identity changes still reject it.
-    candidate_items = sorted(candidates.items(), key=lambda item: isinstance(provenance.get(item[0]), dict)
-                             and provenance[item[0]].get("source") == "web")
+    candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
+                             isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "web"))
     for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
             continue
-        if key == "description" and compose_after_research:
+        if key == "description" and (compose_after_research or conflicting_fields):
             # Compose from the final accepted fields below, never from a web
             # candidate discarded because of uncertainty or a human correction.
             continue
@@ -467,13 +484,19 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         existing_meta = machine.provenance.get(key, {})
         if (meta.get("source") == "web" and isinstance(existing_meta, dict)
                 and existing_meta.get("source") in {"plate", "image"}
-                and existing_meta.get("review") in {"clear", "confirmed"}
+                and (existing_meta.get("review") in {"clear", "confirmed"}
+                     or existing_meta.get("review_reason") == "conflicting_reading")
                 and not _empty_suggestion_target(machine, key)):
             # A catalog reference cannot replace a reading of this unit merely
             # because both were generated automatically at different times.
             skip(key, "existing_unit_reading")
             continue
         if can_fill(key):
+            if _same_image_numeric_conflict(machine, key, value, meta):
+                machine.provenance[key] = {**existing_meta, "review": "needs_review", "review_reason": "conflicting_reading"}
+                conflicting_fields.append(key)
+                skip(key, "conflicting_reading")
+                continue
             add_validated(key, value, meta)
     category = job.result.get("category")
     if isinstance(category, str) and category.strip() and can_fill("category"):
@@ -488,7 +511,9 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     invalidated = _remove_incompatible_web_values(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
-    if (compose_after_research or invalidated) and can_fill("description"):
+    if conflicting_fields:
+        result["conflicting_fields"] = conflicting_fields
+    if (compose_after_research or invalidated or conflicting_fields) and can_fill("description"):
         from .research import compose_description
         private_identifiers = [machine.data.get("serial"), candidates.get("serial"),
                                (research or {}).get("identity", {}).get("serial")]
@@ -500,7 +525,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                                           private_identifiers=private_identifiers)
         if description:
             add_validated("description", description, {"source": "system", "review": "needs_review"})
-    if result["applied_fields"] or invalidated:
+    if result["applied_fields"] or invalidated or conflicting_fields:
         machine.revision += 1
         if machine.status in {"approved", "rejected", "cancelled"}:
             machine.status = "draft"
@@ -508,7 +533,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["status"] = "applied"
         result["revision_after"] = machine.revision
         audit(user, "analysis.automatically_applied", machine, {"job_id": str(job.pk), "fields": result["applied_fields"],
-              "invalidated_fields": invalidated, "revision": machine.revision})
+              "invalidated_fields": invalidated, "conflicting_fields": conflicting_fields, "revision": machine.revision})
     else:
         result["status"] = "no_changes"
     return finish()
@@ -617,7 +642,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
             raise ValidationError({"provenance": "La procedencia contiene campos no admitidos."})
         valid_assets = {str(pk) for pk in machine.assets.values_list("id", flat=True)}
         for key, value in provenance.items():
-            if not isinstance(value, dict) or set(value) - {"source", "review", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id"}:
+            if not isinstance(value, dict) or set(value) - {"source", "review", "review_reason", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id"}:
                 raise ValidationError({"provenance": "La procedencia debe indicar origen y revisión."})
             if any(item is not None and (not isinstance(item, str) or len(item) > 12000) for item in value.values()):
                 raise ValidationError({"provenance": "Formato de procedencia inválido."})
