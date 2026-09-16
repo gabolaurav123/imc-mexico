@@ -23,7 +23,7 @@ from django.db import connection, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
@@ -32,7 +32,7 @@ from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
                        empty_research, merge_research, research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v6"
+PROMPT_VERSION = "imc-vision-research-2026-09-v7"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
@@ -81,6 +81,17 @@ serie, año, cifras técnicas, precio, contactos ni afirmaciones de funcionamien
 Conserva observaciones útiles aunque no haya placa ni serie o modelo legible.
 Si no hay rasgos identificables, visual_description debe ser null. La ausencia
 de placa no impide leer marca/modelo claramente visibles en otras fotografías.
+Devuelve además visual_features: una lista de rasgos visibles independientes,
+con un máximo de doce frases cortas, cada una de hasta trescientas letras.
+Describe por separado el tipo de equipo, color, cabina, ruedas u orugas,
+brazos, hoja o cucharones y accesorios que realmente se vean. No rellenes
+la lista con ejemplos ni incluyas un rasgo si no es observable en estas fotos.
+Cada elemento debe poder leerse por sí solo. No mezcles marca, modelo, serie,
+año, números, cantidades, cifras técnicas, contactos, precio ni afirmaciones
+de funcionamiento con los rasgos. Escribe "Ruedas visibles" en lugar de contar
+ruedas. La identidad legible pertenece a fields, nunca a visual_features.
+Si una frase visual no es segura, omítela y conserva las otras observaciones.
+Si no hay rasgos visibles identificables, visual_features debe ser una lista vacía.
 Preguntas breves y específicas para aclarar datos esenciales. No uses herramientas.
 Para category, elige exactamente un nombre de allowed_category_names si la categoría
 se identifica claramente; en otro caso usa null. No inventes ni crees categorías.
@@ -118,6 +129,7 @@ class MachineAnalysis(StrictModel):
     warnings: list[str]
     questions: list[str]
     visual_description: str | None = None
+    visual_features: list[str] = Field(default_factory=list)
 
 
 class DescriptionAnalysis(StrictModel):
@@ -441,7 +453,26 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
     visual_text = result.get("visual_description") if mode == "analysis" else None
     visual_exclusions = [field.get("value") for field in result.get("fields", []) if field.get("key") in AI_KEYS]
     private_serials = [field.get("value") for field in result.get("fields", []) if field.get("key") == "serial"]
-    result["visual_description"] = sanitize_visual_description(visual_text, private_serials, visual_exclusions)
+    visual_text = sanitize_visual_description(visual_text, private_serials, visual_exclusions)
+    visual_features, combined = [], [visual_text] if visual_text else []
+    features = result.get("visual_features", []) if mode == "analysis" else []
+    for feature in features[:12]:
+        if not isinstance(feature, str) or len(feature) > 300:
+            continue
+        clean = sanitize_visual_description(feature, private_serials, visual_exclusions)
+        if not clean:
+            continue
+        clean = clean if clean.endswith((".", "!", "?")) else clean + "."
+        # A rejected paragraph cannot erase independent safe observations. Do
+        # not store the raw features or repeat a feature already in the prose.
+        key = clean.casefold().rstrip(".!?")
+        if any(key == existing.casefold().rstrip(".!?") for existing in visual_features):
+            continue
+        visual_features.append(clean)
+        if not any(key in existing.casefold() for existing in combined):
+            combined.append(clean)
+    result["visual_features"] = visual_features
+    result["visual_description"] = sanitize_visual_description(" ".join(combined), private_serials, visual_exclusions)
     if len(json.dumps(result)) > 100_000:
         raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
     result["data"] = {"description": result["description"][:10000]}

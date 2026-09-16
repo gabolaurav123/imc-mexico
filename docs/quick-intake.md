@@ -12,6 +12,7 @@ El botón de envío registra la autorización del anunciante para revisión y pr
 La API acepta `auto_apply: true` en la petición de preparación junto con consentimiento y revisión de borrador. `AnalysisJob` guarda una instantánea para la aplicación y su resultado. El worker incorpora los campos aplicables en el servidor, aunque el navegador se haya cerrado.
 
 - Completa huecos y conserva los datos escritos o corregidos por la persona, incluidos los valores cero.
+- Al preparar de nuevo, puede actualizar una descripción generada anteriormente por la IA si permanece exactamente como estaba al iniciar el trabajo. Una descripción escrita, editada o borrada por la persona se conserva; tampoco reemplaza la de un análisis más reciente.
 - Los resultados desconocidos, ambiguos y las series de componentes no se convierten en especificaciones de la máquina.
 - La procedencia y el estado de lectura siguen siendo de IA; el rellenado no se registra como confirmación humana.
 - Los cambios en fotografías, propietario, autorización o estado de edición se comprueban antes de aplicar.
@@ -41,6 +42,6 @@ Una foto guardada no se pierde por un error de IA. La persona puede enviar las f
 
 La migración `0007_automatic_draft_completion` añade metadatos de aplicación a los análisis. No modifica las fichas existentes durante la migración. No requiere nuevas credenciales ni variables de entorno.
 
-La ampliación de serie escrita y fotos generales tiene **226 pruebas Django aprobadas, sin omisiones**, con ffmpeg/ffprobe reales, y **19 grupos de pruebas de interfaz**, además del catálogo. Las comprobaciones de configuración y migraciones no detectaron problemas. Las pruebas cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, envío sin campos manuales obligatorios, serie escrita antes de preparar, investigación sin placa, descripción visual y fuentes en web/PDF/ZIP.
+La ampliación de serie escrita y fotos generales tiene **242 pruebas Django aprobadas, sin omisiones**, con ffmpeg/ffprobe reales, y **19 grupos de pruebas de interfaz**, además del catálogo. Las comprobaciones de configuración y migraciones no detectaron problemas. Las pruebas cubren aplicación por worker, idempotencia, cambios humanos durante el procesamiento, acceso, autorización, privacidad del borrador, envío sin campos manuales obligatorios, serie escrita antes de preparar, investigación sin placa, descripción visual, refresco de descripciones automáticas y fuentes en web/PDF/ZIP.
 
 La suite de interfaz se conserva en el repositorio: `npm ci --ignore-scripts` y `npm run test:ui`. Usa jsdom sólo para desarrollo y genera una plantilla sintética sin consultar la base de datos. En Windows puede indicarse `PYTHON` con la ruta del intérprete del entorno virtual. GitHub Actions ejecuta esta suite junto a las pruebas de Django.

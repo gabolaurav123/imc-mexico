@@ -157,12 +157,29 @@ def _analysis_asset_state(machine):
              "status": a.processing_status} for a in machine.assets.order_by("id")]
 
 
+def _automatic_description_record(machine):
+    value = machine.data.get("description")
+    meta = machine.provenance.get("description", {})
+    if (not isinstance(value, str) or not value.strip() or not isinstance(meta, dict)
+            or meta.get("source") not in {"system", "visual_proposal", "image"}
+            or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]
+            or _human_provenance(machine, "description")):
+        return None
+    return {"value": value, "provenance": deepcopy(meta)}
+
+
 def automatic_application_snapshot(machine):
     """Private, durable pre-request state. This metadata is never sent to OpenAI."""
-    return {"schema": 1, "owner_id": str(machine.owner_id), "revision": machine.revision,
-            "assets": _analysis_asset_state(machine),
-            "eligible_fields": sorted(key for key in AUTOMATIC_DATA_FIELDS | {"title", "category"}
-                                      if _empty_suggestion_target(machine, key) and not _human_provenance(machine, key))}
+    eligible = {key for key in AUTOMATIC_DATA_FIELDS | {"title", "category"}
+                if _empty_suggestion_target(machine, key) and not _human_provenance(machine, key)}
+    snapshot = {"schema": 1, "owner_id": str(machine.owner_id), "revision": machine.revision,
+                "assets": _analysis_asset_state(machine)}
+    refresh = _automatic_description_record(machine)
+    if refresh is not None:
+        snapshot["refresh_description"] = refresh
+        eligible.add("description")
+    snapshot["eligible_fields"] = sorted(eligible)
+    return snapshot
 
 
 def automatic_application_status(job):
@@ -230,7 +247,7 @@ def _visual_description_for_completion(machine, job):
 
 @transaction.atomic
 def apply_analysis_automatically(machine, user, job, expected_revision=None, *, from_worker=False):
-    """Fill only untouched gaps, once. Completing a private draft never approves it."""
+    """Fill gaps or refresh an unchanged AI description, once; never approve."""
     # Same lock order as save/submit and the worker completion path.
     machine = Machine.objects.select_for_update().get(pk=machine.pk)
     user = User.objects.get(pk=user.pk)
@@ -295,6 +312,10 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["field_reasons"][key] = reason
 
     def can_fill(key):
+        refresh = base.get("refresh_description") if not legacy else None
+        if (key == "description" and key in eligible and isinstance(refresh, dict)
+                and refresh == _automatic_description_record(machine)):
+            return True
         if not _empty_suggestion_target(machine, key):
             skip(key, "existing_value")
             return False

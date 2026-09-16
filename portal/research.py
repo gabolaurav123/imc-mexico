@@ -122,11 +122,15 @@ def _contains_identifier(text, identifier):
     return bool(re.search(pattern, str(text), re.I))
 
 
-def _contains_brand(text, brand):
+def _brand_aliases(brand):
     aliases = {"caterpillar": ("Caterpillar", "CAT"),
                "johndeere": ("John Deere", "Deere"),
                "volvo": ("Volvo", "Volvo CE")}
-    return any(_contains_identifier(text, alias) for alias in aliases.get(_brand_key(brand), (brand,)))
+    return aliases.get(_brand_key(brand), (brand,))
+
+
+def _contains_brand(text, brand):
+    return any(_contains_identifier(text, alias) for alias in _brand_aliases(brand))
 
 
 def _identifier(value, serial=False):
@@ -210,9 +214,9 @@ def _retrieved_url_identity(url):
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
-def response_sources(response, diagnostics=None):
+def response_sources(response, diagnostics=None, context_titles=None):
     """Only actual web_search_call sources authorize a URL; prose never does."""
-    sources, titles, calls = {}, {}, 0
+    sources, titles, retrieved_titles, calls = {}, {}, {}, 0
     for item in _get(response, "output", []) or []:
         if _get(item, "type") == "web_search_call":
             calls += 1
@@ -220,6 +224,8 @@ def response_sources(response, diagnostics=None):
                 url = safe_public_url(_get(source, "url"))
                 if url and len(sources) < 60:
                     sources[url] = {"url": url, "title": str(_get(source, "title", "") or "")[:180]}
+                    if sources[url]["title"]:
+                        retrieved_titles[_retrieved_url_identity(url)] = sources[url]["title"]
         elif _get(item, "type") == "message":
             for content in _get(item, "content", []) or []:
                 for citation in _get(content, "annotations", []) or []:
@@ -240,6 +246,10 @@ def response_sources(response, diagnostics=None):
         if source and identity not in selected_identities:
             # Preserve the real cited URL, including its attribution parameter.
             selected.append({"url": url, "title": titles.get(url) or source["title"]})
+            if context_titles is not None:
+                actual_title = titles.get(url) or retrieved_titles.get(identity)
+                if actual_title:
+                    context_titles[url] = actual_title
             selected_identities.add(identity)
     cited_count = len(selected)
     selected.extend(source for url, source in sources.items() if _retrieved_url_identity(url) not in selected_identities)
@@ -248,6 +258,39 @@ def response_sources(response, diagnostics=None):
                            cited_source_count=cited_count,
                            selected_source_count=min(len(selected), 12))
     return selected[:12], calls
+
+
+def _source_title_context(title, identity, passage):
+    """Use real same-source metadata only as model context, never unit evidence."""
+    if (not isinstance(title, str) or not identity.get("brand") or not identity.get("model")
+            or not _contains_brand(title, identity["brand"]) or not _contains_identifier(title, identity["model"])):
+        return ""
+    # Fail closed on comparison pages and explicit conflicting identities.
+    brand_names = ("Caterpillar", "CAT", "Komatsu", "John Deere", "Deere", "Volvo", "JCB", "Hitachi",
+                   "Hyundai", "Doosan", "Sany", "Case", "Bobcat", "New Holland", "Liebherr", "Terex", "Kobelco")
+    for text in (title, passage):
+        if any(_brand_key(brand) != _brand_key(identity["brand"]) and _contains_brand(text, brand) for brand in brand_names):
+            return ""
+        for match in re.finditer(r"\b(?:modelo?|model)\s*(?:es\s+|is\s+)?[:=-]?\s*([A-Za-z0-9][A-Za-z0-9-]{1,39})", text, re.I):
+            if identifier_key(match.group(1)) != identifier_key(identity["model"]):
+                return ""
+    model_codes = re.findall(r"\b(?=[A-Za-z0-9-]*[A-Za-z])(?=[A-Za-z0-9-]*\d)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\b", title)
+    if any(identifier_key(code) != identifier_key(identity["model"]) for code in model_codes):
+        return ""
+    # A body explicitly naming another model takes precedence over its heading.
+    for alias in _brand_aliases(identity["brand"]):
+        for match in re.finditer(r"\b" + re.escape(alias) + r"\s+([0-9]{2,6})(?![A-Za-z0-9])", passage, re.I):
+            if identifier_key(match.group(1)) != identifier_key(identity["model"]):
+                return ""
+    for match in re.finditer(r"\b([A-Za-z]*\d+[A-Za-z][A-Za-z0-9-]*)\b", passage):
+        if re.fullmatch(r"\d+(?:kw|hp|kg|mm|cm|km|m3|rpm|l|t)", match.group(1), re.I):
+            continue
+        prefix = passage[max(0, match.start() - 35):match.start()]
+        if (identifier_key(match.group(1)) != identifier_key(identity["model"])
+                and (_contains_brand(prefix, identity["brand"]) or not passage[:match.start()].strip())):
+            return ""
+    labeled = f"Título de la fuente citada: {title}\nFragmento citado: {passage}"
+    return labeled if len(labeled) <= 800 else ""
 
 
 def _authority(url, brand):
@@ -318,7 +361,7 @@ def _manifest(research):
     return result
 
 
-def normalize_research(parsed, identity, basis, sources, search_text, citations=None):
+def normalize_research(parsed, identity, basis, sources, search_text, citations=None, source_titles=None):
     result = empty_research("no_results", identity, basis)
     result["sources"] = deepcopy(sources[:12])
     by_url = {source["url"]: source for source in sources}
@@ -329,6 +372,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                    "cited_passage_count": min(sum(map(len, citations.values())), 24),
                    "candidate_evidence_brand_count": 0, "candidate_evidence_model_count": 0,
                    "candidate_cited_passage_brand_count": 0, "candidate_cited_passage_model_count": 0,
+                   "candidate_source_title_context_count": 0,
                    "rejection_counts": {}}
     result["diagnostics"] = diagnostics
 
@@ -393,6 +437,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if serial_match_denied:
             exact_match = False
         scope = "exact_serial" if exact_match else "model"
+        contextual_evidence = ""
         if scope == "model":
             if not identity.get("brand") or not identity.get("model"):
                 reject("model_identity_missing")
@@ -400,10 +445,18 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             if _brand_key(item.matched_brand) != _brand_key(identity["brand"]) or identifier_key(item.matched_model) != identifier_key(identity["model"]):
                 reject("model_not_matched")
                 continue
-            if not _contains_identifier(evidence, identity["model"]):
+            identification_text = evidence
+            if not (_contains_identifier(evidence, identity["model"]) and _contains_brand(evidence, identity["brand"])):
+                title = (source_titles or {}).get(url)
+                if title == by_url[url].get("title"):
+                    contextual_evidence = _source_title_context(title, identity, evidence)
+                if contextual_evidence:
+                    identification_text = contextual_evidence
+                    diagnostics["candidate_source_title_context_count"] += 1
+            if not _contains_identifier(identification_text, identity["model"]):
                 reject("model_not_literal")
                 continue
-            if not _contains_brand(evidence, identity["brand"]):
+            if not _contains_brand(identification_text, identity["brand"]):
                 reject("brand_not_literal")
                 continue
             if item.scope == "exact_serial":
@@ -422,7 +475,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             continue
         field = {"key": item.key, "value": item.value.strip(), "scope": scope,
                  "source_url": url, "source_title": by_url[url]["title"],
-                 "source_date": timezone.localdate().isoformat(), "evidence": evidence,
+                 "source_date": timezone.localdate().isoformat(), "evidence": contextual_evidence or evidence,
                  "authority_validated": authoritative,
                  "matched_serial": identity["serial"] if scope == "exact_serial" else None}
         if item.key in accepted and accepted[item.key]["value"] != field["value"]:
@@ -444,7 +497,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
     return result
 
 
-def normalize_candidates(parsed, identity, basis, sources, search_text, cited_passages):
+def normalize_candidates(parsed, identity, basis, sources, search_text, cited_passages, source_titles=None):
     """Resolve references locally: the model cannot invent a URL or trim evidence."""
     fields, citations, invalid_indices = [], {}, 0
     for passage in cited_passages[:12]:
@@ -457,7 +510,7 @@ def normalize_candidates(parsed, identity, basis, sources, search_text, cited_pa
         passage = cited_passages[index]
         fields.append(ResearchField(**candidate.model_dump(exclude={"passage_index"}),
                                     source_url=passage["source_url"], evidence=passage["text"]))
-    result = normalize_research(ResearchExtraction(fields=fields), identity, basis, sources, search_text, citations)
+    result = normalize_research(ResearchExtraction(fields=fields), identity, basis, sources, search_text, citations, source_titles)
     result["diagnostics"]["normalized_candidate_count"] = min(len(parsed.fields), 40)
     if invalid_indices:
         result["diagnostics"]["rejection_counts"]["invalid_passage_index"] = invalid_indices
@@ -540,7 +593,8 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
         )
         received = True
         usage.add(_get(response, "usage"))
-        sources, calls = response_sources(response, diagnostics)
+        source_titles = {}
+        sources, calls = response_sources(response, diagnostics, source_titles)
         usage.web_search_calls += calls
         # Non-preview mini search has a fixed 8k search-content billing block.
         # Count separately as a conservative estimate, even if a future API
@@ -563,6 +617,8 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
                     continue
                 cited_passages.append({"passage_index": len(cited_passages), "source_url": source["url"],
                                        "source_title": source["title"], "text": text})
+                if not (_contains_brand(text, identity.get("brand")) and _contains_identifier(text, identity.get("model"))) and _source_title_context(source_titles.get(source["url"]), identity, text):
+                    cited_passages[-1]["identity_context"] = {"origin": "same_source_title", "title": source_titles[source["url"]]}
                 citations.setdefault(source["url"], []).append(text)
                 remaining_chars -= len(text)
         diagnostics["cited_passage_count"] = len(cited_passages)
@@ -591,6 +647,9 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
                           "el passage_index entero del ÚNICO fragmento que contiene tanto el valor como la identidad correspondiente. "
                           "Copia value con sus unidades literalmente del fragmento. El servidor tomará la URL y la evidencia completa "
                           "de ese índice; no devuelvas ni reconstruyas URLs o evidence. No combines contexto entre fragmentos. "
+                          "Si el fragmento incluye identity_context, es el título real de ESA MISMA fuente citada: puedes usarlo "
+                          "para matched_brand/model y scope model, pero value debe aparecer en text. Jamás uses el título para "
+                          "atribuir serie exacta o año a una unidad. Si hay otra identidad explícita en text, no extraigas el campo. "
                           "scope exact_serial sólo si la frase vincula explícitamente esa misma serie completa; "
                           "modelo por sí solo lleva scope model. Copia matched_brand/model/serial sólo si aparecen; no inventes. "
                           "Aunque basis sea exact_serial, si la serie no figura en los fragmentos, extrae specs de marca/modelo con scope model. "
@@ -602,7 +661,7 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
         usage.add(_get(normalized, "usage"))
         if _get(normalized, "status") != "completed" or _get(normalized, "output_parsed") is None:
             raise ValueError("Incomplete research extraction")
-        outcome = normalize_candidates(normalized.output_parsed, identity, basis, sources, search_text, cited_passages)
+        outcome = normalize_candidates(normalized.output_parsed, identity, basis, sources, search_text, cited_passages, source_titles)
         outcome["diagnostics"].update(diagnostics)
     except Exception as exc:
         # A web outage, unsupported tool or bad extraction never discards OCR.
