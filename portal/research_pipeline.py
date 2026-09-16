@@ -9,7 +9,7 @@ from .research import (
     SEARCH_RESERVATION, SIGNING_SALT, ResearchCandidates, UsageTotals, WEB_KEYS,
     _contains_identifier, _get, _identifier, _manifest, _retrieved_url_identity,
     _source_title_context, citation_passages, empty_research, normalize_candidates,
-    response_sources, identifier_key,
+    response_sources, identifier_key, normalize_direct_fields,
 )
 
 
@@ -153,13 +153,14 @@ def _collect(response, identity, sources, passages, titles, domains=()):
     return diagnostics, calls
 
 
-def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None):
+def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None, direct_fields=()):
     received = False
     try:
         response = client.responses.parse(
             model=model, store=False, timeout=55, max_output_tokens=4000,
             text_format=ResearchCandidates, instructions=NORMALIZE_INSTRUCTIONS,
-            input=json.dumps({"identity": identity, "basis": basis, "cited_passages": passages}, ensure_ascii=False),
+            input=json.dumps({"identity": identity, "basis": basis,
+                              "cited_passages": [p for p in passages if p.get("origin") != "direct_document"]}, ensure_ascii=False),
         )
         received = True
         usage.add(_get(response, "usage"))
@@ -180,7 +181,7 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
                     identity[key] = None
                     rejected_identity.append(key)
         normalized = normalize_candidates(response.output_parsed, identity, basis, sources,
-                                          search_text, passages, titles)
+                                          search_text, passages, titles, direct_fields=direct_fields)
         if rejected_identity:
             normalized["diagnostics"]["discovered_identity_rejected"] = rejected_identity
             normalized["warnings"].append("La identificación encontrada por serie no pudo confirmarse al contrastar las fuentes; no se aplicaron datos dependientes de ella.")
@@ -195,6 +196,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     identity = dict(identity)
     outcome, usage = empty_research("no_results", identity, basis), UsageTotals()
     sources, passages, titles, attempts = [], [], {}, []
+    retrieved, direct_fields, document_attempts = [], [], []
     discovery = None
     interrupted = False
     stages = ["serial", "manufacturer", "catalogs"] if identity.get("serial") else ["manufacturer", "catalogs", "manuals"]
@@ -234,6 +236,16 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             if _get(response, "status") != "completed" or calls != 1:
                 raise ValueError("Incomplete web search")
             metrics, _ = _collect(response, identity, sources, passages, titles, domains)
+            # Keep retrieved URLs even when the generated summary omits table
+            # citations. Only registered public document readers may fetch them.
+            inventory, _ = response_sources(response)
+            for source in inventory:
+                host = urlsplit(source["url"]).hostname or ""
+                if domains and not any(host == d or host.endswith("." + d) for d in domains):
+                    continue
+                if len(retrieved) < MAX_RESEARCH_SOURCES and not any(
+                        _retrieved_url_identity(s["url"]) == _retrieved_url_identity(source["url"]) for s in retrieved):
+                    retrieved.append(source)
             attempt.update(metrics)
             attempt["status"] = "evidence_found" if metrics["retained_passage_count"] else "no_results"
         except Exception as exc:
@@ -260,14 +272,27 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                 attempt["identity_resolved"] = bool(identity.get("brand") and identity.get("model"))
             except Exception as exc:
                 attempt["identity_resolution_error"] = type(exc).__name__[:80]
+    if not interrupted and retrieved:
+        from .research_documents import collect_document_fields
+        direct_fields, document_attempts, interrupted = collect_document_fields(
+            identity, retrieved, sources, passages, titles, allowed)
     if not interrupted and passages:
         if allowed is not None and not allowed():
             interrupted = True
         else:
             try:
-                outcome = _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity)
+                if all(p.get("origin") == "direct_document" for p in passages):
+                    # No model summary to normalize: the public rows already
+                    # have a typed parser and the same provenance validator.
+                    outcome = normalize_direct_fields(original_identity, basis, sources,
+                        "\n\n".join(p["text"] for p in passages), passages, titles, direct_fields=direct_fields)
+                else:
+                    outcome = _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity, direct_fields)
             except Exception as exc:
-                outcome = empty_research("degraded", original_identity, basis)
+                outcome = normalize_direct_fields(original_identity, basis, sources,
+                    "\n\n".join(p["text"] for p in passages), passages, titles, direct_fields=direct_fields)
+                if not outcome["fields"]:
+                    outcome["status"] = "degraded"
                 outcome["error_stage"] = "normalization"
                 outcome["error_type"] = type(exc).__name__[:80]
                 outcome["warnings"].append("No se pudo completar la comprobación de las fuentes externas. Se conservó la lectura de las fotografías.")
@@ -285,6 +310,8 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         stages=attempts, stage_count=len(attempts), search_complete=not failed and not interrupted,
         tool_source_count=sum(a.get("tool_source_count", 0) for a in attempts),
         cited_source_count=len(sources), selected_source_count=len(sources), cited_passage_count=len(passages),
+        documents=document_attempts, document_count=len(document_attempts),
+        direct_candidate_count=len(direct_fields),
     )
     outcome["usage"] = usage.as_dict()
     # Sign any partial result too; only evidence fields enter the signed manifest.

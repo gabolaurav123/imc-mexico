@@ -1,7 +1,7 @@
 """Bounded public-identifier research; no page fetching or private draft disclosure.
 
-The web tool supplies the URL allowlist. A separate structured call extracts facts,
-then local checks and a signed manifest bind each accepted value to its source.
+The web tool or controlled document retrieval supplies the URL allowlist. Model
+extractions and literal document rows share local checks and one signed manifest.
 Search results remain untrusted data and model specifications are never certified
 as specifications of the photographed unit.
 """
@@ -27,6 +27,7 @@ NORMALIZE_RESERVATION = 18_000
 RESEARCH_RESERVATION = 3 * SEARCH_RESERVATION + 2 * NORMALIZE_RESERVATION
 MAX_CITED_PASSAGES = 36
 MAX_RESEARCH_SOURCES = 36
+MAX_DIRECT_FIELDS = 24
 WEB_KEYS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission", "year",
             "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"}
 LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
@@ -495,14 +496,39 @@ def _identity_sources(sources, identity, citations, source_titles=None):
     return kept
 
 
-def normalize_research(parsed, identity, basis, sources, search_text, citations=None, source_titles=None):
+def _same_direct_reading(first, first_direct, second, second_direct):
+    """Equivalent renderings of one validated row, never cross-source agreement."""
+    if first_direct == second_direct or first["scope"] != second["scope"]:
+        return False
+    if (_retrieved_url_identity(first["source_url"]) != _retrieved_url_identity(second["source_url"])
+            or " ".join(first["evidence"].split()).casefold() != " ".join(second["evidence"].split()).casefold()):
+        return False
+    direct, other = (first, second) if first_direct else (second, first)
+    # Keep the full labeled direct value, but never confuse 70 with 170 or
+    # discard a different unit. Only a complete literal subphrase can match.
+    needle = " ".join(other["value"].split())
+    haystack = " ".join(direct["value"].split())
+    left = r"(?<![\w.,])" if needle[:1].isdigit() else r"(?<!\w)"
+    right = r"(?![\w.,])" if needle[-1:].isdigit() else r"(?!\w)"
+    return bool(re.search(left + re.escape(needle) + right, haystack, re.I))
+
+
+def normalize_research(parsed, identity, basis, sources, search_text, citations=None, source_titles=None, *, direct_fields=()):
     result = empty_research("no_results", identity, basis)
     result["sources"] = deepcopy(sources[:MAX_RESEARCH_SOURCES])
     by_url = {source["url"]: source for source in sources}
-    accepted, conflicts = {}, set()
+    accepted, accepted_direct, conflicts = {}, {}, set()
+    direct_fields = list(direct_fields)
+    if any(not isinstance(field, ResearchField) for field in direct_fields[:MAX_DIRECT_FIELDS]):
+        raise TypeError("Direct research fields must be ResearchField objects")
+    candidates = [(field, False) for field in parsed.fields[:40]] + [
+        (field, True) for field in direct_fields[:MAX_DIRECT_FIELDS]]
     text_key = " ".join(search_text.split()).casefold()
     citations = citation_passages({"output_text": search_text}) if citations is None else citations
-    diagnostics = {"normalized_candidate_count": min(len(parsed.fields), 40),
+    diagnostics = {"normalized_candidate_count": len(candidates),
+                   "llm_candidate_count": min(len(parsed.fields), 40),
+                   "direct_candidate_count": min(len(direct_fields), MAX_DIRECT_FIELDS),
+                   "direct_truncated_count": max(0, len(direct_fields) - MAX_DIRECT_FIELDS),
                    "cited_passage_count": min(sum(map(len, citations.values())), MAX_CITED_PASSAGES),
                    "candidate_evidence_brand_count": 0, "candidate_evidence_model_count": 0,
                    "candidate_cited_passage_brand_count": 0, "candidate_cited_passage_model_count": 0,
@@ -513,13 +539,13 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
     def reject(reason, detail=None):
         diagnostics["rejection_counts"][reason] = diagnostics["rejection_counts"].get(reason, 0) + 1
         # Only fixed field names/reason codes; never candidate values, source
-        # prose, URLs or identifiers. At most forty candidates are inspected.
+        # prose, URLs or identifiers. At most 40 model and 24 direct candidates.
         key = item.key if item.key in WEB_KEYS else "unsupported"
         counts = diagnostics["field_rejection_counts"].setdefault(key, {})
         specific = detail or reason
         counts[specific] = counts.get(specific, 0) + 1
 
-    for item in parsed.fields[:40]:
+    for item, is_direct in candidates:
         url = safe_public_url(item.source_url)
         evidence = " ".join(item.evidence.split())
         bound_passages = [passage for passage in citations.get(url, [])
@@ -530,6 +556,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         diagnostics["candidate_cited_passage_model_count"] += int(any(_contains_identifier(p, identity.get("model")) for p in bound_passages))
         if item.key not in WEB_KEYS:
             reject("field_not_allowed")
+            continue
+        if is_direct and (item.scope != "model" or item.matched_serial is not None):
+            reject("direct_scope_not_allowed")
             continue
         if not url or url not in by_url:
             reject("source_not_retrieved")
@@ -643,9 +672,18 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                  "authority_validated": authoritative,
                  "matched_serial": identity["serial"] if scope == "exact_serial" else None}
         if item.key in accepted and accepted[item.key]["value"] != field["value"]:
-            conflicts.add(item.key)
+            if _same_direct_reading(accepted[item.key], accepted_direct[item.key], field, is_direct):
+                if is_direct:
+                    accepted[item.key], accepted_direct[item.key] = field, True
+                diagnostics["equivalent_direct_readings"] = diagnostics.get("equivalent_direct_readings", 0) + 1
+            else:
+                conflicts.add(item.key)
         elif item.key not in accepted:
             accepted[item.key] = field
+            accepted_direct[item.key] = is_direct
+        elif is_direct:
+            # An identical value can retain the exact document-row evidence.
+            accepted[item.key], accepted_direct[item.key] = field, True
     result["fields"] = [field for key, field in accepted.items() if key not in conflicts]
     diagnostics["accepted_field_count"] = len(result["fields"])
     if conflicts:
@@ -664,8 +702,13 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
     return result
 
 
-def normalize_candidates(parsed, identity, basis, sources, search_text, cited_passages, source_titles=None):
-    """Resolve references locally: the model cannot invent a URL or trim evidence."""
+def normalize_candidates(parsed, identity, basis, sources, search_text, cited_passages, source_titles=None, *, direct_fields=()):
+    """Resolve and validate model/direct candidates once, then sign once.
+
+    Direct fields must be literal document rows whose final URLs and evidence
+    already appear in sources/search_text/cited_passages. Only real document
+    titles may enter source_titles. They never acquire exact-unit scope.
+    """
     fields, citations, invalid_indices = [], {}, 0
     for passage in cited_passages[:MAX_CITED_PASSAGES]:
         citations.setdefault(passage["source_url"], []).append(passage["text"])
@@ -677,11 +720,23 @@ def normalize_candidates(parsed, identity, basis, sources, search_text, cited_pa
         passage = cited_passages[index]
         fields.append(ResearchField(**candidate.model_dump(exclude={"passage_index"}),
                                     source_url=passage["source_url"], evidence=passage["text"]))
-    result = normalize_research(ResearchExtraction(fields=fields), identity, basis, sources, search_text, citations, source_titles)
-    result["diagnostics"]["normalized_candidate_count"] = min(len(parsed.fields), 40)
+    result = normalize_research(ResearchExtraction(fields=fields), identity, basis, sources, search_text,
+                                citations, source_titles, direct_fields=direct_fields)
+    result["diagnostics"]["llm_candidate_count"] = min(len(parsed.fields), 40)
+    result["diagnostics"]["normalized_candidate_count"] = min(len(parsed.fields), 40) + result["diagnostics"]["direct_candidate_count"]
     if invalid_indices:
         result["diagnostics"]["rejection_counts"]["invalid_passage_index"] = invalid_indices
     return result
+
+
+def normalize_direct_fields(identity, basis, sources, search_text, cited_passages, source_titles=None, *, direct_fields=()):
+    """No-provider fallback; caller must pass the original established identity.
+
+    A missing brand/model still fails ordinary model validation. A provisional
+    discovery from an interrupted model extraction must not be passed here.
+    """
+    return normalize_candidates(ResearchCandidates(fields=[]), identity, basis, sources, search_text,
+                                cited_passages, source_titles, direct_fields=direct_fields)
 
 
 def is_validated_web_field(result, key, value, meta):

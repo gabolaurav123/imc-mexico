@@ -60,6 +60,8 @@ La validación distingue sufijos de variantes, incluso separados por espacios: `
 
 Las referencias de identidad admiten frases como «modelo Caterpillar 420F2 IT» y componentes como «motor diésel Caterpillar C4.4». Palabras narrativas breves no son sufijos. Los descartes de identidad registran campo y motivo específico, sin copiar la frase ni los identificadores privados al diagnóstico.
 
+Cuando los resultados incluyen una ficha pública compatible, el servidor también puede leer su tabla directamente: hasta dos documentos de Caterpillar H-CPC o RitchieSpecs, sin una nueva llamada de IA. Exige marca/modelo inequívocos, descarta variantes compartidas y configuraciones opcionales, conserva etiquetas/unidades y somete esas filas a la misma validación y firma. Si el resumen de IA falla, los datos documentales comprobados pueden conservarse. Los límites y el alcance se detallan en `research-sources.md`.
+
 ## Conservación de datos y fallos
 
 - Las correcciones humanas y los ceros se conservan, igual que en el formulario de dos pasos.

@@ -59,6 +59,16 @@ Los dominios alimentan las etapas de búsqueda dirigidas, con una estrategia com
 
 La elección de estrategia conserva el modelo configurado, las etapas y las cuotas; no habilita acceso privado. Cada dato aún requiere evidencia vinculada a su URL, identidad de marca/modelo coherente, ámbito explícito y validación de procedencia. **Ningún perfil autoriza por sí solo un año por serie ni confirma la configuración de la unidad.** Se mantienen los validadores existentes y la revisión humana. No se añaden valores técnicos, existencias, precios ni datos personales al catálogo.
 
-## Pruebas locales
+## Lectura directa de documentos públicos
+
+Además de la búsqueda por etapas, el servidor puede leer hasta **dos páginas de especificaciones** que el buscador haya devuelto realmente. Los lectores iniciales cubren tablas públicas de **Caterpillar H-CPC** y **RitchieSpecs**. No se construyen enlaces de modelos ni se envían datos de contacto. Esta lectura no consume otra llamada de IA.
+
+El lector comprueba el encabezado real del documento y extrae filas con etiquetas y unidades literales. Las páginas que agrupan modelos distintos, las variantes no coincidentes, los motores opcionales y los valores incompatibles no se convierten automáticamente en especificaciones de una unidad. Las tablas aceptadas pasan por la misma validación de procedencia y conflictos que la búsqueda y pueden conservarse si falla el resumen de IA. Las fuentes siguen siendo referencias de modelo pendientes de revisión de la máquina concreta.
+
+Las descargas permiten únicamente HTTPS, rutas de catálogo registradas, direcciones de red públicas y redirecciones revalidadas. Tienen límites de tiempo, tamaño y cantidad. Se respetan errores de acceso: **LECTURA respondió 403 a la lectura directa de prueba**, por lo que no tiene lector directo habilitado. Sus páginas públicas pueden seguir apareciendo como fuentes del buscador. No se eluden inicios de sesión ni se contratan APIs.
+
+La disponibilidad y el formato de una página externa pueden cambiar. El fallo de un lector se registra y deja continuar las otras etapas. El país de fabricación todavía requiere una declaración explícita de origen; la ubicación actual y el historial privado de una unidad no se deducen de un catálogo.
+
+## Pruebas locales de las fuentes
 
 `portal/tests/test_research_sources.py` verifica aliases completos, separación de fabricantes y catálogos, marca desconocida, inmutabilidad, origen por marca, falsificación de dominios, URLs no públicas y reclasificación de redirecciones. Son pruebas sin red y sin acceso a producción; no sustituyen una nueva comprobación de disponibilidad del sitio en cada investigación.
