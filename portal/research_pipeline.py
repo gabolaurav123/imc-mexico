@@ -35,6 +35,10 @@ SEARCH_INSTRUCTIONS = (
     "País sólo con afirmación explícita de fabricación/origen del producto para ese modelo: "
     "Made in, Fabricado en, País de origen, Hergestellt in o equivalente. No país de sede, idioma ni eslogan. "
     "Año sólo si el fabricante vincula expresamente la serie exacta con su año de fabricación. "
+    "Por separado, busca el periodo de fabricación o producción documentado del MODELO exacto: "
+    "copia una frase con etiqueta explícita (Production years o Periodo de fabricación) y ambos años. "
+    "Ese intervalo nunca demuestra el año de la unidad. No uses copyright, publicación, venta, "
+    "año de lanzamiento ni fechas aisladas de anuncios como periodo de producción. "
     "Nunca deduzcas ubicación actual, país o año decodificando una serie por tu cuenta. "
     "No busques ni reproduzcas propietarios, contactos, horas, precios, condición o datos personales. "
     "Si hay discrepancias documenta ambos valores con sus respectivas citas. Si no hay evidencia, indícalo."
@@ -55,7 +59,7 @@ NORMALIZE_INSTRUCTIONS = (
     "Sólo keys brand,model,power,weight,capacity,dimensions,fuel,engine,transmission,year,"
     "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin,front_tire_size,rear_tire_size,"
     "mast_tilt,load_tire_tread,manufacturer,manufacturer_address,voltage,lift_height,load_center,"
-    "battery_weight,battery_capacity,fork_length. "
+    "battery_weight,battery_capacity,fork_length,estimated_year_from,estimated_year_to,estimated_year_basis. "
     "Conserva condiciones técnicas con/sin batería y mínimo/máximo. manufacturer_address es dirección del fabricante "
     "expresamente identificado, nunca ubicación actual ni país de fabricación; no copies direcciones de vendedores. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
@@ -64,6 +68,11 @@ NORMALIZE_INSTRUCTIONS = (
     "ni capacidad de depósitos de combustible, aceite, refrigerante u otros fluidos de servicio. "
     "Una variante con sufijo separado, como 420F2 IT, es distinta de 420F2; no transfieras sus cifras. "
     "year requiere año de fabricación de la serie exacta, nunca lanzamiento, publicación o rango de años. "
+    "estimated_year_from y estimated_year_to son los dos años literales de UN periodo explícito de fabricación "
+    "o producción del modelo exacto en un MISMO fragmento; scope=model siempre, no año de unidad. "
+    "Ambos años deben estar entre1900 y el año actual y en orden. No cierres intervalos abiertos ni uses copyright, "
+    "publicación, venta, lanzamiento o fecha de anuncio. No produzcas estimated_year_basis: el servidor "
+    "genera esa explicación únicamente tras validar el periodo completo. "
     "Para discrepancias devuelve todos los valores con sus respectivos índices; el servidor resuelve conflictos."
 )
 
@@ -96,7 +105,9 @@ def _stage_request(identity, stage, result, category=None):
         objective = "Consultar documentación original del fabricante y tablas de especificaciones del modelo exacto."
     elif stage == "catalogs":
         query = f'{known} specifications'
-        objective = "Contrastar y ampliar con catálogos externos de maquinaria; nunca usar rangos como datos de la unidad."
+        objective = ("Contrastar y ampliar con catálogos externos de maquinaria; buscar también un periodo explícito "
+                     "de fabricación/producción del modelo, conservando la etiqueta y los dos años. "
+                     "Nunca usar ese intervalo como año de esta unidad.")
     else:
         query = f'{known} technical manual PDF'
         objective = "Buscar manuales, fichas PDF y documentación de distribuidores para datos todavía no documentados."

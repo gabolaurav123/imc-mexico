@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine, MachineVersion,
                      Message, Notification, NotificationTemplate, Publication, Submission, User, WorkflowStatus)
-from .commercial import VISUAL_LABELS, VISUAL_CHOICES, ESTIMATE_LABELS, VALUATION_KEYS
+from .commercial import VISUAL_LABELS, VISUAL_CHOICES, ESTIMATE_LABELS, VALUATION_KEYS, AGE_LABELS
 
 
 PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
@@ -31,11 +31,12 @@ DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "loca
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
 WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
-DATA_FIELDS |= VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys()
-AUTOMATIC_DATA_FIELDS |= VISUAL_LABELS.keys() | VALUATION_KEYS
+DATA_FIELDS |= VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys() | AGE_LABELS.keys()
+AUTOMATIC_DATA_FIELDS |= VISUAL_LABELS.keys() | VALUATION_KEYS | AGE_LABELS.keys()
+WEB_DATA_FIELDS |= AGE_LABELS.keys()
 WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
-                    "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS}
+                    "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS, **AGE_LABELS}
 NUMERIC_READING_FIELDS = {"serial", "year", "hours", "kilometers", "power", "weight", "capacity", "dimensions",
                           "vibration_frequency", "centrifugal_force", "compaction_depth", "front_tire_size",
                           "rear_tire_size", "mast_tilt", "load_tire_tread", "voltage", "lift_height", "load_center",
@@ -124,6 +125,8 @@ def public_web_references(snapshot, *, include_private=False):
     serials = {_reference_text(data.get(key)) for key in ("serial", "vin") if data.get(key)} - {""}
     references = []
     for key, label in WEB_FIELD_LABELS.items():
+        if key in AGE_LABELS and all(data.get(bound) in (None, "") for bound in ("estimated_year_from", "estimated_year_to")):
+            continue
         meta = provenance.get(key, {})
         value = data.get(key)
         if value is None or value == "" or not isinstance(value, (str, int, float)) or isinstance(value, bool):
@@ -251,6 +254,33 @@ def _remove_incompatible_valuation(machine):
             continue
         valuation = manifests.get(meta.get("analysis_id"), {})
         if is_validated_estimate(valuation) and not _valuation_identity_matches(machine.data, valuation):
+            machine.data.pop(key, None)
+            machine.provenance.pop(key, None)
+            removed.append(key)
+    return removed
+
+
+def _remove_incompatible_age(machine):
+    """Retire automatic age proposals when identity changes or an exact year arrives."""
+    job_ids = set()
+    for key in AGE_LABELS:
+        meta = machine.provenance.get(key, {})
+        if not _human_provenance_value(meta) and meta.get("analysis_id"):
+            try:
+                job_ids.add(UUID(meta["analysis_id"]))
+            except (ValueError, TypeError):
+                pass
+    jobs = {str(job.pk): job for job in AnalysisJob.objects.filter(pk__in=job_ids, machine=machine)}
+    removed = []
+    for key in AGE_LABELS:
+        meta = machine.provenance.get(key, {})
+        if _human_provenance_value(meta) or meta.get("source") not in {"visual_proposal", "web"}:
+            continue
+        job = jobs.get(meta.get("analysis_id"))
+        identity = job.result.get("data", {}) if job and isinstance(job.result, dict) else {}
+        if meta.get("source") == "web" and job:
+            identity = job.result.get("research", {}).get("identity", {})
+        if machine.data.get("year") not in (None, "") or (job and not _reference_identity_matches(machine.data, machine.provenance, identity, "model")):
             machine.data.pop(key, None)
             machine.provenance.pop(key, None)
             removed.append(key)
@@ -422,6 +452,12 @@ def _clear_automatic_field(job, key, value, meta):
         expected = valuation.get("suggested_price") if key == "price" else values.get("estimate_currency") if key == "currency" else values.get(key)
         return (meta.get("source") == "valuation" and meta.get("review") == "needs_review"
                 and is_validated_estimate(valuation) and str(value) == str(expected))
+    if key in AGE_LABELS and meta.get("source") != "web":
+        from .processing import age_estimate_fields
+        field = age_estimate_fields(job.result).get(key, {})
+        return (meta.get("source") == "visual_proposal" and field.get("value") == value and meta.get("review") == "needs_review"
+                and meta.get("asset_id") in job.asset_ids and meta.get("asset_id") == field.get("asset_id")
+                and meta.get("evidence") == field.get("evidence"))
     if key in VISUAL_LABELS:
         from .processing import visual_assessment_fields
         field = visual_assessment_fields(job.result).get(key, {})
@@ -599,7 +635,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["applied_fields"].append(key)
 
     research = job.result.get("research")
-    compose_after_research = (isinstance(research, dict) and research.get("status") != "disabled") or any(
+    compose_after_research = any(key in candidates for key in AGE_LABELS) or (isinstance(research, dict) and research.get("status") != "disabled") or any(
         key in WEB_DATA_FIELDS | {"year"} and machine.data.get(key) not in (None, "")
         and isinstance(meta, dict) and meta.get("source") == "web"
         for key, meta in machine.provenance.items())
@@ -627,6 +663,9 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                               1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "web" else 0)))
     for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
+            continue
+        if key in AGE_LABELS:
+            # A range and its basis are one proposal, applied atomically below.
             continue
         if key in ESTIMATE_LABELS and estimate_protected:
             skip(key, "human_correction")
@@ -669,6 +708,35 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                 skip(key, "conflicting_reading")
                 continue
             add_validated(key, value, meta)
+    age_protected = any(_human_provenance(machine, key) for key in AGE_LABELS)
+    age_keys = list(AGE_LABELS)
+    if any(key in candidates for key in age_keys):
+        if age_protected or machine.data.get("year") not in (None, ""):
+            for key in age_keys:
+                if key in candidates:
+                    skip(key, "human_correction" if age_protected else "known_year")
+        elif all(key in candidates and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {})) for key in age_keys):
+            same_source = len({provenance[key].get("source") for key in age_keys}) == 1
+            identity_ok = all(provenance[key].get("source") != "web" or (
+                _web_identity_unchanged(machine, job, provenance[key].get("scope"))
+                and _web_value_keeps_serial_private(machine, job, candidates[key])) for key in age_keys)
+            if same_source and identity_ok and all(can_fill(key) for key in age_keys):
+                candidate = deepcopy(machine)
+                try:
+                    _validate_payload(candidate, {"data": {key: candidates[key] for key in age_keys},
+                        "provenance": {key: {**provenance[key], "analysis_id": str(job.pk)} for key in age_keys}}, trusted_provenance=True)
+                    machine.data, machine.provenance = candidate.data, candidate.provenance
+                    result["applied_fields"].extend(age_keys)
+                except ValidationError:
+                    for key in age_keys:
+                        skip(key, "invalid_value")
+            else:
+                for key in age_keys:
+                    skip(key, "identity_changed" if not identity_ok else "incomplete_range")
+        else:
+            for key in age_keys:
+                if key in candidates:
+                    skip(key, "incomplete_range")
     valuation = job.result.get("valuation", {})
     range_keys = [key for key in ("estimate_min", "estimate_max", "estimate_currency") if not estimate_protected and key in candidates
                   and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {}))
@@ -702,7 +770,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine)
+    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:
@@ -807,7 +875,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                 raise ValidationError({"data": f"El campo {key} debe contener texto o un número."})
             if isinstance(value, str):
                 value = value.strip()
-                if len(value) > (12000 if key in {"description", "notes", "plate_transcription"} else 2000 if key in VISUAL_LABELS or key in ESTIMATE_LABELS else 1000):
+                if len(value) > (12000 if key in {"description", "notes", "plate_transcription"} else 2000 if key in VISUAL_LABELS or key in ESTIMATE_LABELS or key == "estimated_year_basis" else 1000):
                     raise ValidationError({"data": f"El campo {key} es demasiado largo."})
             clean[key] = value
         if clean.get("price") not in (None, "", "consultar", "Consultar precio"):
@@ -838,7 +906,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
         for key, choices in VISUAL_CHOICES.items():
             if clean.get(key) not in (None, "") and clean[key] not in choices:
                 raise ValidationError({key: "Selecciona una de las opciones disponibles."})
-        for key in ("year", "hours", "kilometers"):
+        for key in ("year", "hours", "kilometers", "estimated_year_from", "estimated_year_to"):
             if clean.get(key) not in (None, ""):
                 try:
                     number = Decimal(str(clean[key]))
@@ -846,8 +914,16 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                         raise InvalidOperation
                     if key == "year" and (number < 1900 or number > timezone.now().year + 1 or number != int(number)):
                         raise InvalidOperation
+                    if key in {"estimated_year_from", "estimated_year_to"} and (number < 1900 or number > timezone.now().year or number != int(number)):
+                        raise InvalidOperation
                 except (InvalidOperation, ValueError):
                     raise ValidationError({key: "Escribe un valor válido o déjalo sin completar."})
+        if all(merged.get(key) not in (None, "") for key in ("estimated_year_from", "estimated_year_to")):
+            try:
+                if Decimal(str(merged["estimated_year_from"])) > Decimal(str(merged["estimated_year_to"])):
+                    raise ValidationError({"estimated_year_from": "El inicio del rango no puede superar al final."})
+            except InvalidOperation:
+                raise ValidationError({"estimated_year_from": "Escribe años válidos para el rango aproximado."})
         machine.data = {**machine.data, **clean}
     if "provenance" in payload:
         provenance = deepcopy(payload["provenance"])
@@ -893,6 +969,11 @@ def save_draft(machine, user, payload, expected_revision):
         raise DraftRevisionConflict("El borrador cambió en otra ventana. Actualiza la página para recuperar la versión actual.")
     _validate_payload(machine, payload)
     _remove_incompatible_valuation(machine)
+    invalidated_age = _remove_incompatible_age(machine)
+    if (invalidated_age or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
+        from .research import compose_description
+        machine.data["description"] = compose_description(machine.data, machine.provenance,
+            machine.category.name if machine.category_id else None, private_identifiers=[machine.data.get("serial")])
     machine.revision += 1
     if machine.status in {WorkflowStatus.APPROVED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED}:
         machine.status = WorkflowStatus.DRAFT
@@ -924,6 +1005,8 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
     result_provenance = job.result.get("provenance", {})
     if set(fields) - set(result_data) or set(fields) - (DATA_FIELDS | {"title"}):
         raise ValidationError("Las sugerencias seleccionadas no pertenecen al análisis.")
+    if set(fields) & AGE_LABELS.keys() and not AGE_LABELS.keys() <= set(fields):
+        raise ValidationError("Aplica el rango de año aproximado junto con su explicación.")
     for amount_keys, currency_key in (({"price"}, "currency"), ({"estimate_min", "estimate_max"}, "estimate_currency")):
         if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") == "valuation" for key in set(fields) & amount_keys)
                 and currency_key not in fields and machine.data.get(currency_key) != result_data.get(currency_key)):
@@ -935,7 +1018,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
             continue
         if _analysis_excludes_asset(job, result_provenance.get(key, {})):
             raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
-        if key in VISUAL_LABELS and not _clear_automatic_field(job, key, value, result_provenance.get(key, {})):
+        if key in VISUAL_LABELS.keys() | AGE_LABELS.keys() and not _clear_automatic_field(job, key, value, result_provenance.get(key, {})):
             raise ValidationError("La observación visual no está validada para esta fotografía.")
         if result_provenance.get(key, {}).get("source") == "valuation" and (
                 not _clear_automatic_field(job, key, value, result_provenance[key])

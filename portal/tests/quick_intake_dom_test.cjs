@@ -460,5 +460,26 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    const unload=new duringSave.w.Event('beforeunload',{cancelable:true});duringSave.w.dispatchEvent(unload);assert.equal(unload.defaultPrevented,false);duringSave.close();
  }
  pass('save response hydration preserves newer pending manual zero, EUR and explicit blanks, then saves them against the returned revision');
+ const age = setup(async()=>{throw Error('No request expected');},{data:{year:2007,estimated_year_from:2004,estimated_year_to:2009,estimated_year_basis:'<img src=x onerror=alert(1)> Indicio, no año exacto'}});
+ for(const key of ['estimated_year_from','estimated_year_to']){const field=age.doc.getElementById(key);assert.equal(field.min,'1900');assert.equal(field.max,String(new Date().getFullYear()));assert.equal(field.step,'1');assert.equal(field.required,false);assert.equal(age.doc.querySelectorAll(`[data-field="${key}"]`).length,1);}
+ assert.equal(age.doc.querySelector('#age-details').open,false);assert.equal(age.doc.querySelector('#estimated_year_basis').maxLength,2000);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#preview-age-range').textContent,'2004–2009');
+ assert.equal(age.doc.querySelector('#preview-age-basis img'),null);assert.match(age.doc.querySelector('#preview-age-basis').textContent,/<img/);assert.match(age.doc.querySelector('#auto-age-heading').textContent,/Año aproximado · por confirmar/);
+ input(age,'estimated_year_from','');assert.equal(age.doc.querySelector('#preview-age-range').textContent,'Hasta 2009');input(age,'estimated_year_to','');assert.equal(age.doc.querySelector('#preview-age-range').hidden,true);assert.equal(age.doc.querySelector('#preview-age-basis').hidden,true);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#submit-machine').disabled,false);age.close();
+ pass('optional approximate age is bounded, separate from the exact year, safely rendered and hidden when both endpoints are cleared');
+ let ageInflight,ageRelease,ageServer;const ageSaves=[];
+ ageInflight=setup(async(url,o)=>{
+   if(url.includes('/api/analisis/age-initial/')){await new Promise(resolve=>ageRelease=resolve);const job=completed(ageInflight.state,{estimated_year_from:2000,estimated_year_to:2010,estimated_year_basis:'Indicios automáticos'});ageServer=JSON.parse(JSON.stringify(job.machine));return response(200,job);}
+   if(url.endsWith('guardar/')){const body=JSON.parse(o.body);ageSaves.push(body);assert.equal(body.revision,ageServer.revision);Object.assign(ageServer.data,body.data);Object.assign(ageServer.provenance,body.provenance);ageServer.revision++;return response(200,{revision:ageServer.revision,machine:JSON.parse(JSON.stringify(ageServer))});}
+   if(url.endsWith('analizar/')){assert.equal(JSON.parse(o.body).revision,ageServer.revision);return response(200,{id:'age-again',status:'running'});}
+   if(url.includes('/api/analisis/age-again/')){const job=completed(ageServer,{applications:'Aplicación actualizada'});job.result.data={...job.result.data,estimated_year_from:1999,estimated_year_to:2012,estimated_year_basis:'No copiar este resultado sobre la ficha'};ageServer=JSON.parse(JSON.stringify(job.machine));return response(200,job);}
+   throw Error(url);
+ },{data:{year:2007},job:{id:'age-initial',status:'completed'}});
+ input(ageInflight,'estimated_year_from','2005');input(ageInflight,'estimated_year_to','');input(ageInflight,'estimated_year_basis','');input(ageInflight,'price','0');input(ageInflight,'currency','EUR');ageRelease();await pause(40);
+ assert.equal(ageInflight.doc.querySelector('#estimated_year_from').value,'2005');assert.equal(ageInflight.doc.querySelector('#estimated_year_to').value,'');assert.equal(ageInflight.doc.querySelector('#estimated_year_basis').value,'');assert.equal(ageInflight.doc.querySelector('#year').value,'2007');assert.equal(ageInflight.doc.querySelector('#preview-age-range').textContent,'Desde 2005');
+ await pause(900);assert.equal(ageSaves.length,1);assert.deepEqual(ageSaves[0].data,{estimated_year_from:'2005',estimated_year_to:null,estimated_year_basis:null,price:'0',currency:'EUR'});assert.equal(ageSaves[0].revision,2);
+ input(ageInflight,'estimated_year_from','');click(ageInflight,'analyze-button');await pause(90);
+ assert.deepEqual(ageSaves[1].data,{estimated_year_from:null});assert.deepEqual(ageSaves[1].provenance.estimated_year_from,{source:'user',review:'confirmed'});
+ for(const key of ['estimated_year_from','estimated_year_to','estimated_year_basis'])assert.equal(ageInflight.doc.getElementById(key).value,'');assert.equal(ageInflight.doc.querySelector('#preview-age-range').hidden,true);assert.equal(ageInflight.doc.querySelector('#year').value,'2007');assert.equal(ageInflight.doc.querySelector('#price').value,'0');assert.equal(ageInflight.doc.querySelector('#currency').value,'EUR');assert.equal(ageInflight.doc.querySelector('#applications').value,'Aplicación actualizada');ageInflight.close();
+ pass('approximate age hydration keeps in-flight edits, explicit clears and zero price; reanalysis consumes the saved machine instead of raw suggested years');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

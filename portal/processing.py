@@ -23,7 +23,7 @@ from django.db import connection, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
@@ -34,7 +34,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v21"
+PROMPT_VERSION = "imc-vision-research-2026-09-v22"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -56,6 +56,9 @@ VISUAL_ASSESSMENT_LABELS = {
     "attachments": "Accesorios visibles", "applications": "Aplicaciones sugeridas",
 }
 AI_KEYS |= set(VISUAL_ASSESSMENT_LABELS)
+AGE_ESTIMATE_LABELS = {"estimated_year_from": "Año aproximado desde", "estimated_year_to": "Año aproximado hasta",
+                       "estimated_year_basis": "Base de la estimación visual del año"}
+AI_KEYS |= set(AGE_ESTIMATE_LABELS)
 SYSTEM_PROMPT = """Eres un asistente de preparación de fichas de maquinaria de IMC México.
 El objeto de la ficha es la MÁQUINA identificada, aunque la única foto sea un primer
 plano de su placa. Una placa de identificación aporta datos del equipo; el anuncio
@@ -225,6 +228,23 @@ No incluir identidad, serie, contactos, instrucciones, números ni especificacio
 No devuelvas estos campos como fields: el servidor los deriva de visual_assessment
 y fija SIEMPRE operating_status a Pendiente de confirmar. Una foto no demuestra
 funcionamiento, seguridad, ausencia de fallas ni que esté lista para trabajar.
+Incluye también age_estimate en cada image_observation: null si no hay evidencia
+visual suficiente de generación o diseño, o si sólo se ve una placa/documento.
+Ante una vista útil de la máquina, puedes proponer una franja aproximada de época
+por diseño de cabina/carrocería, configuración de mandos o componentes identificables.
+No uses desgaste, pintura, óxido, suciedad, limpieza ni conservación para fecharla:
+una máquina antigua puede estar conservada y una reciente puede estar deteriorada.
+age_estimate contiene start_year y end_year enteros, desde mil novecientos hasta
+el año actual, con una diferencia de AL MENOS cinco años. Nunca un año puntual.
+basis explica los rasgos de diseño visibles que sustentan esa franja, hasta
+cuatrocientos caracteres; sin cifras, fechas, series, marca/modelo, enlaces o contactos.
+Si sólo identificas el tipo de equipo y no su generación, usa age_estimate null;
+no inventes una franja para rellenar. Es orientativa y requiere confirmación.
+Si ya hay un año exacto legible o declarado, usa age_estimate null: no sustituyas
+ese dato por una aproximación visual ni le atribuyas una precisión diferente.
+No pongas esta estimación en fields.year ni en descripción/title/visual_features.
+El campo year queda reservado a un año exacto explícitamente legible o declarado;
+el servidor conserva la estimación por separado como estimated_year_from/to/basis.
 No extraigas fields, plates ni propuestas de fotos unrelated o uncertain. Si ninguna
 foto es machinery o related, devuelve fields [], plates [], title y description
 vacíos, category null, visual_description null y visual_features []; no conviertas
@@ -287,6 +307,12 @@ class VisualAssessment(StrictModel):
     applications: list[str] = Field(default_factory=list)
 
 
+class AgeEstimate(StrictModel):
+    start_year: StrictInt
+    end_year: StrictInt
+    basis: str
+
+
 class ImageObservation(StrictModel):
     asset_id: str
     kind: Literal["machine", "plate", "document", "other", "unknown"]
@@ -294,6 +320,7 @@ class ImageObservation(StrictModel):
     category: str | None = None
     visual_features: list[str] = Field(default_factory=list)
     visual_assessment: VisualAssessment | None = None
+    age_estimate: AgeEstimate | None = None
 
 
 class MachineAnalysis(StrictModel):
@@ -905,7 +932,7 @@ def visual_assessment_fields(result):
     accepted = set(result.get("relevance", {}).get("accepted_asset_ids", []))
     private = [item.get("value") for item in result.get("fields", []) if item.get("key") == "serial"]
     excluded = [item.get("value") for item in result.get("fields", [])
-                if item.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS)]
+                if item.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS) - set(AGE_ESTIMATE_LABELS)]
     contributions = {}
     for item in result.get("image_observations", []):
         if item.get("asset_id") not in accepted or item.get("kind") != "machine":
@@ -940,6 +967,65 @@ def visual_assessment_fields(result):
     return fields
 
 
+def _clean_age_estimate(estimate, private_identifiers=(), excluded_values=()):
+    if not isinstance(estimate, dict):
+        return None
+    start, end = estimate.get("start_year"), estimate.get("end_year")
+    if (type(start) is not int or type(end) is not int
+            or not 1900 <= start <= end <= timezone.localdate().year or end - start < 5):
+        return None
+    basis = estimate.get("basis")
+    if not isinstance(basis, str) or len(basis) > 400:
+        return None
+    kept = []
+    for clause in re.split(r"(?<=[.!?])\s+|[;\r\n]+", basis):
+        if re.search(r"\b(?:desgast\w*|(?:re)?pint\w*|[oó]xid\w*|suciedad|suci[oa]s?|limpi\w*|conservaci[oó]n|"
+                     r"deterior\w*|wear|worn|(?:re)?paint\w*|rust\w*|dirt\w*|clean\w*|condition)\b", clause, re.I):
+            continue
+        safe = sanitize_visual_description(clause, private_identifiers, excluded_values).strip()
+        if safe:
+            kept.append(safe)
+    basis = "; ".join(dict.fromkeys(kept))
+    if not basis or not re.search(r"\b(?:dise[nñ]o|generaci[oó]n|configuraci[oó]n|cabina|carrocer[ií]a|"
+        r"mandos?|panel|tablero|instrumentaci[oó]n|controles?|cap[oó]|chasis|design|generation|cab|bodywork|dashboard)\b", basis, re.I):
+        return None
+    return {"start_year": start, "end_year": end, "basis": basis}
+
+
+def age_estimate_fields(result):
+    """Derive a broad visual range, separate from an exact manufacture year."""
+    year_meta = result.get("provenance", {}).get("year", {})
+    known_years = [(result.get("data", {}).get("year"), year_meta)] + [
+        (item.get("value"), item) for item in result.get("fields", [])
+        if item.get("key") == "year" and item.get("component") == "machine"]
+    if any(str(value or "").isdigit() and 1900 <= int(value) <= timezone.localdate().year
+           and ((meta.get("source") in {"plate", "image"} and meta.get("review") == "clear")
+                or meta.get("source") == "user" and meta.get("review") == "confirmed")
+           for value, meta in known_years):
+        return {}
+    accepted = set(result.get("relevance", {}).get("accepted_asset_ids", []))
+    private = [item.get("value") for item in result.get("fields", []) if item.get("key") == "serial"]
+    excluded = [item.get("value") for item in result.get("fields", [])
+                if item.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS) - set(AGE_ESTIMATE_LABELS)]
+    readings = []
+    for item in result.get("image_observations", []):
+        if item.get("asset_id") not in accepted or item.get("kind") != "machine":
+            continue
+        estimate = _clean_age_estimate(item.get("age_estimate"), private, excluded)
+        if estimate is not None:
+            readings.append((item["asset_id"], estimate))
+    if not readings:
+        return {}
+    basis = "; ".join(dict.fromkeys(estimate["basis"] for _, estimate in readings))[:1000]
+    values = {"estimated_year_from": min(estimate["start_year"] for _, estimate in readings),
+              "estimated_year_to": max(estimate["end_year"] for _, estimate in readings),
+              "estimated_year_basis": basis}
+    evidence = ("Franja de generación visual orientativa, pendiente de confirmar: " + basis)[:800]
+    return {key: dict(key=key, label=AGE_ESTIMATE_LABELS[key], value=value,
+        source="visual_proposal", review="needs_review", component="machine", asset_id=readings[0][0], evidence=evidence)
+        for key, value in values.items()}
+
+
 def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories=None, response_size_limit=100_000):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
@@ -956,11 +1042,11 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     # when the field itself comes from an image that must be discarded.
     raw_fields = result.get("fields", [])
     visual_exclusions = [field.get("value") for field in raw_fields
-                         if field.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS)]
+                         if field.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS) - set(AGE_ESTIMATE_LABELS)]
     private_serials = [field.get("value") for field in raw_fields if field.get("key") == "serial"]
     # Provider-authored flat assessments cannot bypass per-photo relevance and
     # machine-view requirements. Derive them from the structured observation.
-    raw_fields = [item for item in raw_fields if item.get("key") not in VISUAL_ASSESSMENT_LABELS]
+    raw_fields = [item for item in raw_fields if item.get("key") not in VISUAL_ASSESSMENT_LABELS and item.get("key") not in AGE_ESTIMATE_LABELS]
     result["fields"] = raw_fields
     if assessed:
         accepted = set(relevance["accepted_asset_ids"])
@@ -983,6 +1069,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
             item["visual_features"] = safe_features
             item["visual_assessment"] = (_clean_visual_assessment(item.get("visual_assessment"), private_serials, visual_exclusions)
                                          if useful and item["kind"] == "machine" else None)
+            item["age_estimate"] = (_clean_age_estimate(item.get("age_estimate"), private_serials, visual_exclusions)
+                                    if useful and item["kind"] == "machine" else None)
             features.extend(safe_features)
         result["category"] = next(iter(categories)) if len(categories) == 1 else None
         result["visual_description"], result["visual_features"] = None, features[:12]
@@ -999,6 +1087,9 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         allowed = accepted
         assessment_fields = visual_assessment_fields(result)
         result["fields"].extend(assessment_fields.values())
+        result["fields"].extend(age_estimate_fields(result).values())
+        result["age_estimate_support"] = list(dict.fromkeys(item["asset_id"] for item in observations
+            if item.get("asset_id") in accepted and item.get("kind") == "machine" and item.get("age_estimate")))
         result["visual_assessment_support"] = {
             key: list(dict.fromkeys(item["asset_id"] for item in observations
                 if item.get("asset_id") in accepted and item.get("kind") == "machine"
@@ -1008,6 +1099,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     else:
         for item in observations:
             item["visual_assessment"] = None
+            item["age_estimate"] = None
     plate_only = bool(allowed and {item["asset_id"] for item in observations} == allowed
                       and all(item["kind"] == "plate" for item in observations))
     visual_text = result.get("visual_description") if mode == "analysis" else None
@@ -1060,6 +1152,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         if item["source"] == "visual_proposal":
             item["review"] = "needs_review"
         key = item["key"]
+        if key == "year" and item["source"] == "visual_proposal":
+            item["value"], item["review"] = None, "needs_review"
         plate = plates.get(item["asset_id"])
         if key == "serial" and not plate_serial_is_clear(item, plate):
             item["value"] = None
@@ -1165,7 +1259,7 @@ def _merge_image_results(readings, asset_ids, categories):
     groups = {}
     for result in readings:
         for item in result["fields"]:
-            if item["key"] in AI_KEYS:
+            if item["key"] in AI_KEYS and item["key"] not in AGE_ESTIMATE_LABELS:
                 groups.setdefault((item["key"], item["component"]), []).append(item)
     fields = []
     for items in groups.values():

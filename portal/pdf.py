@@ -18,7 +18,7 @@ from reportlab.platypus import (CondPageBreak, Flowable, KeepTogether, LongTable
                                SimpleDocTemplate, Spacer, Table, TableStyle)
 from .services import PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text, public_web_references, web_research_for_provenance
 from .services import public_valuation, valuations_for_provenance
-from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, ESTIMATE_LABEL
+from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, ESTIMATE_LABEL, AGE_LABELS, AGE_LABEL
 
 NAVY = colors.HexColor("#000033")
 ORANGE = colors.HexColor("#E38C1A")
@@ -34,7 +34,7 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
-    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS,
+    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS, **AGE_LABELS,
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
@@ -310,6 +310,19 @@ def build_pdf(machine, data, assets, public=False, version=None):
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
     specification_table("Identificación del equipo", [key for key in ("brand", "model", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
+    if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):
+        age_items = []
+        if _present(values.get("estimated_year_from")) and _present(values.get("estimated_year_to")):
+            age_items.append(para(f"{values['estimated_year_from']}–{values['estimated_year_to']}", "Value"))
+        else:
+            for key in ("estimated_year_from", "estimated_year_to"):
+                if _present(values.get(key)):
+                    prefix = "Desde" if key == "estimated_year_from" else "Hasta"
+                    age_items.append(para(f"{prefix} {values[key]}", "Value"))
+        age_items.append(para("Rango orientativo; no sustituye el año exacto de fabricación.", "Small"))
+        if values.get("estimated_year_basis"):
+            age_items.append(para(f"{AGE_LABELS['estimated_year_basis']}: {values['estimated_year_basis']}"))
+        section(AGE_LABEL, age_items)
     specification_table("Especificaciones técnicas", [key for key in ("power", "weight", "capacity", "dimensions", "engine", "transmission", "fuel",
                                                                        "vibration_frequency", "centrifugal_force", "compaction_depth",
                                                                        "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",

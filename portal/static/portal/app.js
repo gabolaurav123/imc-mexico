@@ -124,7 +124,8 @@
   const additionalPlateLabels = { front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
   const conditionLabels = { usage_condition:'Uso aparente',preservation_condition:'Conservación aparente',preservation_notes:'Observaciones de conservación',operating_status:'Funcionamiento',visible_defects:'Defectos visibles',visible_components:'Componentes visibles',applications:'Aplicaciones y usos' };
   const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_currency:'Moneda de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
-  Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels);
+  const ageLabels = { estimated_year_from:'Año aproximado desde',estimated_year_to:'Año aproximado hasta',estimated_year_basis:'Indicios para el año aproximado' };
+  Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels);
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -670,6 +671,12 @@
     const specs = $('#preview-specs'); specs.replaceChildren();
     for (const key of ['brand','model','year','serial','hours','condition']) addField(specs,key,data[key]);
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
+    const ageFrom = data.estimated_year_from, ageTo = data.estimated_year_to;
+    const hasAgeRange = !missing(ageFrom) || !missing(ageTo);
+    $('#preview-age-range').textContent = !missing(ageFrom) && !missing(ageTo) ? `${ageFrom}–${ageTo}` : !missing(ageFrom) ? `Desde ${ageFrom}` : !missing(ageTo) ? `Hasta ${ageTo}` : '';
+    $('#preview-age-range').hidden = !hasAgeRange;
+    $('#preview-age-basis').textContent = data.estimated_year_basis || '';
+    $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
     for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;

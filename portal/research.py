@@ -28,10 +28,11 @@ RESEARCH_RESERVATION = 3 * SEARCH_RESERVATION + 2 * NORMALIZE_RESERVATION
 MAX_CITED_PASSAGES = 36
 MAX_RESEARCH_SOURCES = 36
 MAX_DIRECT_FIELDS = 24
+MODEL_YEAR_KEYS = frozenset({"estimated_year_from", "estimated_year_to", "estimated_year_basis"})
 WEB_KEYS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission", "year",
             "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
             "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer",
-            "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length"}
+            "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length", *MODEL_YEAR_KEYS}
 LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
           "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
           "engine": "Motor", "transmission": "Transmisión", "year": "Año",
@@ -41,7 +42,8 @@ LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "P
           "load_tire_tread": "Entrecentros de llantas de carga", "manufacturer": "Fabricante",
           "manufacturer_address": "Dirección del fabricante", "voltage": "Voltaje", "lift_height": "Altura de elevación",
           "load_center": "Centro de carga", "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería",
-          "fork_length": "Longitud de horquillas"}
+          "fork_length": "Longitud de horquillas", "estimated_year_from": "Periodo del modelo: desde",
+          "estimated_year_to": "Periodo del modelo: hasta", "estimated_year_basis": "Base del periodo documentado"}
 # Conservative authority recognition: unsupported manufacturers cannot supply a
 # year automatically. These manufacturer domains were checked against their own sites.
 MANUFACTURER_DOMAINS = {"caterpillar": ("cat.com", "caterpillar.com", "catlifttruck.com", "logisnextamericas.com"),
@@ -560,11 +562,70 @@ def machine_capacity_evidence(value, evidence):
     return False
 
 
+def documented_model_period(evidence):
+    """An explicitly labelled closed production period, never a unit's year.
+
+    Source titles may establish model identity, but the actual cited body must
+    contain both years and a production/manufacturing label in the same clause.
+    """
+    body = str(evidence or "").split("Fragmento citado:", 1)[-1]
+    body = "".join(char for char in unicodedata.normalize("NFKD", body).casefold()
+                   if not unicodedata.combining(char))
+    label = (r"(?:years?\s+of\s+(?:manufacture|manufacturing|production)|"
+             r"(?:production|manufacturing)\s+(?:years?|period|dates?)|"
+             r"produced|manufactured|"
+             r"(?:periodo|anos?)\s+de\s+(?:fabricacion|produccion)|"
+             r"(?:fabricad[oa]s?|producid[oa]s?|se\s+fabrico|se\s+produjo)|"
+             r"baujahre|produktionszeitraum|annees\s+de\s+production)")
+    pattern = (r"\b" + label + r"\s*[:(\-]?\s*(?:(?:from|between|de|desde|entre|von)\s+)?"
+               r"(?P<start>\d{4})\s*(?:[-–—]|to\b|through\b|until\b|and\b|a\b|hasta\b|y\b|bis\b)\s*"
+               r"(?P<end>\d{4})(?!\d)")
+    periods = set()
+    for clause in re.split(r"[;|\r\n]+|[.!?](?=\s|$)", body):
+        if re.search(r"\b(?:not|never|no|sin|unknown|desconocid\w*|copyright|publication|published|"
+                     r"publicacion|auction|subasta|listing|sale|venta|engine|motor(?!\s+grader\b)|transmission|transmision|"
+                     r"factory|fabrica|plant|planta|manual|attachment|accesorio|battery|bateria)\b", clause):
+            continue
+        for match in re.finditer(pattern, clause, re.I):
+            if re.match(r'\s*(?:units|machines|piezas|unidades|kg|liters|litros|tonnes|toneladas)\b', clause[match.end():]):
+                continue
+            start, end = int(match['start']), int(match['end'])
+            if not 1900 <= start <= end <= timezone.now().year:
+                return None
+            periods.add((str(start), str(end)))
+    return next(iter(periods)) if len(periods) == 1 else None
+
+
+def _model_period_basis(start, end, url):
+    return (f"Periodo documentado del modelo: {start}–{end}; año de esta unidad por confirmar. "
+            f"Fuente: {urlsplit(url).hostname}")
+
+
+def validated_model_period_fields(research):
+    """Return the coherent field trio; caller verifies the manifest proof."""
+    fields = [field for field in research.get('fields', []) if field.get('key') in MODEL_YEAR_KEYS]
+    if len(fields) != 3 or {field.get('key') for field in fields} != MODEL_YEAR_KEYS:
+        return {}
+    by_key = {field['key']: field for field in fields}
+    origin = fields[0]
+    if origin.get('scope') != 'model' or not safe_public_url(origin.get('source_url')):
+        return {}
+    if any(any(field.get(key) != origin.get(key) for key in
+               ('scope', 'source_url', 'source_title', 'source_date', 'evidence')) for field in fields):
+        return {}
+    period = documented_model_period(origin.get('evidence'))
+    if not period or (by_key['estimated_year_from'].get('value'), by_key['estimated_year_to'].get('value')) != period:
+        return {}
+    if by_key['estimated_year_basis'].get('value') != _model_period_basis(*period, origin['source_url']):
+        return {}
+    return by_key
+
+
 def normalize_research(parsed, identity, basis, sources, search_text, citations=None, source_titles=None, *, direct_fields=()):
     result = empty_research("no_results", identity, basis)
     result["sources"] = deepcopy(sources[:MAX_RESEARCH_SOURCES])
     by_url = {source["url"]: source for source in sources}
-    accepted, accepted_direct, conflicts = {}, {}, set()
+    accepted, accepted_direct, conflicts, model_periods = {}, {}, set(), {}
     direct_fields = list(direct_fields)
     if any(not isinstance(field, ResearchField) for field in direct_fields[:MAX_DIRECT_FIELDS]):
         raise TypeError("Direct research fields must be ResearchField objects")
@@ -603,6 +664,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         diagnostics["candidate_cited_passage_model_count"] += int(any(_contains_identifier(p, identity.get("model")) for p in bound_passages))
         if item.key not in WEB_KEYS:
             reject("field_not_allowed")
+            continue
+        if item.key == 'estimated_year_basis':
+            reject('model_period_basis_generated')
             continue
         if is_direct and ((item.scope == "model" and item.matched_serial is not None)
                 or (item.scope == "exact_serial" and (basis != "exact_serial" or not identity.get("serial")
@@ -644,6 +708,13 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if item.key == "country_of_origin" and not explicit_manufacturing_origin(evidence, item.value):
             reject("manufacturing_origin_not_explicit")
             continue
+        period = None
+        if item.key in MODEL_YEAR_KEYS:
+            period = documented_model_period(evidence)
+            expected_index = 0 if item.key == 'estimated_year_from' else 1
+            if not period or item.value.strip() != period[expected_index]:
+                reject('model_period_not_explicit')
+                continue
         # The provider proposes a scope, but only the cited passage determines
         # it. A query's serial in model output is not proof of a unit match.
         if item.matched_serial and (not identity.get("serial")
@@ -690,7 +761,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if is_direct and item.scope == "exact_serial" and not exact_match:
             reject("direct_scope_not_allowed")
             continue
-        scope = "exact_serial" if exact_match else "model"
+        scope = "exact_serial" if exact_match and item.key not in MODEL_YEAR_KEYS else "model"
         contextual_evidence = ""
         if scope == "model":
             if not identity.get("brand") or not identity.get("model"):
@@ -733,6 +804,11 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                  "source_date": timezone.localdate().isoformat(), "evidence": contextual_evidence or evidence,
                  "authority_validated": authoritative,
                  "matched_serial": identity["serial"] if scope == "exact_serial" else None}
+        if period:
+            # Both endpoints occur in this explicit range. Never join years
+            # from separate documents. Conflicting periods veto the whole trio.
+            model_periods.setdefault(period, field)
+            continue
         if item.key in accepted and accepted[item.key]["scope"] != scope:
             # A configuration tied to this exact serial takes precedence over
             # generic model figures. Conflicts at the winning scope still veto.
@@ -755,6 +831,14 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             # An identical value can retain the exact document-row evidence.
             accepted[item.key], accepted_direct[item.key] = field, True
     result["fields"] = [field for key, field in accepted.items() if key not in conflicts]
+    if len(model_periods) == 1:
+        (start, end), field = next(iter(model_periods.items()))
+        for key, value in (('estimated_year_from', start), ('estimated_year_to', end),
+                           ('estimated_year_basis', _model_period_basis(start, end, field['source_url']))):
+            result['fields'].append({**field, 'key': key, 'value': value})
+    elif model_periods:
+        diagnostics['rejection_counts']['conflicting_model_periods'] = len(model_periods)
+        result['warnings'].append('Las fuentes discrepan sobre el periodo del modelo; el intervalo se omitió.')
     diagnostics["accepted_field_count"] = len(result["fields"])
     if conflicts:
         diagnostics["rejection_counts"]["conflicting_values"] = len(conflicts)
@@ -823,6 +907,8 @@ def is_validated_web_field(result, key, value, meta):
         return False
     for field in research.get("fields", []):
         if field.get("key") == key and field.get("value") == value:
+            if key in MODEL_YEAR_KEYS and key not in validated_model_period_fields(research):
+                return False
             if key == "capacity" and not machine_capacity_evidence(value, field.get("evidence")):
                 return False
             if any(meta.get(k) != field.get(k) for k in ("scope", "source_url", "source_title", "source_date", "evidence")):
@@ -957,8 +1043,13 @@ def merge_research(result, research, snapshot=None):
     """Fill suggestions only; user values and any nonempty OCR value win."""
     result["research"] = research
     declared = human_declared_data(snapshot)
+    period_locked = any(key in declared or (result['data'].get(key) not in (None, '') and
+        (result['provenance'].get(key, {}).get('source') == 'user' or
+         result['provenance'].get(key, {}).get('review') in {'clear', 'confirmed'})) for key in MODEL_YEAR_KEYS)
     for field in research.get("fields", []):
         key = field["key"]
+        if key in MODEL_YEAR_KEYS and period_locked:
+            continue
         existing = result["provenance"].get(key, {})
         if key in declared or (result["data"].get(key) not in (None, "")
                 and (existing.get("source") == "user" or existing.get("review") in {"clear", "confirmed"})):
@@ -1048,6 +1139,23 @@ def compose_description(data, provenance, category=None, visual_description="", 
         text += "Fotografías disponibles para identificar sus características. "
     if references:
         text += "Referencia técnica del modelo o documentación consultada: " + "; ".join(references) + ". Estos datos requieren comprobación en esta unidad."
+    approximate = {}
+    for key in ('estimated_year_from', 'estimated_year_to'):
+        value, meta = str(data.get(key) or ''), provenance.get(key, {})
+        if (re.fullmatch(r'\d{4}', value) and 1900 <= int(value) <= timezone.now().year
+                and not contains_private_identifier(value)
+                and (meta.get('source') in {'user', 'web', 'visual_proposal'} or meta.get('review') == 'confirmed')):
+            approximate[key] = value
+    start, end = approximate.get('estimated_year_from'), approximate.get('estimated_year_to')
+    if approximate and not (start and end and int(start) > int(end)):
+        interval = f'{start}–{end}' if start and end else f'desde {start}' if start else f'hasta {end}'
+        text = text.rstrip() + f'\n\nAño aproximado: {interval} (por confirmar).'
+        period_basis = data.get('estimated_year_basis')
+        basis_meta = provenance.get('estimated_year_basis', {})
+        if (isinstance(period_basis, str) and period_basis.strip() and len(period_basis) <= 1000
+                and not contains_private_identifier(period_basis) and not re.search(r'https?://|@|[<>\r\n]', period_basis)
+                and (basis_meta.get('source') in {'user', 'web', 'visual_proposal'} or basis_meta.get('review') == 'confirmed')):
+            text += ' ' + period_basis.strip().rstrip('. ') + '.'
     from .commercial import VISUAL_LABELS
     observations = []
     for key, label in VISUAL_LABELS.items():

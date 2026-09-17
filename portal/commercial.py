@@ -21,6 +21,12 @@ ESTIMATE_LABELS = {
     "estimate_basis": "Base de la estimación", "estimate_missing_info": "Qué ayudaría a estimar el precio",
 }
 ESTIMATE_LABEL = "Estimación orientativa, editable y sujeta a confirmación"
+AGE_LABELS = {
+    "estimated_year_from": "Año aproximado desde",
+    "estimated_year_to": "Año aproximado hasta",
+    "estimated_year_basis": "Indicios para el año aproximado",
+}
+AGE_LABEL = "Año aproximado · por confirmar"
 VALUATION_KEYS = set(ESTIMATE_LABELS) | {"price", "currency"}
 
 

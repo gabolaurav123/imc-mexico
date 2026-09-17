@@ -179,3 +179,56 @@ class CommercialSheetTests(TestCase):
                     self.assertIn("Valor orientativo mínimo: 0 USD", html)
                     self.assertIn("Valor orientativo máximo: 0 USD", html)
                     self.assertRegex(text, r"0\s*-\s*0\s+USD")
+
+
+    def test_approximate_year_is_separate_from_exact_year_in_snapshot_web_and_pdf(self):
+        fixture = commercial_snapshot()
+        fixture["data"].update(year=2007, estimated_year_from=2004, estimated_year_to=2009,
+            estimated_year_basis="Indicios documentales de la familia; confirmar en esta unidad.")
+        self.machine.data.update(estimated_year_from=2024, estimated_year_to=2025,
+            estimated_year_basis="BORRADOR-ACTUAL-NO-AUTORIZADO")
+        for public in (False, True):
+            with self.subTest(public=public):
+                html, _, text = self.render(fixture, public=public)
+                for output in (html, text):
+                    self.assertIn("Año aproximado · por confirmar", output)
+                    self.assertIn("2004–2009", output)
+                    self.assertIn("2007", output)
+                    self.assertIn("Rango orientativo; no sustituye el año exacto de fabricación.", output)
+                    self.assertIn(fixture["data"]["estimated_year_basis"], output)
+                    self.assertNotIn("BORRADOR-ACTUAL-NO-AUTORIZADO", output)
+                self.assertIn('id="sheet-age"', html)
+                technical = html.split('id="sheet-technical"', 1)[1].split('</section>', 1)[0]
+                self.assertNotIn("Año aproximado", technical)
+        self.assertEqual(fixture["data"]["year"], 2007)
+
+    def test_partial_age_endpoints_remain_visible_but_basis_alone_is_not_a_range(self):
+        for start, end, expected in ((2004, None, "Desde 2004"), (None, 2009, "Hasta 2009"),
+                                     (None, None, None)):
+            with self.subTest(start=start, end=end):
+                fixture = commercial_snapshot()
+                fixture["data"].update(estimated_year_from=start, estimated_year_to=end,
+                    estimated_year_basis="INDICIO-ANTERIOR-A-RANGO-BORRADO")
+                html, _, text = self.render(fixture, public=True)
+                if expected:
+                    self.assertIn(expected, html)
+                    self.assertIn(expected, text)
+                else:
+                    self.assertNotIn('id="sheet-age"', html)
+                    self.assertNotIn("Año aproximado · por confirmar", text)
+                    self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", html)
+                    self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", text)
+
+    def test_age_basis_is_escaped_and_private_serial_stays_out_of_public_documents(self):
+        fixture = commercial_snapshot()
+        fixture["data"].update(estimated_year_from=2000, estimated_year_to=2005,
+            estimated_year_basis='<img src=x onerror=alert(1)> Indicio de prueba')
+        html, _, text = self.render(fixture)
+        self.assertIn('&lt;img', html)
+        self.assertNotIn('<img src=x', html)
+        self.assertIn('<img src=x onerror=alert(1)> Indicio de prueba', text)
+        fixture["data"]["estimated_year_basis"] = "Consulta privada " + fixture["data"]["serial"]
+        html, _, text = self.render(fixture, public=True)
+        for output in (html, text):
+            self.assertNotIn(fixture["data"]["serial"], output)
+            self.assertIn("2000–2005", output)
