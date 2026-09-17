@@ -140,6 +140,30 @@ class ValuationGroundingTests(SimpleTestCase):
             with self.subTest(text=text):
                 self.assertFalse(normalize([candidate(text=text)], [passage(text)])['comparables'])
 
+    def test_plain_html_label_rows_and_explicit_used_product_sentence_are_supported(self):
+        text = quote().replace('Condition: Used', 'Condition Used').replace('Location:', 'Location')
+        self.assertEqual(len(normalize([candidate(text=text)], [passage(text)])['comparables']), 1)
+        text = quote(condition='Very Good', extra='Used 2EC25 Cat forklift For Sale.')
+        self.assertEqual(len(normalize([candidate(text=text)], [passage(text)])['comparables']), 1)
+        for wrong in ['Used 2EC30 Cat forklift For Sale.', 'New and used machines for sale.',
+                      'Used tires for sale. Caterpillar 2EC25.', 'Used Toyota 2EC25 forklift For Sale.']:
+            evidence = quote(condition='Very Good', extra=wrong)
+            with self.subTest(wrong=wrong):
+                self.assertFalse(normalize([candidate(text=evidence)], [passage(evidence)])['comparables'])
+
+    def test_mico_style_price_is_readable_but_seller_address_does_not_supply_market(self):
+        text = ('Cat 14H ASE01868. Asking Price US$ 195,500/-. Location Tacoma WA. Condition Very Good. '
+                'Used 14H Cat Motor Grader For Sale: Enclosed cab, air conditioning.')
+        identity = {**IDENTITY, 'model': '14H'}
+        document = html(text, heading='Cat 14H ASE01868', extras='<select><option>EUR 1</option></select>')
+        document += '<footer>Seller: Orlando, Florida, United States</footer>'
+        passages = _document_passages(document, URLS[0], identity, [])
+        self.assertTrue(passages)
+        self.assertNotIn('EUR 1', passages[0]['text'])
+        self.assertNotIn('United States', passages[0]['text'])
+        value = normalize([candidate(text=text, price='US$ 195,500')], passages, identity)
+        self.assertEqual(value['diagnostics']['rejections'], {'market_not_literal': 1})
+
     def test_unknown_condition_cannot_estimate_even_with_two_matching_sources(self):
         identity = {**IDENTITY, 'condition': None}
         value = normalize([candidate(), candidate(1, price='USD 16,000')],
@@ -247,6 +271,18 @@ class ValuationIdentityAndDocumentsTests(SimpleTestCase):
         with patch('portal.valuation._resolve_public_ip', side_effect=CatalogFetchError('dns_not_public')), patch('portal.valuation.urllib3.HTTPSConnectionPool') as connect, self.assertRaises(CatalogFetchError):
             _fetch_listing(URLS[0], URLS, time.monotonic() + 5)
         connect.assert_not_called()
+
+    def test_individual_marketplace_ids_allowed_but_inventory_indexes_rejected(self):
+        for path in ['/listing/for-sale/12345/caterpillar-14h-motor-graders',
+                     '/listings/for-sale/12345/caterpillar-14h-motor-graders/']:
+            url = 'https://www.machinerytrader.com' + path
+            with self.subTest(url=url):
+                self.assertEqual(_listing_url(url), url)
+        for path in ['/listings/for-sale/caterpillar/14h/motor-graders/1045',
+                     '/listing/for-sale/caterpillar/14h', '/listings/for-sale/12345/',
+                     '/listings/for-sale/12345/caterpillar/other-items']:
+            with self.subTest(path=path), self.assertRaises(CatalogFetchError):
+                _listing_url('https://www.machinerytrader.com' + path)
 
 
 class ValuationPipelineTests(SimpleTestCase):

@@ -187,9 +187,14 @@ def _listing_url(url):
         raise CatalogFetchError('unsupported_url')
     parts = urlsplit(value)
     host = parts.hostname or ''
+    # Inventory indexes mix units/models. A numeric listing identifier denotes
+    # an individual ad in both the singular and plural marketplace URL forms.
+    listing_path = re.search(r'/listings?(?:/|$)', parts.path, re.I)
+    individual_listing = re.fullmatch(r'/listings?/for-sale/[0-9]+/[^/]+/?', parts.path, re.I)
     if (parts.scheme != 'https' or parts.port not in {None, 443}
             or host == 'scribd.com' or host.endswith('.scribd.com')
-            or re.search(r'/(?:search|searches|listings|categories|login|signin)(?:/|$)', parts.path, re.I)):
+            or (listing_path and not individual_listing)
+            or re.search(r'/(?:search|searches|categories|login|signin)(?:/|$)', parts.path, re.I)):
         raise CatalogFetchError('unsupported_url')
     try:
         ipaddress.ip_address(host)
@@ -239,7 +244,7 @@ def _fetch_listing(url, retrieved_urls, deadline):
 
 
 def _visible(node):
-    if (node.hidden() or node.tag in {'nav', 'footer', 'header', 'form', 'button', 'aside'}
+    if (node.hidden() or node.tag in {'nav', 'footer', 'header', 'form', 'button', 'aside', 'select', 'option'}
             or re.search(r'\b(?:related|recommended|recommendations|similar|carousel)\b',
                          node.attrs.get('class', '') + ' ' + node.attrs.get('id', ''), re.I)):
         return ''
@@ -335,11 +340,22 @@ _MARKET_NAMES = {'MX': 'México', 'US': 'Estados Unidos', 'ES': 'España', 'DE':
                  'FR': 'Francia', 'IT': 'Italia', 'CA': 'Canadá', 'GB': 'Reino Unido'}
 
 
-def _condition_matches(evidence, condition):
+def _condition_matches(evidence, condition, identity=None):
     # A new battery or a menu "New & Used" does not describe this machine.
-    label = r'\b(?:condition|condici[oó]n|estado)\s*[:=-]\s*'
+    label = r'\b(?:condition|condici[oó]n|estado)(?:\s*[:=-]\s*|\s+)'
     found = {key for key, words in _CONDITIONS.items()
              if re.search(label + r'(?:' + words + r')\b', evidence, re.I)}
+    # An explicit product sentence can declare use while a separate Condition
+    # row describes preservation (e.g. "Very Good"). Require this exact model,
+    # its brand and a sale statement, never a site's "new and used" navigation.
+    if identity:
+        for sentence in re.split(r'[.;\n]', evidence):
+            if (_contains_brand(sentence, identity['brand']) and _contains_identifier(sentence, identity['model'])
+                    and not _conflicting_explicit_model_reason(sentence, identity)
+                    and re.search(r'\b(?:for sale|en venta)\b', sentence, re.I)):
+                for key in ('used', 'new', 'refurbished'):
+                    if re.match(r'\s*(?:' + _CONDITIONS[key] + r')\b', sentence, re.I):
+                        found.add(key)
     if found != {condition}:
         return False
     if re.search(r'\b(?:not used|not new|no es nuev[oa]|no es usad[oa])\b', evidence, re.I):
@@ -403,7 +419,7 @@ def _normalize(parsed, passages, identity):
         if not re.search(r'\b(?:location|located in|ubicaci[oó]n|pa[ií]s|country|mercado)\s*[:=-]?\s*(?:[\w., -]{0,60}\s)?(?:' + _MARKETS[item.market] + r')\b', evidence, re.I):
             rejected['market_not_literal'] += 1
             continue
-        if not _condition_matches(evidence, item.condition):
+        if not _condition_matches(evidence, item.condition, identity):
             rejected['condition_not_literal'] += 1
             continue
         if identity['condition'] and item.condition != identity['condition']:

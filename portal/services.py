@@ -605,6 +605,21 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         for key, meta in machine.provenance.items())
     conflicting_fields = []
     estimate_protected = any(_human_provenance(machine, key) for key in ESTIMATE_LABELS)
+    cleared_valuation = []
+    valuation = job.result.get("valuation", {})
+    if valuation.get("status") in {"insufficient", "not_run"} and not estimate_protected:
+        from .valuation import is_validated_estimate
+        if is_validated_estimate(valuation) and _valuation_identity_matches(machine.data, valuation):
+            # Do not pair an old automatic range with a new message saying that
+            # no estimate was possible. Remove only unchanged AI suggestions
+            # captured at admission; a human price or explicit blank survives.
+            for key in VALUATION_KEYS:
+                record = base.get("refresh_fields", {}).get(key)
+                if (isinstance(record, dict) and record.get("provenance", {}).get("source") == "valuation"
+                        and record == _automatic_field_record(machine, key)):
+                    machine.data.pop(key, None)
+                    machine.provenance.pop(key, None)
+                    cleared_valuation.append(key)
     # Apply clear readings before model references so a corrected AI identity
     # can receive its own research, while human identity changes still reject it.
     candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
@@ -687,7 +702,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine)
+    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:

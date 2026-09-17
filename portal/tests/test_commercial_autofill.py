@@ -179,3 +179,25 @@ class CommercialAutofillTests(TestCase):
         self.assertEqual(public["fields"]["estimate_min"], "11000")
         self.assertEqual(public["fields"]["estimate_max"], "19000")
         self.assertTrue(public["edited"])
+
+    def test_new_insufficient_estimate_clears_old_ai_range_but_preserves_owner_price(self):
+        self.machine.data.update(brand="Caterpillar", model="2EC25")
+        self.machine.save()
+        self.apply(self.job(self.estimate_result()))
+        self.edit(price="19000", currency="MXN")
+        from portal.valuation import _seal
+        result = self.estimate_result()
+        valuation = result["valuation"]
+        valuation["status"] = "insufficient"
+        valuation["suggested_price"] = None
+        valuation["fields"] = {"estimate_basis": "No hay comparables suficientes.", "estimate_missing_info": "Falta otra unidad verificable."}
+        result["valuation"] = _seal(valuation)
+        result["data"] = dict(valuation["fields"])
+        result["provenance"] = {key: {"source": "valuation", "review": "needs_review", "component": "machine"} for key in result["data"]}
+        self.apply(self.job(result))
+        self.assertNotIn("estimate_min", self.machine.data)
+        self.assertNotIn("estimate_max", self.machine.data)
+        self.assertNotIn("estimate_currency", self.machine.data)
+        self.assertEqual(self.machine.data["price"], "19000")
+        self.assertEqual(self.machine.data["currency"], "MXN")
+        self.assertEqual(self.machine.data["estimate_missing_info"], "Falta otra unidad verificable.")
