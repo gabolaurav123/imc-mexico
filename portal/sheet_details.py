@@ -67,7 +67,7 @@ def _reading_status(meta):
     return "Dato de la ficha"
 
 
-def build_sheet_details(data, provenance=None):
+def build_sheet_details(data, provenance=None, *, category=None):
     """Return at most seven factual aids for values already present in this view.
 
     Pass approved snapshot data for a public/versioned view. Private keys,
@@ -77,6 +77,12 @@ def build_sheet_details(data, provenance=None):
     if not isinstance(data, dict):
         return []
     provenance = provenance if isinstance(provenance, dict) else {}
+    # These documents describe compactors only. An unknown category or a
+    # forklift must never acquire a compactor reference merely by having weight.
+    compaction_category = _identifier_key(category) in {
+        "compactador", "compactadores", "compactadora", "compactadoras",
+        "placacompactadora", "placascompactadoras", "vibrocompactador", "vibrocompactadores",
+    }
     private_identifiers = [_identifier_key(data.get(key)) for key in ("serial", "vin")]
     items = []
     for key, label, explanation, reference in READING_AIDS:
@@ -85,5 +91,5 @@ def build_sheet_details(data, provenance=None):
             continue
         items.append({"key": key, "label": label, "value": value, "explanation": explanation,
                       "reading_status": _reading_status(provenance.get(key)),
-                      "reference": dict(reference), "scope": "general_context"})
+                      "reference": dict(reference) if compaction_category else {}, "scope": "general_context"})
     return items

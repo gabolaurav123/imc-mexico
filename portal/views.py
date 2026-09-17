@@ -352,7 +352,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS}
     extra_fields=[{'key':key,'label':label,'value':data[key],'source_label':field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
     # The helper needs private exclusions, but returns only allowlisted reading aids.
-    technical_interpretation=build_sheet_details(original_data,field_provenance)
+    technical_interpretation=build_sheet_details(original_data,field_provenance,category=category_name)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
     web_references=services.public_web_references(reference_snapshot)
     if public:

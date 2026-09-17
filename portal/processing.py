@@ -33,7 +33,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v13"
+PROMPT_VERSION = "imc-vision-research-2026-09-v14"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -43,7 +43,10 @@ MIN_ANALYSIS_IMAGE_EDGE = 1280
 MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
 AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
            "dimensions", "fuel", "kilometers", "engine", "transmission",
-           "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"}
+           "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
+           "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
+           "manufacturer", "manufacturer_address", "voltage", "lift_height", "load_center",
+           "battery_weight", "battery_capacity", "fork_length"}
 SYSTEM_PROMPT = """Eres un asistente de preparación de fichas de maquinaria de IMC México.
 El objeto de la ficha es la MÁQUINA identificada, aunque la única foto sea un primer
 plano de su placa. Una placa de identificación aporta datos del equipo; el anuncio
@@ -79,6 +82,26 @@ centrifugal_force, profundidad de compactación a compaction_depth y país de
 fabricación a country_of_origin. Este último requiere texto explícito Fabricado en,
 Made in o País de fabricación; idioma, eslogan, dirección del fabricante, nombre
 de marca y número de serie NO prueban país de fabricación ni ubicación actual.
+Para montacargas y otros equipos, extrae cada renglón legible por separado: FRONT
+TIRE SIZE a front_tire_size, REAR TIRE SIZE a rear_tire_size, inclinación del mástil
+a mast_tilt, LOAD TIRE TREAD/WIDTH a load_tire_tread, fabricante a manufacturer y
+su dirección impresa a manufacturer_address. Conserva unidades, decimales y los
+calificadores como rearward, backward o forward cuando figuren; nunca conviertas
+una medida de llanta en una dimensión general de la máquina. Voltaje, altura de
+elevación y centro de carga corresponden a voltage, lift_height y load_center;
+capacidad declarada corresponde a capacity. No calcules capacidad, voltaje,
+combustible ni año a partir del modelo. XXX, guiones y espacios vacíos en una línea
+no son valores técnicos; usa null para esa línea y conserva las otras legibles.
+Peso y capacidad de batería corresponden a battery_weight y battery_capacity;
+longitud de horquillas a fork_length. No confundas peso de batería con peso total,
+ni capacidad de batería con capacidad de carga. Conserva la unidad impresa.
+La empresa y su dirección impresas no indican propietario, ubicación actual ni
+país de fabricación. Una dirección como ciudad/país se conserva únicamente como
+manufacturer_address, nunca como country_of_origin ni location sin otra evidencia.
+Evalúa la claridad de CADA CAMPO de la placa: una línea parcial no vuelve dudosa
+la serie u otra línea que sí se lee completa. En fields, evidence debe copiar la
+etiqueta y el valor de esa línea; si la línea SERIAL NO. es legible, inclúyela aun
+cuando otras líneas sean parciales. Si la propia serie es ambigua, sigue siendo null.
 Primero revisa el texto de TODAS las fotografías: logotipos, rótulos y denominaciones
 de modelo sobre carrocería, brazo, contrapeso o cabina, además de las placas.
 Leer literalmente una marca o un modelo legibles sobre la máquina NO es inferir
@@ -626,6 +649,58 @@ def _image_input(asset):
             "image_url": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")}
 
 
+def plate_serial_is_clear(field, plate):
+    """Validate an existing clear serial independently of other plate lines.
+
+    Never derives a value from transcription or promotes a needs_review field.
+    A partial plate requires an explicitly labelled, complete machine serial;
+    unrelated blank/ambiguous lines do not invalidate that labelled reading.
+    """
+    if not isinstance(field, dict) or not isinstance(plate, dict):
+        return False
+    value = field.get("value")
+    if (field.get("key") != "serial" or field.get("source") != "plate"
+            or field.get("review") != "clear" or field.get("component") != "machine"
+            or not field.get("asset_id") or field.get("asset_id") != plate.get("asset_id")
+            or plate.get("component") != "machine" or plate.get("readability") not in {"clear", "partial"}
+            or not isinstance(value, str) or not value.strip()
+            or re.search(r"[?\[\]*]|ilegible|unreadable|unknown", value, re.I)):
+        return False
+    value = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 /-]{0,63}", value):
+        return False
+    characters = [char for char in value if not char.isspace() and char != "-"]
+    literal = r"[ \t-]*".join(re.escape(char) for char in characters) + r"(?![A-Za-z0-9]|-[A-Za-z0-9])"
+    transcription = plate.get("transcription")
+    if not isinstance(transcription, str):
+        return False
+    label = (r"\b(?:serial(?:\s+(?:number|no\.?|n[º°]))?|s\s*/\s*n|s\.?n\.?|vin|pin|"
+             r"(?:n[uú]mero|n[uú]m\.?|no\.?|n[º°])\s*(?:de\s+)?s[eé]rie|s[eé]rie)"
+             r"(?!\w)\s*[:=.-]?\s*")
+    labels = list(re.finditer(label, transcription, re.I))
+    matched_machine_line = False
+    for match in labels:
+        prefix = transcription[max(0, match.start() - 40):match.start()]
+        if re.search(r"\b(?:motor|engine|transmisi[oó]n|transmission)\s*[:=-]?\s*$", prefix, re.I):
+            continue
+        line = transcription[match.end():]
+        serial_match = re.match(literal, line, re.I)
+        if not serial_match:
+            return False
+        after = line[serial_match.end():]
+        if (re.match(r"^[?\[\]*/]|^\.{2,}", after)
+                or re.match(r"^[ \t]+(?:\?+|\[|\*|/|\.{2,}|o\b|or\b|ilegible\b|unreadable\b|unknown\b)", after, re.I)):
+            return False
+        matched_machine_line = True
+    if matched_machine_line:
+        return True
+    # Preserve legacy fully readable transcriptions without a serial heading,
+    # but still require the complete literal identifier. Partial plates cannot
+    # use this fallback or borrow a serial labelled as an engine/transmission.
+    return bool(not labels and plate.get("readability") == "clear"
+                and re.search(r"(?<![A-Za-z0-9])" + literal, transcription, re.I))
+
+
 def normalize_analysis(parsed, asset_ids, mode="analysis"):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
@@ -688,10 +763,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
             item["review"] = "needs_review"
         key = item["key"]
         plate = plates.get(item["asset_id"])
-        if key == "serial" and (item["review"] != "clear" or
-                                item["source"] != "plate" or not plate or
-                                plate["component"] != item["component"] or plate["readability"] != "clear" or
-                                (item["value"] and re.search(r"[?\[\]*]|ilegible|unreadable", item["value"], re.I))):
+        if key == "serial" and not plate_serial_is_clear(item, plate):
             item["value"] = None
             item["review"] = "needs_review"
         if key not in AI_KEYS or item["component"] != "machine":

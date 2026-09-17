@@ -1,6 +1,6 @@
 # Fuentes públicas para investigación de maquinaria
 
-Verificación documental: **16 de septiembre de 2026**. El catálogo de `portal/research_sources.py` contiene **seis fabricantes y dos catálogos técnicos externos**. Son puntos de partida reales para búsquedas; no conexiones a registros privados, APIs contratadas ni garantía de que exista información de una máquina concreta.
+Verificación documental: **16 de septiembre de 2026**. El catálogo de `portal/research_sources.py` contiene **seis perfiles generales de fabricantes, un perfil de Cat Lift Trucks y catálogos técnicos por familia**. Son puntos de partida reales para búsquedas; no conexiones a registros privados, APIs contratadas ni garantía de que exista información de una máquina concreta.
 
 ## Fabricantes verificados
 
@@ -24,6 +24,24 @@ Se incluyeron Caterpillar, Komatsu, JLG y Bobcat porque también figuran en el c
 
 Ambos conservan `source_kind='technical_catalog'`, incluso cuando una página contiene años o una URL menciona series. Sirven como referencias de modelo pendientes de comprobación; **no son autoridades de año por número de serie**.
 
+## Montacargas Cat: documentación de manutención
+
+Cuando la categoría confirmada es `Montacargas`, `lookup_brand('CAT', 'Montacargas')` dirige la investigación a **Cat Lift Trucks**, mediante [Logisnext y sus marcas](https://www.logisnextamericas.com/en/logisnext/our-brands), [servicio de Logisnext](https://www.logisnextamericas.com/en/logisnext/support/service) y [la historia de Cat Lift Trucks](https://www.catlifttruck.com/catr-lift-trucks-story-success). Las búsquedas pueden consultar documentación histórica MCFA; el perfil no asigna automáticamente fabricante, país ni configuración a una unidad. Una sede en Houston no demuestra origen estadounidense.
+
+La etapa de catálogos prioriza **MachineTools y LECTURA** para esta familia. La [página del modelo 2EC25 en MachineTools](https://www.machinetools.com/en/models/caterpillar-2ec25) muestra información limitada y un peso sin unidad visible en la lectura comprobada: no se completa la unidad por suposición. MachineTools devolvió HTTP 403 al cliente directo y no se habilita evasión ni lector directo para ese sitio.
+
+El [catálogo de baterías de East Penn para Caterpillar](https://www.eastpennmanufacturing.com/wp-content/uploads/Caterpillar.pdf) contiene configuraciones alternativas de voltaje y pesos mínimos de batería. Una alternativa no prueba el voltaje instalado y su peso no equivale al peso del montacargas.
+
+### Fichas históricas que identifican la serie
+
+El lector de [Smith Machinery](https://www.smithmachinery.com/) admite únicamente rutas públicas `/listing/<slug>/` devueltas realmente por el buscador. Exige marca y modelo en los atributos de la ficha, modelo y **serie idéntica completa en el encabezado visible**, y tipo montacargas. No utiliza la URL, nombres de imágenes ni el modelo para inventar la identidad.
+
+Extrae filas literales de capacidad, altura de elevación, voltaje, peso con/sin batería, peso mínimo/máximo de batería, capacidad en amperio-horas y longitud de horquillas cuando estén presentes con sus etiquetas/unidades. Conserva calificadores y la nota de verificación del vendedor. Una ficha de otra serie o una consulta sin serie no se convierte en referencia genérica del modelo. Nunca importa condición, precio, disponibilidad, año del anuncio, ubicación del vendedor o país supuesto.
+
+Estos datos conservan `scope='exact_serial'`, `source='web'` y `review='needs_review'`: documentan lo que una fuente decía de esa unidad, sin certificar su configuración actual. Pasan por la misma validación y firma. URLs y títulos que contienen la serie conservan las restricciones de privacidad de la ficha pública. Las pruebas usan identificadores sintéticos; no se incluyen series de anunciantes en el repositorio.
+
+APIs compatibles: `lookup_brand(name, category=None)`, `catalogs_for_category(category=None)` y `source_kind(url, brand=None, category=None)`. Sin categoría se mantiene el perfil de construcción anterior. El lector Smith comparte límites de dos documentos, tiempos, tamaños, URLs recuperadas y DNS público con H-CPC/Ritchie; no añade llamadas de IA ni cambia cuotas. Su contenido histórico no autoriza años de fabricación por serie.
+
 ## HESSEN 016-9020 y 016-9030
 
 Se buscaron públicamente las combinaciones exactas `"HESSEN" "016-9020"` y `"HESSEN" "016-9030"`, variantes con «compactadora» y búsquedas de manuales. No se encontró un documento técnico o una página de fabricante que vincule de forma verificable esos modelos en esta revisión. No se utilizó ningún número de serie privado.
@@ -44,10 +62,10 @@ catalog_domains = tuple(domain for item in TECHNICAL_CATALOGS for domain in item
 kind = source_kind('https://www.cat.com/en_US/support/maintenance/service-manuals.html', 'CAT')
 ```
 
-- `lookup_brand(name) -> BrandProfile | None`: coincidencia de alias completo normalizado; no coincidencias parciales de nombres o modelos.
+- `lookup_brand(name, category=None) -> BrandProfile | None`: coincidencia de alias completo normalizado; no coincidencias parciales de nombres o modelos.
 - `MANUFACTURERS`: tupla de dataclasses congeladas con `brand`, `aliases`, `manufacturer_domains`, `documentation_urls`, `source_kind`, `verified_on` y `access_note`.
 - `TECHNICAL_CATALOGS`: tupla de dataclasses congeladas con `name`, `domains`, `documentation_urls`, `source_kind`, `verified_on` y `access_note`.
-- `source_kind(url, brand=None)`: devuelve `manufacturer`, `technical_catalog`, `public_documentation` o `None`. Con marca sólo reconoce como fabricante los dominios de esa marca; sin marca reconoce cualquiera de los seis perfiles. Compara límites de dominio, evitando que `cat.com.otro-dominio.example` herede autoridad.
+- `source_kind(url, brand=None, category=None)`: devuelve `manufacturer`, `technical_catalog`, `public_documentation` o `None`. Con marca/categoría reconoce los dominios de ese perfil; sin marca reconoce los perfiles registrados. Compara límites de dominio, evitando que `cat.com.otro-dominio.example` herede autoridad.
 - `public_documentation` significa **origen público no clasificado**: no acredita que la URL contenga un manual, que se haya descargado, que sea oficial ni que sus afirmaciones sean correctas. URL inválida, credenciales incrustadas, IP literal o nombre local devuelve `None`.
 - El módulo no hace peticiones. Su comprobación de URL no es un cortafuegos de red ni un validador SSRF; cualquier futura descarga debe aplicar su política de red y volver a clasificar el destino final de una redirección.
 
@@ -61,9 +79,9 @@ La elección de estrategia conserva el modelo configurado, las etapas y las cuot
 
 ## Lectura directa de documentos públicos
 
-Además de la búsqueda por etapas, el servidor puede leer hasta **dos páginas de especificaciones** que el buscador haya devuelto realmente. Los lectores iniciales cubren tablas públicas de **Caterpillar H-CPC** y **RitchieSpecs**. No se construyen enlaces de modelos ni se envían datos de contacto. Esta lectura no consume otra llamada de IA.
+Además de la búsqueda por etapas, el servidor puede leer hasta **dos páginas de especificaciones** que el buscador haya devuelto realmente. Los lectores cubren tablas públicas de **Caterpillar H-CPC**, **RitchieSpecs** y las fichas exactas de **Smith Machinery** descritas arriba. No se construyen enlaces de modelos ni se envían datos de contacto. Esta lectura no consume otra llamada de IA.
 
-El lector comprueba el encabezado real del documento y extrae filas con etiquetas y unidades literales. Las páginas que agrupan modelos distintos, las variantes no coincidentes, los motores opcionales y los valores incompatibles no se convierten automáticamente en especificaciones de una unidad. Las tablas aceptadas pasan por la misma validación de procedencia y conflictos que la búsqueda y pueden conservarse si falla el resumen de IA. Las fuentes siguen siendo referencias de modelo pendientes de revisión de la máquina concreta.
+El lector comprueba el encabezado real del documento y extrae filas con etiquetas y unidades literales. Las páginas que agrupan modelos distintos, las variantes no coincidentes, los motores opcionales y los valores incompatibles no se convierten automáticamente en especificaciones de una unidad. Las tablas aceptadas pasan por la misma validación de procedencia y conflictos que la búsqueda y pueden conservarse si falla el resumen de IA. Los catálogos conservan ámbito de modelo; una fuente que vincula literalmente la serie completa, marca y modelo puede aportar datos de ámbito `exact_serial`. Ambos permanecen pendientes de revisión de la máquina concreta.
 
 Las descargas permiten únicamente HTTPS, rutas de catálogo registradas, direcciones de red públicas y redirecciones revalidadas. Tienen límites de tiempo, tamaño y cantidad. Se respetan errores de acceso: **LECTURA respondió 403 a la lectura directa de prueba**, por lo que no tiene lector directo habilitado. Sus páginas públicas pueden seguir apareciendo como fuentes del buscador. No se eluden inicios de sesión ni se contratan APIs.
 

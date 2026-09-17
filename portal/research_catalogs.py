@@ -160,6 +160,117 @@ def _model_key(value):
     return re.sub(r"[\s-]+", "", value).casefold()
 
 
+def _text_lines(node):
+    """Visible source lines, including HTML breaks lost by ordinary text()."""
+    if node.hidden():
+        return ""
+    if node.tag == "br":
+        return "\n"
+    text = "".join(_text_lines(child) if isinstance(child, _Node) else child for child in node.children)
+    return text + ("\n" if node.tag in {"p", "div", "tr", "h2", "h3"} else "")
+
+
+def _smith_document(root, output, identity, url):
+    """Historical seller specification, accepted only for its literal unit.
+
+    Unlike a manufacturer catalogue this must never become a model reference
+    for another serial. Neither the URL nor a photo alt tag proves identity.
+    """
+    areas = [n for n in root.nodes("section") if "single-listing" in n.classes()]
+    headings = [n.text() for area in areas for n in area.nodes("h2") if "fill" in n.classes()]
+    if len(headings) != 1 or len(headings[0]) > 300:
+        return output
+    heading = headings[0]
+    output["heading"] = heading
+    heading_model = re.search(r"\bMODEL\s*#?\s*:\s*([A-Za-z0-9][A-Za-z0-9 .-]{0,79})(?=,|$)", heading, re.I)
+    heading_serial = re.search(r"\bS/N\s*:\s*([A-Za-z0-9][A-Za-z0-9-]{0,79})(?=\s|,|$)", heading, re.I)
+    attributes = {}
+    for area in areas:
+        for paragraph in area.nodes("p"):
+            labels = [n.text() for n in paragraph.nodes("b")]
+            lines = [_space(line) for line in _text_lines(paragraph).splitlines() if _space(line)]
+            if len(labels) == 1 and len(lines) == 2 and lines[0] == labels[0] and labels[0] in {"Brand", "Model", "Type"}:
+                if labels[0] in attributes:
+                    return output
+                attributes[labels[0]] = lines[1]
+    brand_verified = _brand_key(attributes.get("Brand")) == _brand_key(identity.get("brand"))
+    document_model = attributes.get("Model", "")
+    output["model_info"] = {"requested_model": identity.get("model", ""),
+                            "document_models": [document_model] if document_model else [],
+                            "brand_verified": brand_verified}
+    serial = identity.get("serial")
+    if (not brand_verified or not heading_model or not heading_serial
+            or not isinstance(serial, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 -]{0,79}", serial)
+            or _model_key(heading_serial.group(1)) != _model_key(serial)
+            or _model_key(heading_model.group(1)) != _model_key(identity["model"])
+            or _model_key(document_model) != _model_key(identity["model"])
+            or attributes.get("Type", "").casefold() not in {"forklift trucks", "forklifts"}):
+        output["status"] = "identity_mismatch"
+        return output
+    homes = [n for area in areas for n in area.nodes() if n.attrs.get("id") == "home"]
+    if len(homes) != 1:
+        return output
+    lines = [_space(line) for line in _text_lines(homes[0]).splitlines() if _space(line)]
+    if len(lines) > MAX_ROWS:
+        return output
+    section, rows = "", []
+    notes = "SPECIFICATIONS SUBJECT TO VERIFICATION" if "SPECIFICATIONS SUBJECT TO VERIFICATION" in lines else ""
+    for line in lines:
+        if line in {"SPECIFICATIONS:", "EQUIPPED WITH:", "NOTES:", "DELIVERY:"}:
+            section = line.rstrip(":")
+            continue
+        if section == "SPECIFICATIONS":
+            split = re.fullmatch(r"(.+?)\s+-{2,}\s+(.+)", line)
+            if not split:
+                continue
+            row = _row(section, split.group(1), split.group(2), notes)
+        elif section == "EQUIPPED WITH" and re.fullmatch(r"\d+(?:[.,]\d+)?\s*(?:in|mm|cm)\s+FORKS", line, re.I):
+            row = _row(section, "FORKS", line, notes)
+        else:
+            continue
+        if row:
+            # The exact visible heading and raw source row travel together.
+            row["literal"] = line
+            rows.append(row)
+    output["rows"] = rows
+    numeric = r"\d+(?:[.,]\d+)*"
+    mass, length = numeric + r"\s*(?:LBS?|KG)", numeric + r"\s*(?:in|mm|cm|m)"
+    rules = {
+        "CAPACITY": ("capacity", mass), "LIFT HEIGHT": ("lift_height", length),
+        "BATTERIES": ("voltage", numeric + r"\s*V"),
+        "TRUCK WEIGHT W/O BATTERIES": ("weight", mass),
+        "TRUCK WEIGHT WITH BATTERIES": ("weight", mass),
+        "MIN/MAX BATTERY WEIGHT": ("battery_weight", mass + r"\s*/\s*" + mass),
+        "AMP HOUR CAPACITY": ("battery_capacity", numeric),
+        "FORKS": ("fork_length", length + r"\s+FORKS"),
+    }
+    grouped = {}
+    for row in rows:
+        rule = rules.get(row["label"].upper())
+        if rule and re.fullmatch(rule[1], row["value"], re.I):
+            grouped.setdefault(rule[0], []).append(row)
+    fields, conflicts = [], []
+    for key, options in grouped.items():
+        by_label = {}
+        for row in options:
+            by_label.setdefault(row["label"], set()).add(row["value"])
+        if any(len(values) != 1 for values in by_label.values()):
+            conflicts.append(key)
+            continue
+        options = list({row["label"]: row for row in options}.values())
+        # Retain labels whenever they carry units or a configuration qualifier.
+        raw = "\n".join(row["literal"] for row in options)
+        value = ("; ".join(f"{row['label']}: {row['value']}" for row in options)
+                 if key in {"weight", "battery_weight", "battery_capacity"} else options[0]["value"])
+        evidence = heading + "\n" + raw + ("\n" + notes if notes else "")
+        if len(value) <= 300 and len(evidence) <= 650:
+            fields.append(ResearchField(key=key, value=value, scope="exact_serial", source_url=url,
+                evidence=evidence, matched_brand=attributes["Brand"], matched_model=document_model,
+                matched_serial=heading_serial.group(1)))
+    output.update(status="matched", fields=fields, conflicting_fields=conflicts)
+    return output
+
+
 def _brand_key(value):
     value = _space(str(value or "")).casefold().replace("®", "")
     return "caterpillar" if value in {"cat", "caterpillar"} else value
@@ -256,7 +367,8 @@ def parse_catalog_html(html, url, identity):
             output["status"] = "unsupported_source"
             return output
         provider = ("cat" if host == "h-cpc.cat.com" and parsed_url.path == "/cmms/v2" else
-                    "ritchie" if host in {"ritchiespecs.com", "www.ritchiespecs.com"} and parsed_url.path.startswith("/model/") else None)
+                    "ritchie" if host in {"ritchiespecs.com", "www.ritchiespecs.com"} and parsed_url.path.startswith("/model/") else
+                    "smith" if host == "www.smithmachinery.com" and re.fullmatch(r"/listing/[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*/?", parsed_url.path) and not parsed_url.query else None)
         if provider is None:
             output["status"] = "unsupported_source"
             return output
@@ -273,6 +385,8 @@ def parse_catalog_html(html, url, identity):
         if len(titles) != 1 or len(titles[0]) > 180:
             return output
         output["title"] = titles[0]
+        if provider == "smith":
+            return _smith_document(root, output, identity, url)
         area = root if provider == "cat" else next((node for node in root.nodes() if "item-details" in node.classes()), None)
         if area is None:
             return output

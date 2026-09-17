@@ -27,7 +27,7 @@ CONNECT_TIMEOUT = 5.0
 READ_TIMEOUT = 10.0
 DNS_TIMEOUT = 3.0
 CHUNK_SIZE = 16384
-ALLOWED_HOSTS = frozenset({'h-cpc.cat.com', 'www.ritchiespecs.com'})
+ALLOWED_HOSTS = frozenset({'h-cpc.cat.com', 'www.ritchiespecs.com', 'www.smithmachinery.com'})
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +82,9 @@ def _validated_url(url):
                            r'[A-Za-z0-9_-]{1,24}')
                 if not re.fullmatch(pattern, value):
                     raise CatalogFetchError('unsupported_url')
+        elif host == 'www.smithmachinery.com':
+            if pairs or not re.fullmatch(r'/listing/[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*/?', path):
+                raise CatalogFetchError('unsupported_url')
         else:
             prefix = '/model/'
             if pairs or not path.startswith(prefix) or len(path) == len(prefix):

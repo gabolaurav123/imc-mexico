@@ -43,9 +43,21 @@ class SheetDetailsTests(SimpleTestCase):
         serialized = json.dumps(items)
         for forbidden in ("PRIVATE", "untrusted", "person@example.invalid"):
             self.assertNotIn(forbidden, serialized)
-        self.assertTrue(items[0]["reference"]["url"].startswith("https://www.husqvarnaconstruction.com/"))
-        items[0]["reference"]["url"] = "changed locally"
-        self.assertNotEqual(build_sheet_details({"weight": "90 kg"})[0]["reference"]["url"], "changed locally")
+        self.assertEqual(items[0]["reference"], {})
+        compact = build_sheet_details({"weight": "90 kg"}, category="Compactadores")
+        self.assertTrue(compact[0]["reference"]["url"].startswith("https://www.husqvarnaconstruction.com/"))
+        compact[0]["reference"]["url"] = "changed locally"
+        self.assertNotEqual(build_sheet_details({"weight": "90 kg"}, category="Compactadores")[0]["reference"]["url"], "changed locally")
+
+    def test_compactor_sources_are_not_attached_to_forklifts_or_unknown_categories(self):
+        data = {"weight": "4500 kg", "power": "15 kW", "capacity": "2500 kg", "dimensions": "3 m"}
+        for category in (None, "", "Montacargas", "Excavadoras", "Otra maquinaria"):
+            with self.subTest(category=category):
+                items = build_sheet_details(data, category=category)
+                self.assertEqual(len(items), 4)
+                self.assertTrue(all(item["reference"] == {} for item in items))
+                self.assertNotIn("Husqvarna", json.dumps(items))
+                self.assertNotIn("Wacker", json.dumps(items))
 
     def test_missing_malformed_or_non_numeric_values_do_not_create_empty_cards(self):
         self.assertEqual(build_sheet_details(None), [])

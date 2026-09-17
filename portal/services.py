@@ -20,7 +20,12 @@ from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine,
 
 
 PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
-                          "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación"}
+                          "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación",
+                          "front_tire_size": "Llantas delanteras", "rear_tire_size": "Llantas traseras",
+                          "mast_tilt": "Inclinación mástil (placa)", "load_tire_tread": "Entrecentros de llantas de carga",
+                          "manufacturer": "Fabricante", "manufacturer_address": "Dirección del fabricante",
+                          "voltage": "Voltaje", "lift_height": "Altura de elevación", "load_center": "Centro de carga",
+                          "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería", "fork_length": "Longitud de horquillas"}
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
@@ -29,7 +34,9 @@ WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "w
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
                     "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS}
 NUMERIC_READING_FIELDS = {"serial", "year", "hours", "kilometers", "power", "weight", "capacity", "dimensions",
-                          "vibration_frequency", "centrifugal_force", "compaction_depth"}
+                          "vibration_frequency", "centrifugal_force", "compaction_depth", "front_tire_size",
+                          "rear_tire_size", "mast_tilt", "load_tire_tread", "voltage", "lift_height", "load_center",
+                          "battery_weight", "battery_capacity", "fork_length"}
 
 
 def _same_image_numeric_conflict(machine, key, value, meta):
@@ -311,7 +318,8 @@ def _clear_automatic_field(job, key, value, meta):
     if key == "serial":
         if meta.get("source") != "plate" or re.search(r"[?\[\]*]|ilegible|unreadable", str(value), re.I):
             return False
-        return any(p.get("asset_id") == meta["asset_id"] and p.get("component") == "machine" and p.get("readability") == "clear"
+        from .processing import plate_serial_is_clear
+        return any(plate_serial_is_clear({"key": "serial", "value": value, **meta}, p)
                    for p in job.result.get("plates", []) if isinstance(p, dict))
     return True
 

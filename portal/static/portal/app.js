@@ -120,6 +120,8 @@
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
   const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',country_of_origin:'País de fabricación' };
+  const additionalPlateLabels = { front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
+  Object.assign(keyLabels,additionalPlateLabels);
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -551,7 +553,7 @@
     for (const key of ['brand','model','year','serial','hours','condition']) addField(specs,key,data[key]);
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
-    for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments']) addField(technical,key,data[key]);
+    for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
     const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
     addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
@@ -610,7 +612,7 @@
     const target = $('#category-fields'), source = $('#category-data'); if (!target || !source) return;
     let categories; try { categories = JSON.parse(source.textContent); } catch { return; }
     const category = categories.find(item => String(item.id) === $('#category').value); target.replaceChildren();
-    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin'];
+    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin',...Object.keys(additionalPlateLabels)];
     const fields = [...(category?.fields || [])];
     for (const key of technical) if (!missing(pending.has(key) ? pending.get(key).value : state.data[key]) && !fields.some(item => (typeof item === 'string' ? item : item.key || item.name) === key)) fields.push(key);
     for (const item of fields) {

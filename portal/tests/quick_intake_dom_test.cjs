@@ -222,5 +222,18 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    photoPreview.close();
  }
  pass('main-object classification labels plate close-ups, prioritizes machine evidence, and supports legacy jobs without mutating asset permissions');
+ const forkliftData={front_tire_size:'21x7x15',rear_tire_size:'16x6x10.5',mast_tilt:'Rearward 6 deg',load_tire_tread:'34.5 in',manufacturer:'Fabricante de prueba',manufacturer_address:'Houston, USA',voltage:'48 V',lift_height:'188 in',load_center:'24 in',battery_weight:'MIN 1800 lb / MAX 2200 lb',battery_capacity:'600 Ah',fork_length:'42 in'};
+ let forkliftSave;
+ const forklift=setup(async(url,o)=>{assert.ok(url.endsWith('guardar/'));forkliftSave=JSON.parse(o.body);return response(200,{revision:forkliftSave.revision+1});},{data:{...forkliftData,location:'',country_of_origin:''}});
+ for(const [key,value] of Object.entries(forkliftData)){
+   assert.equal(forklift.doc.querySelector(`[data-preview-field="${key}"] dd`).textContent,value);
+   assert.equal(forklift.doc.querySelector(`[data-field="${key}"]`).value,value,'present plate field stays editable without category schema');
+ }
+ assert.match(forklift.doc.querySelector('#preview-commercial-specs').textContent,/Ubicación actualNo indicada/);
+ assert.match(forklift.doc.querySelector('#preview-commercial-specs').textContent,/País de fabricaciónNo identificado/);
+ input(forklift,'extra-mast_tilt','Rearward 5 deg');await pause(900);
+ assert.deepEqual(forkliftSave.data,{mast_tilt:'Rearward 5 deg'});
+ assert.equal(forklift.doc.querySelectorAll('[data-step-panel]').length,2);
+ forklift.close();pass('forklift plate fields render and remain editable with literal qualifiers; manufacturer address never becomes location or origin');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

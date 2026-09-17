@@ -10,7 +10,7 @@ from .research_catalogs import parse_catalog_html
 
 
 def collect_document_fields(identity, retrieved, sources, passages, titles, allowed=None):
-    """Append literal document evidence, bounded to two pages and ten fields.
+    """Append literal document evidence, bounded to two pages and twenty fields.
 
     Search-result URLs authorize retrieval, never the facts. The parser checks
     the actual document heading and rows; normalize_research checks them again.
@@ -24,7 +24,8 @@ def collect_document_fields(identity, retrieved, sources, passages, titles, allo
         if canonical not in seen and supports_catalog_url(url):
             seen.add(canonical)
             candidates.append(source)
-    candidates.sort(key=lambda s: not _contains_identifier(s.get("title", ""), identity["model"]))
+    candidates.sort(key=lambda s: (not _contains_identifier(s.get("title", ""), identity.get("serial")),
+                                   not _contains_identifier(s.get("title", ""), identity["model"])))
     # Give an independent catalog a chance after a manufacturer result.
     selected, hosts = [], set()
     for source in candidates:
@@ -59,7 +60,7 @@ def collect_document_fields(identity, retrieved, sources, passages, titles, allo
         url, title = page.final_url, document["title"]
         # Reserve space for literal table rows, without dropping an earlier
         # direct document. Model normalization happens after this reindexing.
-        web = [p for p in passages if p.get("origin") != "direct_document"][:26]
+        web = [p for p in passages if p.get("origin") != "direct_document"][:16]
         direct = [p for p in passages if p.get("origin") == "direct_document"]
         while web and sum(len(p["text"]) for p in web + direct) > 12000:
             web.pop()
@@ -75,8 +76,8 @@ def collect_document_fields(identity, retrieved, sources, passages, titles, allo
         else:
             next(s for s in sources if s["url"] == url)["title"] = title
         titles[url] = title
-        for field in document["fields"][:5]:
-            if len(passages) >= MAX_CITED_PASSAGES or len(fields) >= 10:
+        for field in document["fields"][:10]:
+            if len(passages) >= MAX_CITED_PASSAGES or len(fields) >= 20:
                 break
             text = field.evidence
             if not text or len(text) > 650 or sum(len(p["text"]) for p in passages) + len(text) > 18000:

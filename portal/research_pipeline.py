@@ -29,6 +29,9 @@ SEARCH_INSTRUCTIONS = (
     "Copia las etiquetas y los valores de tablas técnicas; distingue potencia neta/bruta y variantes. "
     "Incluye marca, modelo, potencia, peso, capacidad, dimensiones, combustible, motor, transmisión, "
     "frecuencia de vibración, fuerza centrífuga, profundidad de compactación y país de fabricación documentados. "
+    "En montacargas busca capacidad de carga, altura de elevación, centro de carga, voltaje, neumáticos, "
+    "inclinación del mástil, trocha, peso/capacidad de batería y longitud de horquillas; conserva los calificadores "
+    "con/sin batería, mínimo/máximo y configuración. No deduzcas capacidad de carga a partir del código del modelo. "
     "País sólo con afirmación explícita de fabricación/origen del producto para ese modelo: "
     "Made in, Fabricado en, País de origen, Hergestellt in o equivalente. No país de sede, idioma ni eslogan. "
     "Año sólo si el fabricante vincula expresamente la serie exacta con su año de fabricación. "
@@ -50,7 +53,11 @@ NORMALIZE_INSTRUCTIONS = (
     "Incluso con basis exact_serial, especificaciones de un modelo sin la serie llevan scope model. "
     "Si faltan marca/modelo iniciales, sólo se pueden identificar desde una coincidencia exacta de esa serie. "
     "Sólo keys brand,model,power,weight,capacity,dimensions,fuel,engine,transmission,year,"
-    "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin. "
+    "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin,front_tire_size,rear_tire_size,"
+    "mast_tilt,load_tire_tread,manufacturer,manufacturer_address,voltage,lift_height,load_center,"
+    "battery_weight,battery_capacity,fork_length. "
+    "Conserva condiciones técnicas con/sin batería y mínimo/máximo. manufacturer_address es dirección del fabricante "
+    "expresamente identificado, nunca ubicación actual ni país de fabricación; no copies direcciones de vendedores. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
     "fuel sólo es el tipo de combustible o energía (diésel, gasolina, gas, eléctrico), nunca ahorro, consumo o funciones comerciales. "
     "Una variante con sufijo separado, como 420F2 IT, es distinta de 420F2; no transfieras sus cifras. "
@@ -59,14 +66,15 @@ NORMALIZE_INSTRUCTIONS = (
 )
 
 
-def _source_plan(identity, stage):
+def _source_plan(identity, stage, category=None):
     # The registry contains verified public entry points, not fabricated serial APIs.
-    from .research_sources import lookup_brand, TECHNICAL_CATALOGS
-    profile = lookup_brand(identity.get("brand"))
+    from .research_sources import lookup_brand, catalogs_for_category
+    profile = lookup_brand(identity.get("brand"), category)
     if stage == "manufacturer":
         return (list(profile.manufacturer_domains), list(profile.documentation_urls)) if profile else ([], [])
     if stage == "catalogs":
-        return [domain for s in TECHNICAL_CATALOGS for domain in s.domains], [url for s in TECHNICAL_CATALOGS for url in s.documentation_urls]
+        catalogs = catalogs_for_category(category)
+        return [domain for s in catalogs for domain in s.domains], [url for s in catalogs for url in s.documentation_urls]
     return [], list(profile.documentation_urls) if profile else []
 
 
@@ -78,7 +86,9 @@ def _stage_request(identity, stage, result, category=None):
     known = " ".join(f'"{identifiers[k]}"' for k in ("brand", "model") if identifiers.get(k))
     if stage == "serial":
         query = f'"{identity["serial"]}" {known}'
-        objective = "Localizar un registro público de la serie exacta; identificar marca/modelo sólo si la misma fuente los vincula."
+        objective = ("Localizar un registro público de la serie exacta; identificar marca/modelo sólo si la misma fuente los vincula. "
+                     "Una ficha histórica pública del vendedor puede aportar especificaciones documentadas de esa serie; "
+                     "no acredita su ubicación, propietario, disponibilidad o estado actuales.")
     elif stage == "manufacturer":
         query = f'{known} specifications'
         objective = "Consultar documentación original del fabricante y tablas de especificaciones del modelo exacto."
@@ -101,7 +111,9 @@ def _stage_request(identity, stage, result, category=None):
         query += " " + category_terms[category]
     if not identity.get("model"):
         objective += " Falta identificar el modelo: busca una vinculación documental con la serie; no elijas modelos similares ni apliques cifras genéricas."
-    domains, entries = _source_plan(identity, stage)
+    if category == "Montacargas" and identifier_key(identity.get("brand")) in {"cat", "caterpillar"}:
+        objective += " Para esta familia consulta Cat Lift Trucks y documentación histórica MCFA/Logisnext, no catálogos Cat Construction. La sede del fabricante no prueba el país de fabricación."
+    domains, entries = _source_plan(identity, stage, category)
     missing = sorted(WEB_KEYS - {key for key, value in result.get("data", {}).items() if value not in (None, "")})
     return {
         "identifiers": identifiers, "research_stage": stage, "query": query,

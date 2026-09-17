@@ -18,7 +18,7 @@ class ConflictingPlateReadingsTests(TestCase):
     def job(self, **changes):
         job = fixtures.PlateCompletionTests.job(self, **changes)
         job.result["plates"] = [{"asset_id": str(self.asset.pk), "component": "machine", "readability": "clear",
-                                 "transcription": "Serie de prueba: " + str(changes.get("serial", ""))}]
+                                 "transcription": "SERIAL No. " + str(changes.get("serial", ""))}]
         job.save(update_fields=["result"])
         return job
 

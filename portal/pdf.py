@@ -16,7 +16,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (CondPageBreak, Flowable, KeepTogether, LongTable, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
-from .services import public_web_references, web_research_for_provenance
+from .services import PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text, public_web_references, web_research_for_provenance
 
 NAVY = colors.HexColor("#000033")
 ORANGE = colors.HexColor("#E38C1A")
@@ -32,8 +32,7 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
-    "vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
-    "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación",
+    **PLATE_TECHNICAL_LABELS,
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
@@ -119,6 +118,10 @@ def build_pdf(machine, data, assets, public=False, version=None):
     if public:
         if not version:
             raise ValueError("Una ficha de difusión requiere una versión autorizada.")
+        private_identifiers = {_reference_text(values.get(key)) for key in ("serial", "vin")} - {""}
+        for key in set(WEB_FIELD_LABELS) | {"hours", "kilometers", "attachments"}:
+            if key in values and any(identifier in _reference_text(values[key]) for identifier in private_identifiers):
+                values.pop(key)
         public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
         asset_list = [a for a in asset_list if str(a.pk) in public_ids and a.public_authorized
                       and not is_plate(a) and a.purpose != "document"]
@@ -299,10 +302,12 @@ def build_pdf(machine, data, assets, public=False, version=None):
     section("Descripción del equipo", [para(values["description"])] if values.get("description") else [])
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
-    specification_table("Identificación del equipo", [key for key in ("brand", "model", "year", "serial", "country_of_origin")
+    specification_table("Identificación del equipo", [key for key in ("brand", "model", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
     specification_table("Especificaciones técnicas", [key for key in ("power", "weight", "capacity", "dimensions", "engine", "transmission", "fuel",
-                                                                       "vibration_frequency", "centrifugal_force", "compaction_depth")
+                                                                       "vibration_frequency", "centrifugal_force", "compaction_depth",
+                                                                       "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
+                                                                       "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length")
                                                         if key not in highlights])
     specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "attachments", "condition")
                                                    if key not in displayed_identity])

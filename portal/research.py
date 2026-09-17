@@ -20,7 +20,7 @@ from typing import Literal
 from .research_evidence import explicit_manufacturing_origin, has_conflicting_unit_reference
 from .research_field_values import is_valid_research_field_value
 
-RESEARCH_VERSION = "imc-research-2026-09-v2"
+RESEARCH_VERSION = "imc-research-2026-09-v3"
 CONSENT_VERSION = "2026-09-research"
 SEARCH_RESERVATION = 14_000
 NORMALIZE_RESERVATION = 18_000
@@ -29,15 +29,22 @@ MAX_CITED_PASSAGES = 36
 MAX_RESEARCH_SOURCES = 36
 MAX_DIRECT_FIELDS = 24
 WEB_KEYS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission", "year",
-            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"}
+            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
+            "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer",
+            "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length"}
 LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
           "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
           "engine": "Motor", "transmission": "Transmisión", "year": "Año",
           "vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
-          "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación"}
+          "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación",
+          "front_tire_size": "Llantas delanteras", "rear_tire_size": "Llantas traseras", "mast_tilt": "Inclinación del mástil",
+          "load_tire_tread": "Entrecentros de llantas de carga", "manufacturer": "Fabricante",
+          "manufacturer_address": "Dirección del fabricante", "voltage": "Voltaje", "lift_height": "Altura de elevación",
+          "load_center": "Centro de carga", "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería",
+          "fork_length": "Longitud de horquillas"}
 # Conservative authority recognition: unsupported manufacturers cannot supply a
 # year automatically. These manufacturer domains were checked against their own sites.
-MANUFACTURER_DOMAINS = {"caterpillar": ("cat.com", "caterpillar.com"),
+MANUFACTURER_DOMAINS = {"caterpillar": ("cat.com", "caterpillar.com", "catlifttruck.com", "logisnextamericas.com"),
                         "komatsu": ("komatsu.com",), "johndeere": ("deere.com",),
                         "volvo": ("volvoce.com",)}
 SIGNING_SALT = "portal.research.manifest.v1"
@@ -185,9 +192,9 @@ def research_identity(result, snapshot=None, allowed_categories=None):
     serial_meta = provenance.get("serial", {})
     serial = _identifier(data.get("serial"), serial=True)
     if "serial" not in declared and serial and serial_meta.get("component") == "machine" and serial_meta.get("source") == "plate" and serial_meta.get("review") == "clear":
+        from .processing import plate_serial_is_clear
         for plate in result.get("plates", []):
-            if (plate.get("asset_id") == serial_meta.get("asset_id") and plate.get("component") == "machine"
-                    and plate.get("readability") == "clear" and _contains_identifier(plate.get("transcription"), serial)):
+            if plate_serial_is_clear({**serial_meta, "key": "serial", "value": serial}, plate):
                 identity["serial"] = serial
                 break
     basis = "exact_serial" if identity["serial"] else "model" if identity["brand"] and identity["model"] else "none"
@@ -557,7 +564,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if item.key not in WEB_KEYS:
             reject("field_not_allowed")
             continue
-        if is_direct and (item.scope != "model" or item.matched_serial is not None):
+        if is_direct and ((item.scope == "model" and item.matched_serial is not None)
+                or (item.scope == "exact_serial" and (basis != "exact_serial" or not identity.get("serial")
+                    or identifier_key(item.matched_serial) != identifier_key(identity["serial"])))):
             reject("direct_scope_not_allowed")
             continue
         if not url or url not in by_url:
@@ -628,6 +637,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             r"not\s+(?:found|matched|available|identified)|unable\s+to\s+(?:find|match))\b", evidence, re.I)
         if serial_match_denied:
             exact_match = False
+        if is_direct and item.scope == "exact_serial" and not exact_match:
+            reject("direct_scope_not_allowed")
+            continue
         scope = "exact_serial" if exact_match else "model"
         contextual_evidence = ""
         if scope == "model":
@@ -671,6 +683,14 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
                  "source_date": timezone.localdate().isoformat(), "evidence": contextual_evidence or evidence,
                  "authority_validated": authoritative,
                  "matched_serial": identity["serial"] if scope == "exact_serial" else None}
+        if item.key in accepted and accepted[item.key]["scope"] != scope:
+            # A configuration tied to this exact serial takes precedence over
+            # generic model figures. Conflicts at the winning scope still veto.
+            if scope == "exact_serial":
+                accepted[item.key], accepted_direct[item.key] = field, is_direct
+                conflicts.discard(item.key)
+            diagnostics["unit_reference_preferred"] = diagnostics.get("unit_reference_preferred", 0) + 1
+            continue
         if item.key in accepted and accepted[item.key]["value"] != field["value"]:
             if _same_direct_reading(accepted[item.key], accepted_direct[item.key], field, is_direct):
                 if is_direct:
@@ -707,7 +727,8 @@ def normalize_candidates(parsed, identity, basis, sources, search_text, cited_pa
 
     Direct fields must be literal document rows whose final URLs and evidence
     already appear in sources/search_text/cited_passages. Only real document
-    titles may enter source_titles. They never acquire exact-unit scope.
+    titles may enter source_titles. Exact-unit scope additionally requires the
+    matching serial literally in the document evidence, with no denied match.
     """
     fields, citations, invalid_indices = [], {}, 0
     for passage in cited_passages[:MAX_CITED_PASSAGES]:
@@ -932,11 +953,22 @@ def sanitize_visual_description(text, private_identifiers=(), excluded_values=()
 def compose_description(data, provenance, category=None, visual_description="", private_identifiers=()):
     """Deterministic text from accepted fields, safe to recompute after autofill."""
     data, provenance = data or {}, provenance or {}
+    private_values = [data.get("serial"), data.get("vin"),
+                      *[meta.get("matched_serial") for meta in provenance.values() if isinstance(meta, dict)]]
+    private_values.extend([private_identifiers] if isinstance(private_identifiers, str) else (private_identifiers or ()))
+    private_keys = {identifier_key(value) for value in private_values} - {""}
+
+    def contains_private_identifier(value):
+        normalized = identifier_key(value)
+        return any(identifier in normalized for identifier in private_keys)
+
     visible, references = [], []
     for key in ("brand", "model", "year", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission",
-                "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin"):
+                "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
+                "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer", "manufacturer_address",
+                "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length"):
         value, meta = data.get(key), provenance.get(key, {})
-        if value in (None, "") or not isinstance(value, (str, int, float)):
+        if value in (None, "") or not isinstance(value, (str, int, float)) or contains_private_identifier(value):
             continue
         value = str(value).strip()[:300]
         if re.search(r"https?://|@|[<>\r\n]", value):
@@ -945,12 +977,13 @@ def compose_description(data, provenance, category=None, visual_description="", 
             references.append(f"{LABELS[key].lower()}: {value}")
         elif meta.get("source") == "user" or meta.get("review") in {"clear", "confirmed"}:
             visible.append(f"{LABELS[key].lower()}: {value}")
-    private_values = [data.get("serial"), *[meta.get("matched_serial") for meta in provenance.values() if isinstance(meta, dict)]]
-    private_values.extend([private_identifiers] if isinstance(private_identifiers, str) else private_identifiers)
     technical_values = [data.get(key) for key in LABELS]
     visual = sanitize_visual_description(visual_description, private_values, technical_values)
     heading = equipment_category_label(category)
+    if contains_private_identifier(heading):
+        heading = "Maquinaria"
     identity = [_identifier(data[key]) for key in ("brand", "model") if _identifier(data.get(key))
+                and not contains_private_identifier(data[key])
                 and (provenance.get(key, {}).get("source") == "user" or provenance.get(key, {}).get("review") in {"clear", "confirmed"})]
     if identity:
         heading += " " + " ".join(identity)

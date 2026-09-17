@@ -94,13 +94,38 @@ TECHNICAL_CATALOGS = (
     ),
 )
 
+# Material handling is a separate documentation family. This profile selects
+# search entry points only; it does not infer the maker or origin of a unit.
+CAT_LIFT_TRUCKS = BrandProfile(
+    brand='Caterpillar', aliases=('Cat',),
+    manufacturer_domains=('logisnextamericas.com', 'catlifttruck.com'),
+    documentation_urls=(
+        'https://www.logisnextamericas.com/en/logisnext/our-brands',
+        'https://www.logisnextamericas.com/en/logisnext/support/service',
+        'https://www.catlifttruck.com/catr-lift-trucks-story-success',
+    ),
+    access_note='Cat Lift Trucks: documentación de manutención, incluidos modelos históricos MCFA. La dirección de una empresa no acredita país de fabricación.',
+)
+FORKLIFT_CATALOGS = (
+    SourceProfile(
+        name='MachineTools', domains=('machinetools.com',),
+        documentation_urls=('https://www.machinetools.com/',),
+        access_note='Catálogo de maquinaria con modelos de montacargas históricos. Cobertura y unidades variables; sin lector directo cuando deniega acceso.',
+    ),
+    TECHNICAL_CATALOGS[0],
+)
+
+
+def catalogs_for_category(category=None):
+    return FORKLIFT_CATALOGS if category == 'Montacargas' else TECHNICAL_CATALOGS
+
 
 def _brand_key(name: str) -> str:
     # Whole aliases only: CAT is not a match for "CAT 320" or "Bobcat".
     return ' '.join(re.findall(r'\w+', unicodedata.normalize('NFKC', name).casefold()))
 
 
-def lookup_brand(name: object) -> BrandProfile | None:
+def lookup_brand(name: object, category=None) -> BrandProfile | None:
     """Return a verified brand profile for an exact normalized alias, or None.
 
     An unknown brand never borrows another manufacturer's domains. HESSEN is
@@ -109,6 +134,8 @@ def lookup_brand(name: object) -> BrandProfile | None:
     if not isinstance(name, str) or not name.strip():
         return None
     key = _brand_key(name)
+    if category == 'Montacargas' and key in {'cat', 'caterpillar'}:
+        return CAT_LIFT_TRUCKS
     for profile in MANUFACTURERS:
         if key in {_brand_key(alias) for alias in (profile.brand, *profile.aliases)}:
             return profile
@@ -148,7 +175,7 @@ def _matches_domain(host: str, domain: str) -> bool:
     return host == domain or host.endswith('.' + domain)
 
 
-def source_kind(url: object, brand: object = None) -> SourceKind | None:
+def source_kind(url: object, brand: object = None, category=None) -> SourceKind | None:
     """Classify a result's origin without verifying its claims or fetching it.
 
     With a brand, only that brand's verified domains count as manufacturer.
@@ -160,13 +187,13 @@ def source_kind(url: object, brand: object = None) -> SourceKind | None:
     host = _public_host(url)
     if host is None:
         return None
-    for catalog in TECHNICAL_CATALOGS:
+    for catalog in (*TECHNICAL_CATALOGS, *FORKLIFT_CATALOGS):
         if any(_matches_domain(host, domain) for domain in catalog.domains):
             return 'technical_catalog'
     if brand is None:
-        profiles = MANUFACTURERS
+        profiles = (*MANUFACTURERS, CAT_LIFT_TRUCKS)
     else:
-        profile = lookup_brand(brand)
+        profile = lookup_brand(brand, category)
         profiles = (profile,) if profile else ()
     if any(_matches_domain(host, domain) for profile in profiles for domain in profile.manufacturer_domains):
         return 'manufacturer'
