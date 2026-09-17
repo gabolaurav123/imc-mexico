@@ -104,7 +104,7 @@ def _stage_request(identity, stage, result, category=None):
         query = f'{known} specifications'
         objective = "Consultar documentación original del fabricante y tablas de especificaciones del modelo exacto."
     elif stage == "catalogs":
-        query = f'{known} specifications'
+        query = f'{known} specifications production years'
         objective = ("Contrastar y ampliar con catálogos externos de maquinaria; buscar también un periodo explícito "
                      "de fabricación/producción del modelo, conservando la etiqueta y los dos años. "
                      "Nunca usar ese intervalo como año de esta unidad.")

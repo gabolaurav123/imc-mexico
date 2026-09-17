@@ -6,7 +6,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from pydantic import ValidationError as SchemaValidationError
 
-from portal.processing import (AGE_ESTIMATE_LABELS, AgeEstimate, MachineAnalysis,
+from portal.processing import (AGE_ESTIMATE_LABELS, AgeEstimate, MachineAnalysis, SYSTEM_PROMPT,
     _bind_image_aliases, _merge_image_results, age_estimate_fields,
     enqueue_analysis, normalize_analysis, process_next_job)
 from portal.tests import test_image_bindings as fixtures
@@ -30,6 +30,18 @@ def normalize(response, ids=("photo",)):
 
 
 class VisualAgeNormalizationTests(SimpleTestCase):
+    def test_prompt_distinguishes_exact_year_restrictions_from_optional_visual_estimate(self):
+        # Reintroducing either blanket ban contradicts the later age_estimate
+        # instructions; completed live analyses exposed this ambiguity by
+        # retaining no estimate (the raw provider response was not stored).
+        for ambiguous in ("dimensiones, año, horas", "combustible ni año a partir",
+                          "combustible, año ni país"):
+            self.assertNotIn(ambiguous, SYSTEM_PROMPT)
+        self.assertIn("año exacto (year)", SYSTEM_PROMPT)
+        self.assertIn("La restricción de year no impide", SYSTEM_PROMPT)
+        self.assertIn("debe ser null cuando esos indicios sean insuficientes", SYSTEM_PROMPT)
+        self.assertIn("No conviertas ese rango en year", SYSTEM_PROMPT)
+
     def test_strict_schema_requires_nullable_estimate_and_integer_bounds(self):
         from openai.lib._pydantic import to_strict_json_schema
         schema = to_strict_json_schema(MachineAnalysis)

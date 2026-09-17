@@ -157,6 +157,9 @@ class DocumentedModelPeriodTests(SimpleTestCase):
         self.assertIn('estimated_year_from', NORMALIZE_INSTRUCTIONS)
         request, _ = _stage_request(IDENTITY, 'catalogs', {'data': {}}, 'Motoniveladoras')
         self.assertIn('estimated_year_from', request['priority_missing_fields'])
+        self.assertIn('specifications production years', request['query'])
+        self.assertIn('"14H"', request['query'])
+        self.assertNotIn('production years', _stage_request(IDENTITY, 'manufacturer', {'data': {}})[0]['query'])
 
     def test_verifier_rejects_incomplete_or_incoherent_trio_even_if_signed(self):
         baseline = research()
