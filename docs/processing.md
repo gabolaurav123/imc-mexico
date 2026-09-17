@@ -66,19 +66,19 @@ La aplicación automática y la aplicación manual de sugerencias verifican esta
 condición en el servidor. Los análisis históricos sin clasificación conservan
 su comportamiento; no se reclasifican ni se gastan tokens al abrirlos.
 
-La detección forma parte de la llamada de lectura existente, sin una llamada
-adicional de clasificación. Es probabilística y conserva una salida incierta
-para no presentar una imagen ilegible como contenido ajeno con certeza.
+Desde `imc-vision-research-2026-09-v18`, cada fotografía tiene una llamada de
+lectura independiente, ejecutada en secuencia. La misma llamada clasifica y
+extrae; el modelo ve una sola imagen y el servidor asigna su UUID. No acepta
+referencias a otros archivos ni observaciones contradictorias. Una foto ajena
+no comparte la extracción de texto con una placa válida. La clasificación sigue
+siendo probabilística y conserva una salida incierta para imágenes poco claras.
 
-Desde `imc-vision-research-2026-09-v17`, cada imagen se envía en un mensaje
-separado, entre delimitadores del mismo alias corto (`image_001`, etc.). El
-manifiesto y los mensajes siguen exactamente el orden registrado en el trabajo.
-El servidor traduce esos alias a los UUID de los archivos; no acepta UUID ni
-alias desconocidos devueltos por el modelo, ni observaciones contradictorias
-para el mismo alias. `input_image_bindings` conserva la asociación para auditoría,
-sin guardar el contenido de la solicitud ni URLs privadas. Esta estructura reduce
-confusiones entre fotografías; no garantiza exactitud semántica del modelo.
-Las pruebas reales deben comprobar también lotes mixtos y ambos órdenes de carga.
+Las lecturas se validan individualmente y se combinan antes de ejecutar una sola
+investigación externa. Los valores ausentes no borran lecturas legibles de otras
+fotos; los valores coincidentes se reúnen y los contradictorios quedan para
+revisión. `image_readings` permite auditar las lecturas y su consumo sin guardar
+el contenido de la solicitud ni URLs privadas. Las pruebas reales deben comprobar
+también lotes mixtos y ambos órdenes de carga.
 
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
 inicial es `gpt-4.1-mini`, cuyo soporte de entrada de imagen, Responses y Structured
@@ -144,17 +144,23 @@ para desarrollo local con un worker.
   fotos/datos crea un nuevo trabajo, sujeto a cuotas.
 - Reintentos de red, timeout, 429 y errores 5xx: máximo inicial de dos intentos,
   espera exponencial de 30 segundos en el primer reintento. El SDK no hace reintentos
-  ocultos. Los errores de validación/configuración terminan el trabajo.
-- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 600. Cubre hasta tres búsquedas
+  ocultos. Si falla la primera lectura se conserva ese comportamiento. Si falla
+  una lectura posterior, se conserva lo leído, se marcan las demás fotos pendientes
+  y no se repite automáticamente el lote ni se inicia la investigación externa.
+  La interfaz distingue esa interrupción de una foto realmente ilegible.
+  Los errores de validación/configuración de la primera lectura terminan el trabajo.
+- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 600 para una fotografía. Cubre hasta tres búsquedas
   de 65 segundos, dos normalizaciones de 55 segundos y la lectura visual de 90 segundos,
   con margen de 205 segundos para I/O. Si `OPENAI_TIMEOUT` aumenta sobre 90, ese
-  exceso se suma al mínimo. Se recuperan trabajos
+  exceso se suma al mínimo; cada fotografía adicional añade su timeout al plazo.
+  Se comprueban consentimiento, papelera y vigencia del intento antes de cada lectura.
+  Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
   el resultado de una lease posterior.
 - Valores por defecto del código: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
-- Reserva conservadora por intento: 9000 tokens más 3200 por imagen; descripción
+- Reserva conservadora por intento: 12200 tokens por imagen; descripción
   reserva 9000. La investigación añade 78000 por intento: hasta tres etapas de búsqueda
   de 14000 y dos normalizaciones de 18000. La segunda normalización sólo es necesaria
   cuando una coincidencia exacta de serie permite recuperar marca/modelo faltantes.
@@ -164,8 +170,10 @@ para desarrollo local con un worker.
   para los intentos que caben en la capacidad disponible, hasta el máximo configurado;
   si sólo cabe uno, el trabajo conserva ese tope y no reintenta sin reserva.
   La reserva no es una predicción de tokens ni un precio. La API devuelve consumo
-  real de respuestas completadas; en errores con resultado remoto desconocido se
-  contabiliza la reserva del intento conservadoramente. Los trabajos pendientes
+  real de respuestas completadas; si una llamada visual falla sin consumo conocido,
+  se estima sólo esa llamada y se suma a las lecturas ya medidas, sin cobrar fotos
+  que no se ejecutaron. Una caída del worker sin resultado recuperable conserva
+  la estimación del intento completo. Los trabajos pendientes
   de días anteriores y finalizados hoy también participan en el límite.
 - Cada trabajo conserva su reserva por intento. Antes de reclamar un trabajo de una
   versión anterior, el worker comprueba la capacidad bajo el mismo bloqueo de

@@ -155,6 +155,7 @@ class ResearchDescriptionTests(TestCase):
         job.result["attempt_limit"] = 2
         job.reserved_tokens = 58000
         job.save()
+        job = _claim_job()  # Old queued reservations must be reconciled before spending.
         normalization = client.responses.parse.return_value
         client.responses.parse.side_effect = [SimpleNamespace(status="completed",
             output_parsed=DescriptionAnalysis(description="Descripción anterior.", warnings=[], questions=[]),

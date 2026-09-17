@@ -299,5 +299,61 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  const replacementInput=retryPhotos.doc.querySelector('#gallery-input');Object.defineProperty(replacementInput,'files',{value:[new retryPhotos.w.File(['photo'],'replacement.jpg',{type:'image/jpeg'})]});replacementInput.dispatchEvent(new retryPhotos.w.Event('change'));await pause(10);finishReplacement();await pause(25);
  click(retryPhotos,'analyze-button');await pause(50);assert.equal(retryBodies.length,1);assert.equal(retryPhotos.doc.querySelector('#model').value,'Equipo de nueva foto');assert.equal(retryPhotos.doc.querySelector('[data-step-panel="2"]').hidden,false);assert.equal(retryPhotos.doc.querySelector('.asset-relevance'),null);assert.equal(retryPhotos.doc.querySelectorAll('input[type="checkbox"]').length,1);retryPhotos.close();
  pass('rejected photos can be removed/replaced and reanalyzed without another consent control; success clears old photo notices');
+ for(const readingStatus of ['failed','not_run','budget_unavailable']){
+   let interrupted,finishRead;const calls=[];
+   interrupted=setup(async(url)=>{
+     calls.push(url);assert.ok(url.includes('/api/analisis/'),'uncertain interrupted job must never request legacy application');
+     await new Promise(resolve=>finishRead=resolve);
+     const job=completed(interrupted.state,{model:'No hidratar lectura incompleta'});
+     job.auto_apply={requested:false,status:'disabled'};
+     job.result.relevance={status:'uncertain',accepted_asset_ids:[],excluded_asset_ids:[],uncertain_asset_ids:['1','2']};
+     job.result.image_analysis_status='partial';job.result.image_analysis_complete=false;
+     job.result.image_readings=[{asset_id:'1',status:'completed',relevance:'uncertain'},{asset_id:'2',status:readingStatus,relevance:'uncertain',error:'<img src=x onerror=alert(1)>'}];
+     return response(200,job);
+   },{job:{id:'interrupted',status:'completed'},data:{description:''}});
+   input(interrupted,'brand','Mi corrección');finishRead();await pause(40);
+   assert.equal(calls.length,1);assert.equal(interrupted.doc.querySelector('#brand').value,'Mi corrección');
+   assert.equal(interrupted.doc.querySelector('#model').value,interrupted.state.data.model??'');
+   assert.equal(interrupted.doc.querySelector('[data-step-panel="1"]').hidden,false);
+   assert.equal(interrupted.doc.querySelector('#analysis-status').dataset.state,'partial');
+   assert.match(interrupted.doc.querySelector('#analysis-status').textContent,/Lectura incompleta.*1 foto.*Conservamos.*continuar.*otras fotos/);
+   assert.doesNotMatch(interrupted.doc.querySelector('#analysis-status').textContent,/legible|claridad|ajena|no corresponden|identificar maquinaria|reintentar|volver a preparar/);
+   const card=interrupted.doc.querySelector('[data-asset-id="2"]');
+   assert.equal(card.dataset.relevance,readingStatus);assert.match(card.querySelector('.asset-relevance').textContent,readingStatus==='failed'?/Análisis interrumpido/:/Lectura pendiente/);
+   assert.doesNotMatch(card.textContent,/No se pudo identificar|Foto ajena/);assert.equal(card.querySelector('.asset-relevance img'),null);
+   assert.match(interrupted.doc.querySelector('#preview-description').textContent,/lectura quedó incompleta/);
+   assert.doesNotMatch(interrupted.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
+   assert.equal(interrupted.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
+   assert.equal(interrupted.doc.querySelector('#analyze-button').disabled,false);assert.equal(interrupted.doc.querySelector('#submit-machine').disabled,false);
+   interrupted.close();
+ }
+ pass('interrupted uncertain reads preserve continuation without mislabeling unfinished photos, promising duplicate retries or hydrating an unaccepted result');
+
+ for(const readingStatus of ['failed','not_run','budget_unavailable']){
+   let partial,finishRead;const calls=[];
+   partial=setup(async(url)=>{
+     calls.push(url);assert.ok(url.includes('/api/analisis/'));await new Promise(resolve=>finishRead=resolve);
+     const job=completed(partial.state,{model:'Modelo recuperado',weight:'2500 kg'});
+     job.result.relevance={status:'mixed',accepted_asset_ids:['1'],excluded_asset_ids:[],uncertain_asset_ids:['2']};
+     // Old clients can use the per-image records without requiring the aggregate flag.
+     job.result.image_readings=[{asset_id:'1',status:'completed',relevance:'relevant'},{asset_id:'2',status:readingStatus,relevance:'uncertain'}];
+     return response(200,job);
+   },{job:{id:'partial-useful',status:'completed'},data:{description:''}});
+   input(partial,'brand','Corrección humana conservada');finishRead();await pause(40);
+   assert.equal(calls.length,1);assert.equal(partial.doc.querySelector('#model').value,'Modelo recuperado');
+   assert.equal(partial.doc.querySelector('#brand').value,'Corrección humana conservada');
+   assert.match(partial.doc.querySelector('#preview-technical-specs').textContent,/2500 kg/);
+   assert.equal(partial.doc.querySelector('[data-step-panel="2"]').hidden,false);
+   assert.equal(partial.doc.querySelector('#analysis-status').dataset.state,'partial');
+   assert.match(partial.doc.querySelector('#analysis-status').textContent,/Lectura incompleta.*Conservamos/);
+   assert.doesNotMatch(partial.doc.querySelector('#analysis-status').textContent,/foto ajena|fotos ajenas|No se pudo identificar|Ficha preparada|lista para revisar/);
+   assert.doesNotMatch(partial.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
+   assert.equal(partial.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
+   assert.equal(partial.doc.querySelector('[data-asset-id="1"] .asset-relevance'),null);
+   assert.equal(partial.doc.querySelector('[data-asset-id="2"]').dataset.relevance,readingStatus);
+   assert.equal(partial.doc.querySelector('#submit-machine').disabled,false);assert.equal(partial.doc.querySelector('#analyze-button').disabled,false);
+   partial.close();
+ }
+ pass('partial mixed reads preserve useful values and concurrent edits, label only unfinished photos and never announce a ready sheet');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

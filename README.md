@@ -142,7 +142,7 @@ No subas `.env`, claves, cadenas de conexión, medios privados ni copias de base
 | `MEDIA_ROOT` | Carpeta privada persistente; valor actual en Seenode: `/data/media` |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Credencial de servidor y modelo de imagen/salida estructurada |
 | `OPENAI_TIMEOUT` | Tiempo máximo de la llamada a OpenAI; inicialmente 90 segundos |
-| `AI_JOB_STALE_SECONDS` | Recuperación de trabajos interrumpidos; inicialmente 600 segundos |
+| `AI_JOB_STALE_SECONDS` | Recuperación de trabajos interrumpidos; mínimo inicial de 600 segundos, ampliado según la cantidad de fotografías |
 | `FFMPEG_BINARY`, `FFPROBE_BINARY` | Nombres en PATH o rutas de los binarios |
 | `EMAIL_BACKEND`, `EMAIL_HOST`, `EMAIL_PORT` | Backend y servidor SMTP |
 | `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` | Autenticación SMTP privada |

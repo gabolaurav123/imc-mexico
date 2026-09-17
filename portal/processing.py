@@ -33,12 +33,13 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v17"
+PROMPT_VERSION = "imc-vision-research-2026-09-v18"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
 MAX_PIXELS = 50_000_000
 MAX_OUTPUT_TOKENS = 4500
+IMAGE_RESERVATION = 12_200
 MIN_ANALYSIS_IMAGE_EDGE = 1280
 MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
 AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
@@ -150,13 +151,12 @@ En image_observations clasifica el objeto principal de cada fotografía: machine
 si se ve el equipo (aunque contenga una placa pequeña), plate si sólo se aprecia
 la placa identificativa o su primer plano, document, other o unknown si corresponde.
 Usa el asset_id exacto; el propósito declarado de la carga puede estar equivocado.
-Los asset_id de este análisis son alias cortos image_001, image_002, etc. Cada
-fotografía llega en su propio mensaje, entre INICIO FOTO y FIN FOTO con el MISMO
-alias. Ese alias identifica exclusivamente los píxeles de ese mensaje, no el orden
-en que decides describir las fotos. Copia su alias en fields, plates e
-image_observations. No intercambies alias entre mensajes, no uses UUIDs ni tomes
-un identificador impreso dentro de una imagen como asset_id. Comprueba al final
-que cada observación, lectura y placa permanece ligada a su mensaje original.
+Esta solicitud contiene UNA SOLA fotografía, identificada por image_001 entre
+INICIO FOTO y FIN FOTO. Analízala de manera independiente: no hay otras fotos en
+esta solicitud. Copia image_001 en fields, plates e image_observations. No uses
+UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una
+placa de maquinaria, extrae sus renglones legibles y su transcripción completa;
+clasificarla como related no sustituye la lectura de sus datos.
 Devuelve EXACTAMENTE una image_observation por CADA asset_id recibido, sin omitir
 fotografías. Además de kind, clasifica relevance por el contenido realmente visible:
 machinery para maquinaria industrial, construcción, agrícola, forestal o logística;
@@ -431,7 +431,7 @@ def _reservation(image_count, mode, research=False, *, research_description_only
     # A conservative operational reservation, not a token prediction or price quote.
     if mode == "description" and research and research_description_only:
         return RESEARCH_RESERVATION
-    return (9000 if mode == "description" else 9000 + image_count * 3200) + (RESEARCH_RESERVATION if research else 0)
+    return (9000 if mode == "description" else max(1, image_count) * IMAGE_RESERVATION) + (RESEARCH_RESERVATION if research else 0)
 
 
 def _attempt_limit(job, limits):
@@ -487,13 +487,17 @@ def _ensure_execution_reservation(job, limits, now):
     return True
 
 
-def _job_lease_seconds():
+def _job_lease_seconds(job=None):
     # Three 65s searches, two 55s normalizations and the default 90s vision
     # request leave 205s for local media/database work inside this minimum.
     # Preserve that allowance when an installation increases vision timeout.
-    vision_extra = max(0, float(option("OPENAI_TIMEOUT", 90)) - 90)
-    return max(MIN_JOB_LEASE_SECONDS + vision_extra,
-               int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
+    timeout = float(option("OPENAI_TIMEOUT", 90))
+    vision_extra = max(0, timeout - 90)
+    additional_images = max(0, len(job.asset_ids) - 1) if job and job.mode == "analysis" else 0
+    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout,
+                     int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
+    recorded = job.result.get("execution_lease_seconds") if job else None
+    return max(configured, recorded) if type(recorded) in {int, float} and recorded > 0 else configured
 
 
 class DraftAnalysisCancelled(ValidationError):
@@ -783,7 +787,7 @@ def _image_relevance(parsed, asset_ids):
             "uncertain_asset_ids": uncertain}
 
 
-def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories=None):
+def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories=None, response_size_limit=100_000):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
     allowed = set(asset_ids)
@@ -858,7 +862,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     result["visual_description"] = sanitize_visual_description(" ".join(combined), private_serials, visual_exclusions)
     if plate_only:
         result["visual_features"], result["visual_description"] = [], ""
-    if len(json.dumps(result)) > 100_000:
+    if len(json.dumps(result)) > response_size_limit:
         raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
     result["data"] = {"description": result["description"][:10000]}
     result["provenance"] = {"description": {"source": "visual_proposal", "review": "needs_review", "asset_id": None}}
@@ -941,6 +945,84 @@ def _bind_image_aliases(parsed, bindings):
     return bound
 
 
+def _check_image_execution(job):
+    current = AnalysisJob.objects.select_related("machine", "requested_by").get(pk=job.pk)
+    if _deleted_analysis(current, current.machine):
+        raise DraftAnalysisCancelled()
+    if job.locked_at is not None and (current.status != "running" or current.locked_at != job.locked_at):
+        raise DraftAnalysisCancelled()
+    try:
+        require_owner(current.machine, current.requested_by)
+    except Exception as exc:
+        exc.accounted_usage = UsageTotals()
+        raise
+    consent = Consent.objects.filter(user=current.requested_by, machine=current.machine,
+        kind="ai").order_by("-created_at", "-pk").first()
+    if not current.requested_by.is_active or not consent or not consent.granted:
+        exc = ValidationError("La autorización para el análisis ya no está vigente.")
+        exc.accounted_usage = UsageTotals()
+        raise exc
+
+
+def _can_spend_step(job, usage, cost):
+    """Do not spend beyond this reserved attempt or the current global budget."""
+    with transaction.atomic():
+        limits = PlatformSettings.objects.select_for_update().get(pk=1)
+        locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
+        if job.locked_at is not None and (locked.status != "running" or locked.locked_at != job.locked_at):
+            return False
+        spent = usage.input_tokens + usage.output_tokens
+        if spent + cost > _reserved_attempt_cost(locked, limits):
+            return False
+        today = timezone.localdate()
+        totals = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
+            | Q(status__in=["queued", "running"])).aggregate(
+                used_in=Sum("input_tokens"), used_out=Sum("output_tokens"), reserved=Sum("reserved_tokens"))
+        available = limits.ai_daily_token_limit - sum(value or 0 for value in totals.values()) + locked.reserved_tokens
+        return limits.ai_enabled and spent + cost <= available
+
+
+def _uncertain_image(asset_id, categories):
+    parsed = MachineAnalysis(title="", description="", category=None, fields=[], plates=[],
+        warnings=[], questions=[], image_observations=[ImageObservation(asset_id=asset_id,
+        kind="unknown", relevance="uncertain")])
+    return normalize_analysis(parsed, [asset_id], allowed_categories=categories)
+
+
+def _merge_image_results(readings, asset_ids, categories):
+    """Merge independent readings; an empty photo never erases a clear plate."""
+    groups = {}
+    for result in readings:
+        for item in result["fields"]:
+            if item["key"] in AI_KEYS:
+                groups.setdefault((item["key"], item["component"]), []).append(item)
+    fields = []
+    for items in groups.values():
+        nonempty = [item for item in items if item.get("value") not in (None, "")]
+        if not nonempty:
+            fields.append(items[0])
+            continue
+        values = {}
+        for item in nonempty:
+            value = " ".join(str(item["value"]).split()).casefold()
+            old = values.get(value)
+            if old is None or (item["review"] == "clear" and old["review"] != "clear"):
+                values[value] = item
+        # Two different readings suffice to preserve a conflict. More copies
+        # cannot settle it and would needlessly expand the merged response.
+        fields.extend(list(values.values())[:2])
+    parsed = MachineAnalysis(title="", description="", category=None, fields=fields,
+        plates=[plate for result in readings for plate in result["plates"]],
+        image_observations=[obs for result in readings for obs in result["image_observations"]],
+        warnings=list(dict.fromkeys(text for result in readings for text in result["warnings"])),
+        questions=list(dict.fromkeys(text for result in readings for text in result["questions"])))
+    # Each isolated response already passed the 100KB validation. Permit that
+    # same bounded allowance per admitted photo instead of failing after paid
+    # reads merely because their combined plate transcriptions exceed 100KB.
+    return normalize_analysis(parsed, asset_ids, allowed_categories=categories,
+                              response_size_limit=100_000 * max(1, len(asset_ids)))
+
+
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     from openai import OpenAI
@@ -958,12 +1040,12 @@ def process_analysis(job):
     if len(by_id) != len(job.asset_ids) or any(str(pk) not in by_id for pk in job.asset_ids):
         raise ValidationError("La selección de fotografías cambió. Solicita un nuevo análisis.")
     assets = [by_id[str(pk)] for pk in job.asset_ids]
-    bindings = [{"alias": f"image_{index:03d}", "asset_id": str(asset.pk)}
+    bindings = [{"alias": "image_001", "asset_id": str(asset.pk), "sequence": index}
                 for index, asset in enumerate(assets, start=1)]
     snapshot = job.result.get("input_snapshot", {})
     declared = human_declared_data(snapshot)
     declared_snapshot = {"data": declared, "provenance": {key: value for key, value in snapshot.get("provenance", {}).items() if key in declared}}
-    content = [{"type": "input_text", "text": json.dumps({
+    request_data = {
         "task": "Solo redacta nuevamente la descripción a partir de datos declarados." if job.mode == "description"
                 else "Analiza únicamente estas fotografías y prepara sugerencias para revisar.",
         "declared_data": {"data": declared, "provenance": {
@@ -975,24 +1057,29 @@ def process_analysis(job):
         "recorded_data": snapshot if job.mode == "description" else None,
         "allowed_field_keys": sorted(AI_KEYS),
         "allowed_category_names": job.result.get("category_names", []),
-        "image_manifest": [{"asset_id": item["alias"], "message_index": index,
-                            "declared_purpose": asset.purpose}
-                           for index, (item, asset) in enumerate(zip(bindings, assets), start=1)],
-    }, ensure_ascii=False)}]
-    inputs = [{"role": "user", "content": content}]
+    }
+    def context(manifest):
+        return {"role": "user", "content": [{"type": "input_text", "text": json.dumps(
+            {**request_data, "image_manifest": manifest}, ensure_ascii=False)}]}
+    inputs = [context([])]
+    image_requests = []
     for binding, asset in zip(bindings, assets):
         alias = binding["alias"]
-        inputs.append({"role": "user", "content": [
+        image_requests.append([context([{"asset_id": alias, "message_index": 1, "declared_purpose": asset.purpose}]),
+            {"role": "user", "content": [
             {"type": "input_text", "text": f"INICIO FOTO {alias}. asset_id={alias}. Esta imagen pertenece únicamente a este alias."},
             _image_input(asset),
             {"type": "input_text", "text": f"FIN FOTO {alias}. Toda lectura de la imagen anterior debe usar asset_id={alias}; no otro alias."},
-        ]})
-    if sum(len(item.get("image_url", "")) for message in inputs for item in message["content"]) > 40 * 1024 * 1024:
+        ]}])
+    if sum(len(item.get("image_url", "")) for request in image_requests for message in request
+           for item in message["content"]) > 40 * 1024 * 1024:
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     _check_analysis_draft(job)
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
                     timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
     usage = UsageTotals()
+    image_readings = []
+    image_pipeline_interrupted = False
     try:
         research_requested = job.result.get("research_requested") is True
         research_description_only = (job.mode == "description" and research_requested
@@ -1001,7 +1088,7 @@ def process_analysis(job):
             # Web research already composes its final description from accepted
             # facts below. No preliminary description or new OCR is necessary.
             result = normalize_analysis(DescriptionAnalysis(description="", warnings=[], questions=[]), [], "description")
-        else:
+        elif job.mode == "description":
             response = client.responses.parse(
                 model=job.model, instructions=SYSTEM_PROMPT,
                 input=inputs,
@@ -1011,11 +1098,63 @@ def process_analysis(job):
             usage.add(response.usage)
             if response.output_parsed is None or response.status != "completed":
                 raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
-            parsed = (_bind_image_aliases(response.output_parsed, bindings)
-                      if job.mode == "analysis" else response.output_parsed)
-            result = normalize_analysis(parsed, job.asset_ids, job.mode,
+            result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode,
                                         allowed_categories=job.result.get("category_names", []))
+        else:
+            readings = []
+            categories = job.result.get("category_names", [])
+            for binding, request in zip(bindings, image_requests):
+                _check_image_execution(job)
+                before = (usage.input_tokens, usage.output_tokens, usage.estimated_tokens)
+                status = "not_run" if image_pipeline_interrupted else "completed"
+                if not image_pipeline_interrupted and not _can_spend_step(job, usage, IMAGE_RESERVATION):
+                    if not readings:
+                        exc = ValidationError("No hay capacidad de análisis disponible hoy. Tus fotografías siguen guardadas.")
+                        exc.accounted_usage = usage
+                        raise exc
+                    status, image_pipeline_interrupted = "budget_unavailable", True
+                if image_pipeline_interrupted:
+                    reading = _uncertain_image(binding["asset_id"], categories)
+                else:
+                    received = False
+                    try:
+                        response = client.responses.parse(model=job.model, instructions=SYSTEM_PROMPT,
+                            input=request, text_format=MachineAnalysis, max_output_tokens=MAX_OUTPUT_TOKENS, store=False)
+                        received = True
+                        if response.usage is None:
+                            usage.estimate(IMAGE_RESERVATION)
+                        else:
+                            usage.add(response.usage)
+                        if response.output_parsed is None or response.status != "completed":
+                            raise ValidationError("La lectura individual no pudo completarse.")
+                        bound = _bind_image_aliases(response.output_parsed, [binding])
+                        reading = normalize_analysis(bound, [binding["asset_id"]], allowed_categories=categories)
+                    except Exception as exc:
+                        if not received:
+                            usage.estimate(IMAGE_RESERVATION)
+                        if not readings:
+                            exc.accounted_usage = usage
+                            raise
+                        reading = _uncertain_image(binding["asset_id"], categories)
+                        status = "failed"
+                        # An unknown remote outcome can indicate an outage.
+                        # Do not repeat paid photographs or send the remainder.
+                        image_pipeline_interrupted = True
+                readings.append(reading)
+                image_readings.append({"asset_id": binding["asset_id"], "status": status,
+                    "relevance": reading["relevance"]["status"],
+                    "field_keys": sorted({item["key"] for item in reading["fields"] if item.get("value") not in (None, "")}),
+                    "input_tokens": usage.input_tokens - before[0], "output_tokens": usage.output_tokens - before[1],
+                    "estimated_tokens": usage.estimated_tokens - before[2]})
+            result = _merge_image_results(readings, job.asset_ids, categories)
         result["input_image_bindings"] = bindings
+        result["image_readings"] = image_readings
+        result["image_analysis_status"] = "partial" if image_pipeline_interrupted else "completed"
+        result["image_analysis_complete"] = not image_pipeline_interrupted
+        if image_pipeline_interrupted:
+            message = "El análisis se interrumpió. Se conservó la información leída y quedaron fotografías pendientes de analizar."
+            result["relevance"]["message"] = message
+            result["warnings"] = [message]
         result["research_requested"] = research_requested
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
@@ -1027,7 +1166,10 @@ def process_analysis(job):
             result["research"] = {**empty_research("not_run"), "reason": "image_relevance"}
             result["usage"] = usage.as_dict()
             return result, usage
-        if research_requested:
+        if research_requested and (image_pipeline_interrupted or not _can_spend_step(job, usage, RESEARCH_RESERVATION)):
+            result["research"] = {**empty_research("not_run"), "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
+            result["warnings"].append("Se conservó la información leída; la investigación externa quedó pendiente.")
+        elif research_requested:
             def research_allowed():
                 if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):
                     return False
@@ -1099,7 +1241,10 @@ def _claim_job():
             _mark_deleted_analysis(pending, revision)
             pending.save()
         # A dead worker's lease has a bounded retry count. Never overwrite a newer lease.
-        stale = _lock_query(AnalysisJob.objects.filter(status="running", locked_at__lt=stale_before)).first()
+        candidates = _lock_query(AnalysisJob.objects.filter(status="running", locked_at__lt=stale_before)
+                                 .order_by("locked_at"))
+        stale = next((candidate for candidate in candidates[:100]
+                      if candidate.locked_at < now - timedelta(seconds=_job_lease_seconds(candidate))), None)
         if stale:
             per_attempt = _reserved_attempt_cost(stale, limits)
             deleted = _deleted_analysis(stale)
@@ -1133,6 +1278,8 @@ def _claim_job():
             return None
         if not _ensure_execution_reservation(job, limits, now):
             return None
+        job.result = {**job.result, "execution_lease_seconds": _job_lease_seconds(job)}
+        job.save(update_fields=["result"])
         # CAS also protects development SQLite, which has no SELECT FOR UPDATE.
         changed = AnalysisJob.objects.filter(pk=job.pk, status="queued").update(
             status="running", attempts=F("attempts") + 1, locked_at=now,

@@ -199,17 +199,15 @@ class ImageRelevanceWorkerTests(TestCase):
             processing_status="ready", original="test/other.jpg", preview="test/other.jpg",
             size=1, mime_type="image/jpeg", sha256="b" * 64)
         useful, unrelated = str(self.asset.pk), str(other.pk)
-        response = parsed([observation(useful, category="Montacargas", visual_features=["Equipo con mástil vertical."]),
-                           observation(unrelated, "unrelated", "other")],
-                          [field("power", "10 kW", useful), field("model", "SELFIE-MODEL", unrelated)])
         job = enqueue_analysis(self.machine, self.owner, research=True, authorize_ai=True)
-        aliases = {asset_id: f"image_{index:03d}" for index, asset_id in enumerate(job.asset_ids, start=1)}
-        for item in response.fields + response.image_observations:
-            item.asset_id = aliases[item.asset_id]
+        responses = [parsed([observation("image_001", category="Montacargas", visual_features=["Equipo con mástil vertical."])],
+                            [field("power", "10 kW", "image_001")]) if pk == useful else
+                     parsed([observation("image_001", "unrelated", "other")], [field("model", "SELFIE-MODEL", "image_001")])
+                     for pk in job.asset_ids]
         with patch("portal.processing._image_input", return_value={"type": "input_image", "image_url": "data:test"}), \
              patch("openai.OpenAI") as provider, patch("portal.processing.research_machine", return_value=(empty_research(), UsageTotals())) as research:
-            provider.return_value.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=response,
-                usage=SimpleNamespace(input_tokens=250, output_tokens=80))
+            provider.return_value.responses.parse.side_effect = [SimpleNamespace(status="completed", output_parsed=response,
+                usage=SimpleNamespace(input_tokens=250, output_tokens=80)) for response in responses]
             result, usage = process_analysis(job)
         research.assert_called_once()
         supplied = research.call_args.args[2]
@@ -217,4 +215,4 @@ class ImageRelevanceWorkerTests(TestCase):
         self.assertEqual(supplied["data"]["power"], "10 kW")
         self.assertIn("mástil vertical", result["description"])
         self.assertEqual(result["relevance"]["status"], "mixed")
-        self.assertEqual((usage.input_tokens, usage.output_tokens), (250, 80))
+        self.assertEqual((usage.input_tokens, usage.output_tokens), (500, 160))

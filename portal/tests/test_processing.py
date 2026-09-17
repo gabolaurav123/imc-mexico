@@ -206,7 +206,7 @@ class ProcessingTests(TestCase):
         self.assertIn("data:image/jpeg;base64,", str(kwargs["input"]))
         self.assertNotIn("private-contact@example.com", str(kwargs["input"]))
         self.assertEqual(result["relevance"]["status"], "relevant")
-        self.assertEqual(result["input_image_bindings"], [{"alias": "image_001", "asset_id": str(asset.pk)}])
+        self.assertEqual(result["input_image_bindings"], [{"alias": "image_001", "asset_id": str(asset.pk), "sequence": 1}])
 
     def test_consent_revocation_before_worker_prevents_remote_request(self):
         ingest_asset(self.machine, self.user, photo())

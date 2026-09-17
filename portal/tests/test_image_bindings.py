@@ -125,23 +125,25 @@ class ImageMessageBindingTests(TestCase):
                 with patch("portal.processing._image_input", side_effect=self.image_input), patch("openai.OpenAI") as provider:
                     provider.return_value.responses.parse.side_effect = self.provider_result
                     result, usage = process_analysis(job)
-                provider.return_value.responses.parse.assert_called_once()
+                self.assertEqual(provider.return_value.responses.parse.call_count, 2)
                 provider.return_value.responses.create.assert_not_called()
-                sent = provider.return_value.responses.parse.call_args.kwargs["input"]
+                calls = provider.return_value.responses.parse.call_args_list
+                sent = [call.kwargs["input"] for call in calls]
                 serialized = json.dumps(sent)
                 for internal in (PLATE_ID, LIST_ID, "OLD-JOB-PRIVATE", "OLD PRIVATE EVIDENCE"):
                     self.assertNotIn(internal, serialized)
                 expected_pixels = ["data:plate-pixels" if pk == PLATE_ID else "data:shopping-pixels" for pk in order]
-                self.assertEqual([item["content"][1]["image_url"] for item in sent[1:]], expected_pixels)
+                self.assertEqual([request[1]["content"][1]["image_url"] for request in sent], expected_pixels)
+                self.assertTrue(all(len(request) == 2 for request in sent))
                 self.assertEqual(result["input_image_bindings"],
-                                 [{"alias": f"image_{index:03d}", "asset_id": pk} for index, pk in enumerate(order, 1)])
+                                 [{"alias": "image_001", "asset_id": pk, "sequence": index} for index, pk in enumerate(order, 1)])
                 self.assertEqual(result["relevance"]["accepted_asset_ids"], [PLATE_ID])
                 self.assertEqual(result["relevance"]["excluded_asset_ids"], [LIST_ID])
                 self.assertEqual(result["data"]["serial"], "TESTSERIAL123")
                 self.assertTrue(all(item["asset_id"] == PLATE_ID for item in result["fields"] + result["plates"]))
                 self.assertEqual(result["provenance"]["serial"]["asset_id"], PLATE_ID)
-                self.assertEqual((usage.input_tokens, usage.output_tokens), (400, 200))
-                self.assertEqual(job.result["reservation_per_attempt"], 9000 + 2 * 3200)
+                self.assertEqual((usage.input_tokens, usage.output_tokens), (800, 400))
+                self.assertEqual(job.result["reservation_per_attempt"], 2 * 12200)
 
     def test_invalid_binding_is_accounted_as_failed_without_search_or_draft_mutation(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True,
