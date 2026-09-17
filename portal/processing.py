@@ -33,7 +33,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v14"
+PROMPT_VERSION = "imc-vision-research-2026-09-v15"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -98,6 +98,18 @@ ni capacidad de batería con capacidad de carga. Conserva la unidad impresa.
 La empresa y su dirección impresas no indican propietario, ubicación actual ni
 país de fabricación. Una dirección como ciudad/país se conserva únicamente como
 manufacturer_address, nunca como country_of_origin ni location sin otra evidencia.
+Revisa también el pie completo de la placa: brand es la marca comercial del equipo,
+manufacturer es la razón social del fabricante impresa, aunque difieran entre sí.
+Devuelve SIEMPRE en fields una entrada manufacturer y una manufacturer_address:
+si el nombre o la dirección son legibles, copia literalmente cada uno en su value,
+con source plate, component machine, asset_id y evidence de su texto impreso.
+Si están ausentes, ilegibles o no puede establecerse que sean del fabricante del
+equipo, devuelve value null y review needs_review; no los deduzcas de la marca.
+No basta incluir estos textos sólo en plates.transcription o en la descripción.
+Para mast_tilt, value debe conservar la lectura COMPLETA: cifra, unidad, límite
+y sentido impresos. Por ejemplo, MAST TILT MAX REARWARD 7 deg. corresponde a
+value "MAX REARWARD 7 deg.", nunca sólo "7 deg.". Los calificadores MAX, MIN,
+REARWARD, FORWARD o BACKWARD deben estar en value, no únicamente en evidence.
 Evalúa la claridad de CADA CAMPO de la placa: una línea parcial no vuelve dudosa
 la serie u otra línea que sí se lee completa. En fields, evidence debe copiar la
 etiqueta y el valor de esa línea; si la línea SERIAL NO. es legible, inclúyela aun

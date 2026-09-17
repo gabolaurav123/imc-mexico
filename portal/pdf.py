@@ -103,7 +103,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     provenance = snapshot.get("provenance", getattr(machine, "provenance", {}))
     reference_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                    "web_research": web_research_for_provenance(provenance)}
-    web_references = public_web_references(reference_snapshot)
+    web_references = public_web_references(reference_snapshot, include_private=not public)
     reference_by_field = {item["field"]: item for item in web_references}
     plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
                                         else getattr(machine, "_detected_plate_asset_ids", set()))}

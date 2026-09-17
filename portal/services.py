@@ -60,7 +60,7 @@ def _reference_text(value):
     return "".join(c for c in unicodedata.normalize("NFKC", value).casefold() if c.isalnum())
 
 
-def _public_reference_url(url, serials):
+def _public_reference_url(url, serials, *, include_private=False):
     """Keep an actual citation intact or withhold it; never invent a substitute."""
     if not isinstance(url, str) or len(url) > 2000 or any(ord(c) < 32 for c in url):
         return ""
@@ -76,10 +76,10 @@ def _public_reference_url(url, serials):
                 return ""
         except ValueError:
             pass
-        if any(_reference_text(key) in {"serial", "serialnumber", "serie", "numerodeserie", "vin", "pin", "sn"}
+        if not include_private and any(_reference_text(key) in {"serial", "serialnumber", "serie", "numerodeserie", "vin", "pin", "sn"}
                for key, _ in parse_qsl(parsed.query, keep_blank_values=True)):
             return ""
-        if any(serial in _reference_text(url) for serial in serials):
+        if not include_private and any(serial in _reference_text(url) for serial in serials):
             return ""
     except (ValueError, UnicodeError):
         return ""
@@ -106,12 +106,14 @@ def _reference_identity_matches(data, provenance, identity, scope):
     return True
 
 
-def public_web_references(snapshot):
-    """Public citation allowlist derived only from the displayed immutable data.
+def public_web_references(snapshot, *, include_private=False):
+    """Validated citations derived only from the displayed immutable data.
 
-    Evidence, job IDs, plate IDs and serial identifiers never leave this helper.
-    Unit-specific links and titles containing a private serial remain private.
+    Public callers redact unit-specific links and titles. Authenticated internal
+    views may explicitly retain those URLs/titles; signature, identity and URL
+    safety checks still apply. No evidence, job IDs or plate IDs are returned.
     """
+    include_private = include_private is True
     data = snapshot.get("data", {})
     provenance = snapshot.get("provenance", {})
     if not isinstance(data, dict) or not isinstance(provenance, dict):
@@ -137,12 +139,15 @@ def public_web_references(snapshot):
             continue
         private_serials = serials | {_reference_text(identity.get("serial")), _reference_text(meta.get("matched_serial"))} - {""}
         title = re.sub(r"[\x00-\x1f\x7f]", " ", str(meta.get("source_title") or "Fuente de referencia"))[:500]
-        url = _public_reference_url(meta.get("source_url"), private_serials)
-        private_source = not url or any(serial in _reference_text(title) for serial in private_serials) or (meta["scope"] == "exact_serial" and not private_serials)
+        title = " ".join(re.sub(r"<br\s*/?>", " ", title, flags=re.I).split())
+        public_url = _public_reference_url(meta.get("source_url"), private_serials)
+        url = _public_reference_url(meta.get("source_url"), private_serials, include_private=include_private)
+        private_source = not public_url or any(serial in _reference_text(title) for serial in private_serials) or (meta["scope"] == "exact_serial" and not private_serials)
+        hidden_source = not url or (private_source and not include_private)
         references.append({"field": key, "label": label, "value": value, "scope": meta["scope"],
             "scope_label": "Referencia del modelo; confirmar en este equipo" if meta["scope"] == "model" else "Referencia de la unidad; sujeta a revisión",
-            "source_url": "" if private_source else url,
-            "source_title": "Fuente privada" if private_source else title,
+            "source_url": "" if hidden_source else url,
+            "source_title": "Fuente privada" if hidden_source else title,
             "private_source": private_source,
             "review_label": "Confirmado por el anunciante" if meta.get("review") == "confirmed" else "Pendiente de revisión"})
     return references
@@ -466,7 +471,10 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["applied_fields"].append(key)
 
     research = job.result.get("research")
-    compose_after_research = isinstance(research, dict) and research.get("status") != "disabled"
+    compose_after_research = (isinstance(research, dict) and research.get("status") != "disabled") or any(
+        key in WEB_DATA_FIELDS | {"year"} and machine.data.get(key) not in (None, "")
+        and isinstance(meta, dict) and meta.get("source") == "web"
+        for key, meta in machine.provenance.items())
     conflicting_fields = []
     # Apply clear readings before model references so a corrected AI identity
     # can receive its own research, while human identity changes still reject it.

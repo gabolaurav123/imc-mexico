@@ -62,6 +62,26 @@ class PlateLineReadingTests(SimpleTestCase):
         self.assertNotIn('voltage', result['data'])
         self.assertNotIn('manufacturer', result['data'])
 
+    def test_commercial_brand_and_legal_manufacturer_stay_distinct_and_missing_footer_is_not_inferred(self):
+        fields = [extracted('brand', 'EXAMPLE'),
+                  extracted('manufacturer', 'INDUSTRIAL EQUIPMENT COMPANY LTD.'),
+                  extracted('manufacturer_address', 'Example City, USA'),
+                  extracted('mast_tilt', 'MAX REARWARD 7 deg.',
+                            evidence='MAST TILT MAX REARWARD 7 deg.')]
+        result = normalize_analysis(analysis(fields, '\n'.join(item['evidence'] for item in fields)), [ASSET])
+        self.assertEqual(result['data']['brand'], 'EXAMPLE')
+        self.assertEqual(result['data']['manufacturer'], 'INDUSTRIAL EQUIPMENT COMPANY LTD.')
+        self.assertEqual(result['data']['manufacturer_address'], 'Example City, USA')
+        self.assertEqual(result['data']['mast_tilt'], 'MAX REARWARD 7 deg.')
+        missing = [extracted('brand', 'EXAMPLE'),
+                   extracted('manufacturer', None, review='needs_review', evidence=''),
+                   extracted('manufacturer_address', None, review='needs_review', evidence='')]
+        result = normalize_analysis(analysis(missing, 'EXAMPLE'), [ASSET])
+        self.assertIsNone(result['data']['manufacturer'])
+        self.assertIsNone(result['data']['manufacturer_address'])
+        self.assertNotIn('country_of_origin', result['data'])
+        self.assertNotIn('location', result['data'])
+
     def test_clear_serial_line_survives_other_partial_plate_lines(self):
         field = extracted('serial', 'FORK123456', evidence='SERIAL No. FORK123456')
         for transcription in (

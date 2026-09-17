@@ -572,6 +572,13 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if not url or url not in by_url:
             reject("source_not_retrieved")
             continue
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")
+        if host == "scribd.com" or host.endswith(".scribd.com"):
+            # Search summaries cannot establish what an access-restricted
+            # document actually says. No direct Scribd reader is enabled;
+            # a candidate's direct flag alone cannot prove document access.
+            reject("readable_document_required")
+            continue
         if not item.value.strip() or len(item.value) > 300:
             reject("invalid_value")
             continue
@@ -991,7 +998,7 @@ def compose_description(data, provenance, category=None, visual_description="", 
     text = heading + ". " + (visual + " " if visual else "")
     if visible:
         sentence = "; ".join(visible)
-        text += sentence[:1].upper() + sentence[1:] + ". "
+        text += (sentence[:1].upper() + sentence[1:]).rstrip(". ") + ". "
     elif not identity and not references and not visual:
         text += "Fotografías disponibles para identificar sus características. "
     if references:

@@ -354,7 +354,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     # The helper needs private exclusions, but returns only allowlisted reading aids.
     technical_interpretation=build_sheet_details(original_data,field_provenance,category=category_name)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
-    web_references=services.public_web_references(reference_snapshot)
+    web_references=services.public_web_references(reference_snapshot,include_private=not public)
     if public:
         technical_interpretation=[item for item in technical_interpretation if item['key'] in data]
         web_references=[item for item in web_references if item['field'] in data and item['value']==data[item['field']]]
