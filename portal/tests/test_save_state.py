@@ -48,3 +48,17 @@ class SaveStateTests(TestCase):
             "data": {"price": "9999", "visible_defects": "stale"}}, content_type="application/json")
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(Machine.objects.get(pk=self.machine.pk).data, state["data"])
+
+    def test_analysis_response_keeps_rejected_price_diagnostics_internal(self):
+        result = self.estimate_result()
+        diagnostics = {"rejected_candidates": [{"url": "https://example.com/rejected-unit", "reason": "sale_type_not_literal"}]}
+        result["valuation"]["diagnostics"] = diagnostics
+        job = self.job(result)
+        response = self.client.get(f"/api/analisis/{job.pk}/")
+        self.assertEqual(response.status_code, 200)
+        visible = response.json()["result"]["valuation"]
+        self.assertNotIn("diagnostics", visible)
+        self.assertEqual(visible["fields"], result["valuation"]["fields"])
+        self.assertNotIn("rejected-unit", response.content.decode())
+        job.refresh_from_db()
+        self.assertEqual(job.result["valuation"]["diagnostics"], diagnostics)

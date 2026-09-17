@@ -47,7 +47,8 @@ class WebAutofillTests(TestCase):
         for key,value in specs.items():
             url=(urls or {}).get(key,'https://www.cat.com/equipment/420f2.html')
             title=(titles or {}).get(key,'Caterpillar 420F2 · Especificaciones')
-            passage=f"Caterpillar 420F2 {identity['serial'] or ''}: {key} {value}."
+            label='bucket capacity' if key=='capacity' else key
+            passage=f"Caterpillar 420F2 {identity['serial'] or ''}: {label} {value}."
             fields.append(ResearchField(key=key,value=value,scope=scope,source_url=url,evidence=passage,
                 matched_serial=identity['serial'],matched_brand='Caterpillar',matched_model='420F2'))
             if not any(item['url']==url for item in sources):sources.append({'url':url,'title':title})

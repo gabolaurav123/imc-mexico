@@ -520,6 +520,46 @@ def _same_direct_reading(first, first_direct, second, second_direct):
     return bool(re.search(left + re.escape(needle) + right, haystack, re.I))
 
 
+def machine_capacity_evidence(value, evidence):
+    """Require the cited measurement to describe payload/working capacity.
+
+    A literal volume alone cannot distinguish a bucket from engine displacement
+    or a service-fluid reservoir. Check the value's clause, not a document title
+    or another technical row, and retain litres for explicitly named containers.
+    """
+    if not isinstance(value, str) or not isinstance(evidence, str):
+        return False
+
+    def fold(text):
+        text = unicodedata.normalize("NFKD", text).casefold()
+        text = "".join(char for char in text if not unicodedata.combining(char))
+        return " ".join(text.translate(str.maketrans({"*": "", "_": ""})).split())
+
+    # Source titles may identify the model, never the meaning of a body value.
+    body = re.split(r"fragmento citado\s*:", evidence, flags=re.I)[-1]
+    wanted = fold(value)
+    if not wanted:
+        return False
+    for clause in re.split(r"[;|\r\n]+|[.!?](?=\s|$)", body):
+        clause = fold(clause)
+        if wanted not in clause:
+            continue
+        if re.search(r"\b(?:cilindrada|displacement|combustible|fuel|aceite|oil|refrigerante|coolant|"
+                     r"lubricante|lubricant|deposito|tank|reservoir|sump|crankcase|bateria|battery)\b|"
+                     r"\b(?:engine|motor)\s+capacity\b|\bcapacidad\s+(?:del?\s+)?motor\b|"
+                     r"\b(?:hydraulic\s+(?:system|fluid|pump|capacity)|sistema\s+hidraulico)\b", clause):
+            continue
+        if re.search(r"\b(?:payload|lifting|carrying|load|bucket|hopper|heaped|struck|throughput|"
+                     r"carga|elevacion|levantamiento|cucharon|cazo|cubeta|tolva|productiva|produccion|production)\b", clause):
+            return True
+        # Nominal CAPACITY in a load rating is common on forklift plates and
+        # seller rows. The label is still required; units alone never suffice.
+        if re.search(r"\b(?:capacity|capacidad)\b", clause) and re.search(
+                r"\d\s*(?:kg|kgs|lb|lbs|t|ton|tons|tonnes|toneladas?)(?:\b|/)", wanted):
+            return True
+    return False
+
+
 def normalize_research(parsed, identity, basis, sources, search_text, citations=None, source_titles=None, *, direct_fields=()):
     result = empty_research("no_results", identity, basis)
     result["sources"] = deepcopy(sources[:MAX_RESEARCH_SOURCES])
@@ -594,6 +634,9 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         # The extracted value must occur literally in its cited passage.
         if identifier_key(item.value) not in identifier_key(evidence):
             reject("value_not_literal")
+            continue
+        if item.key == "capacity" and not machine_capacity_evidence(item.value, evidence):
+            reject("capacity_not_machine_capacity")
             continue
         if identity.get("serial") and identifier_key(identity["serial"]) in identifier_key(item.value):
             reject("private_identifier")
@@ -780,6 +823,8 @@ def is_validated_web_field(result, key, value, meta):
         return False
     for field in research.get("fields", []):
         if field.get("key") == key and field.get("value") == value:
+            if key == "capacity" and not machine_capacity_evidence(value, field.get("evidence")):
+                return False
             if any(meta.get(k) != field.get(k) for k in ("scope", "source_url", "source_title", "source_date", "evidence")):
                 return False
             return bool(safe_public_url(field.get("source_url")) and (key != "year" or

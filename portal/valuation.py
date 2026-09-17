@@ -377,65 +377,121 @@ def _configuration_key(value):
     return re.sub(r'\s+', '', value)
 
 
+def _rejection_source(passage, identity):
+    """Internal pointers only; never persist a rejected quote, serial or contact."""
+    title = _plain(passage.get('title', ''))[:180]
+    context = title + ' ' + _plain(passage.get('text', ''))
+    serials = re.findall(r'\b(?:serial(?:\s+(?:number|no\.?))?|s/n|s\.?n\.?|n[uú]mero de serie)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9-]{3,63})', context, re.I)
+    identifiers = {identifier_key(value) for value in serials}
+    model_key = identifier_key(identity.get('model'))
+
+    def sensitive_token(match):
+        word = match.group()
+        key = identifier_key(word)
+        if key == model_key:
+            return word
+        if key in identifiers or (len(key) >= 6 and any(char.isdigit() for char in word)):
+            return '[omitido]'
+        return word
+
+    title = re.sub(r'https?://\S+|[\w.+-]+@[\w.-]+|\+?\d[\d ()-]{7,}\d', '[omitido]', title, flags=re.I)
+    for serial in serials:
+        title = re.sub(re.escape(serial), '[omitido]', title, flags=re.I)
+    title = re.sub(r'\b[A-Za-z0-9]+\b', sensitive_token, title)
+    url = safe_public_url(passage.get('url'))
+    if not url:
+        return {'url': None, 'title': title, 'url_redacted': True}
+    parts = urlsplit(url)
+    path = parts.path
+    redacted_path = path
+    for serial in serials:
+        redacted_path = re.sub(re.escape(serial), '[omitido]', redacted_path, flags=re.I)
+    redacted_path = re.sub(r'\b[A-Za-z0-9]+\b', sensitive_token, redacted_path)
+    redact = redacted_path != path or '@' in path or bool(re.search(r'\b(?:email|phone|contact|serial|s-n)\b', path, re.I))
+    # Full paths remain useful for ordinary ad URLs. Unknown identifying codes
+    # reduce the pointer to its origin; all query strings are omitted.
+    return {'url': urlunsplit((parts.scheme, parts.netloc, '/' if redact else path, '', '')),
+            'title': title, 'url_redacted': bool(redact or parts.query)}
+
+
 def _normalize(parsed, passages, identity):
     outcome = _empty(identity, 'Faltan al menos dos anuncios independientes verificables del mismo modelo, configuración y condición.')
-    accepted, rejected = [], Counter()
+    accepted, rejected, rejected_candidates = [], Counter(), []
     now = timezone.now().isoformat()
-    for item in parsed.fields[:20]:
+
+    def reject(reason, index, passage=None, detail=None):
+        rejected[reason] += 1
+        diagnostic = {'candidate_index': index, 'reason': reason}
+        if passage:
+            diagnostic.update(_rejection_source(passage, identity))
+        if detail:
+            diagnostic['detail'] = detail
+        rejected_candidates.append(diagnostic)
+
+    for candidate_index, item in enumerate(parsed.fields[:20]):
         if type(item.passage_index) is not int or not 0 <= item.passage_index < len(passages):
-            rejected['invalid_passage'] += 1
+            reject('invalid_passage', candidate_index)
             continue
         passage = passages[item.passage_index]
         evidence = _plain(item.evidence)
         if (passage.get('_origin') != 'direct_html' or not evidence or len(evidence) > 1000
                 or evidence not in _plain(passage['text'])):
-            rejected['not_literal_document'] += 1
+            reject('not_literal_document', candidate_index, passage)
             continue
         if (_conflicting_explicit_model_reason(evidence, identity)
                 or not _contains_brand(passage['heading'], identity['brand'])
                 or not _contains_identifier(passage['heading'], identity['model'])):
-            rejected['different_model'] += 1
+            reject('different_model', candidate_index, passage)
             continue
         amount = _money(item.price_literal, item.currency)
         printed_prices = {_plain(match.group()).rstrip('.,') for match in _MONEY.finditer(evidence)}
         if (amount is None or item.price_literal not in evidence
                 or printed_prices != {_plain(item.price_literal)}):
-            rejected['price_or_currency_not_literal'] += 1
+            reject('price_or_currency_not_literal', candidate_index, passage)
             continue
-        if re.search(r'\b(?:rent(?:al)?|lease|monthly|per month|per hour|por mes|mensual|renta|alquiler|enganche|deposit|down payment|starting at|desde|parts only|repuestos|spare parts)\b|/\s*(?:mo|month|mes|hr|h)\b', evidence, re.I):
-            rejected['not_machine_sale_price'] += 1
+        if re.search(r'\b(?:rent(?:al)?|lease|monthly|per month|per hour|por mes|mensual|renta|alquiler|enganche|deposit|down payment|starting at|desde|parts only|repuestos|spare parts)\b|/\s*(?:mo|month|mes|hr|h)\b', evidence + ' ' + passage['heading'], re.I):
+            reject('not_machine_sale_price', candidate_index, passage)
             continue
         # The label immediately precedes the actual amount. A page-level SOLD
         # badge cannot turn its old asking price or current bid into a sale.
         prefix = evidence[:evidence.index(item.price_literal)]
         sold = bool(re.search(r'(?:sold for|winning bid|hammer price|precio final de venta|vendid[oa] por)\s*[:=-]?\s*$', prefix, re.I))
-        asking = bool(re.search(r'(?:asking price|sale price|precio de venta|precio publicado)\s*[:=-]?\s*$', prefix, re.I))
-        if not asking and re.search(r'\b(?:for sale|en venta)\b', evidence, re.I):
+        asking = bool(re.search(r'(?:asking price|listing price|sale price|precio de venta|precio publicado)\s*[:=-]?\s*$', prefix, re.I))
+        heading = passage['heading']
+        sale_heading = (re.search(r'\b(?:for sale|en venta)\b', heading, re.I)
+                        and _contains_brand(heading, identity['brand'])
+                        and _contains_identifier(heading, identity['model'])
+                        and not _conflicting_explicit_model_reason(heading, identity, in_title=True)
+                        and not re.search(r'\b(?:rent(?:al)?|lease|monthly|per month|renta|alquiler|parts|repuestos|deposit|down payment|current bid|puja actual)\b', heading, re.I))
+        if not asking and (sale_heading or re.search(r'\b(?:for sale|en venta)\b', evidence, re.I)):
             asking = bool(re.search(r'(?:price|precio)\s*[:=-]?\s*$', prefix, re.I))
         if ((item.price_type == 'sold' and not sold) or (item.price_type == 'asking' and (not asking or sold))
                 or re.search(r'\b(?:not sold|unsold|no vendido|sin vender|current bid|puja actual)\b', evidence, re.I)):
-            rejected['sale_type_not_literal'] += 1
+            detail = ('active_or_unsold' if re.search(r'\b(?:not sold|unsold|no vendido|sin vender|current bid|puja actual)\b', evidence, re.I)
+                      else 'sold_label_missing' if item.price_type == 'sold' and not sold
+                      else 'asking_label_missing' if not asking else 'sale_type_mismatch')
+            reject('sale_type_not_literal', candidate_index, passage, detail)
             continue
         if item.price_type == 'sold' and re.search(r'winning bid', prefix, re.I) and not re.search(r'\b(?:sold|closed|vendido|cerrad[oa])\b', evidence, re.I):
-            rejected['auction_not_closed'] += 1
+            reject('auction_not_closed', candidate_index, passage)
             continue
         if not re.search(r'\b(?:location|located in|ubicaci[oó]n|pa[ií]s|country|mercado)\s*[:=-]?\s*(?:[\w., -]{0,60}\s)?(?:' + _MARKETS[item.market] + r')\b', evidence, re.I):
-            rejected['market_not_literal'] += 1
+            reject('market_not_literal', candidate_index, passage)
             continue
         if not _condition_matches(evidence, item.condition, identity):
-            rejected['condition_not_literal'] += 1
+            reject('condition_not_literal', candidate_index, passage)
             continue
         if identity['condition'] and item.condition != identity['condition']:
-            rejected['different_condition'] += 1
+            reject('different_condition', candidate_index, passage)
             continue
         configurations = {entry.key: entry.value for entry in item.configurations}
         if len(configurations) != len(item.configurations) or any(value not in evidence for value in configurations.values()):
-            rejected['configuration_not_literal'] += 1
+            reject('configuration_not_literal', candidate_index, passage)
             continue
         missing_configuration = [key for key, value in identity['configurations'].items()
             if key not in configurations or _configuration_key(configurations[key]) != _configuration_key(value)]
         if missing_configuration:
-            rejected['configuration_missing_or_different'] += 1
+            reject('configuration_missing_or_different', candidate_index, passage)
             continue
         canonical = _retrieved_url_identity(passage['url'])
         comparable = {'url': canonical, 'title': passage['title'], 'price': format(amount, '.2f'),
@@ -447,7 +503,7 @@ def _normalize(parsed, passages, identity):
                or (not comparable['_unit_hash'] and existing['price'] == comparable['price']
                    and existing['currency'] == comparable['currency'] and existing['market'] == comparable['market'])
                for existing in accepted):
-            rejected['duplicate_listing_or_unit'] += 1
+            reject('duplicate_listing_or_unit', candidate_index, passage)
             continue
         accepted.append(comparable)
     groups = defaultdict(list)
@@ -488,7 +544,8 @@ def _normalize(parsed, passages, identity):
         outcome['fields']['estimate_missing_info'] = 'Faltan comparables que documenten la misma configuración: ' + ', '.join(identity['configurations']) + '.'
     elif len(outcome['comparables']) == 1:
         outcome['fields']['estimate_missing_info'] = 'Sólo hay un comparable verificable; falta una segunda unidad independiente del mismo mercado, moneda, condición y tipo de precio.'
-    outcome['diagnostics'] = {'candidate_count': min(len(parsed.fields), 20), 'accepted_comparable_count': len(accepted), 'rejections': dict(rejected)}
+    outcome['diagnostics'] = {'candidate_count': min(len(parsed.fields), 20), 'accepted_comparable_count': len(accepted),
+                              'rejections': dict(rejected), 'rejected_candidates': rejected_candidates}
     return _seal(outcome)
 
 

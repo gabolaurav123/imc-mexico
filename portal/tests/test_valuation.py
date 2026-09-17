@@ -127,6 +127,49 @@ class ValuationGroundingTests(SimpleTestCase):
         result = normalize([candidate(text=text, price_type='sold')], [passage(text)])
         self.assertEqual(result['comparables'][0]['price_type'], 'sold')
 
+    def test_listing_price_and_price_in_exact_for_sale_heading_are_asking(self):
+        for label, heading in [('Listing price', 'Caterpillar 2EC25'),
+                               ('Price', 'Used Caterpillar 2EC25 for sale')]:
+            text = quote(label=label)
+            with self.subTest(label=label):
+                value = normalize([candidate(text=text)], [passage(text, heading=heading)])
+                self.assertEqual(value['comparables'][0]['price_type'], 'asking')
+                self.assertEqual(value['comparables'][0]['price'], '12000.00')
+
+    def test_heading_sale_context_cannot_certify_final_sale_or_replace_price_label(self):
+        for label, heading, kind in [
+                ('Price', 'Caterpillar 2EC25 SoldOut', 'sold'),
+                ('Listing price', 'Caterpillar 2EC25 SoldOut', 'sold'),
+                ('Current bid', 'Caterpillar 2EC25 for sale', 'asking'),
+                ('Deposit', 'Caterpillar 2EC25 for sale', 'asking'),
+                ('Monthly', 'Caterpillar 2EC25 for sale', 'asking'),
+                ('Price', 'Caterpillar 2EC25 IT for sale', 'asking'),
+                ('Price', 'Caterpillar 2EC25 rental for sale', 'asking'),
+                ('Listing price', 'Caterpillar 2EC25 rental', 'asking'),
+        ]:
+            text = quote(label=label)
+            with self.subTest(label=label, heading=heading):
+                value = normalize([candidate(text=text, price_type=kind)], [passage(text, heading=heading)])
+                self.assertFalse(value['comparables'])
+
+    def test_rejected_candidate_diagnostics_have_safe_pointers_not_quotes_contacts_or_serials(self):
+        text = quote(label='Price', extra='Serial number: PRIVATE12345. Contact owner@example.com +1 800 555 1212.')
+        title = 'Caterpillar 2EC25 PRIVATE12345 owner@example.com +1 800 555 1212'
+        value = normalize([candidate(text=text)], [passage(text, title=title,
+                          url='https://dealer.example.com/equipment/PRIVATE12345?phone=123456789')])
+        diagnostics = value['diagnostics']['rejected_candidates']
+        self.assertEqual(diagnostics[0]['reason'], 'sale_type_not_literal')
+        self.assertEqual(diagnostics[0]['detail'], 'asking_label_missing')
+        self.assertEqual(diagnostics[0]['url'], 'https://dealer.example.com/')
+        self.assertTrue(diagnostics[0]['url_redacted'])
+        encoded = json.dumps(diagnostics)
+        for secret in ['PRIVATE12345', 'owner@example.com', '555 1212', 'USD 12,000', 'phone=']:
+            self.assertNotIn(secret, encoded)
+        text = quote(label='Price')
+        value = normalize([candidate(text=text)], [passage(text)])
+        self.assertEqual(value['diagnostics']['rejected_candidates'][0]['url'], URLS[0])
+        self.assertEqual(value['diagnostics']['rejected_candidates'][0]['title'], 'Caterpillar 2EC25 for sale')
+
     def test_financing_rental_parts_and_starting_prices_are_excluded(self):
         for extra in ['Monthly payments', 'for rent', 'Parts only', 'Starting at USD 12,000', 'USD 800 per month']:
             text = quote(extra=extra)

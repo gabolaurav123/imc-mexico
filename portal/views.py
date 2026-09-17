@@ -194,7 +194,10 @@ def machine_state(machine):
 
 
 def analysis_state(job, machine):
-    return {'id':str(job.pk),'status':job.status,'result':job.result if job.status=='completed' else None,
+    result=job.result if job.status=='completed' else None
+    if isinstance(result,dict) and isinstance(result.get('valuation'),dict):
+        result={**result,'valuation':{key:value for key,value in result['valuation'].items() if key!='diagnostics'}}
+    return {'id':str(job.pk),'status':job.status,'result':result,
             'error':job.error if job.status=='failed' else '', 'assets':[asset_info(a) for a in machine.assets.all()],
             'machine':machine_state(machine),'auto_apply':services.automatic_application_status(job)}
 
