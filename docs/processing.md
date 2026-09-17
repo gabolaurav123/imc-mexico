@@ -70,6 +70,16 @@ La detección forma parte de la llamada de lectura existente, sin una llamada
 adicional de clasificación. Es probabilística y conserva una salida incierta
 para no presentar una imagen ilegible como contenido ajeno con certeza.
 
+Desde `imc-vision-research-2026-09-v17`, cada imagen se envía en un mensaje
+separado, entre delimitadores del mismo alias corto (`image_001`, etc.). El
+manifiesto y los mensajes siguen exactamente el orden registrado en el trabajo.
+El servidor traduce esos alias a los UUID de los archivos; no acepta UUID ni
+alias desconocidos devueltos por el modelo, ni observaciones contradictorias
+para el mismo alias. `input_image_bindings` conserva la asociación para auditoría,
+sin guardar el contenido de la solicitud ni URLs privadas. Esta estructura reduce
+confusiones entre fotografías; no garantiza exactitud semántica del modelo.
+Las pruebas reales deben comprobar también lotes mixtos y ambos órdenes de carga.
+
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
 inicial es `gpt-4.1-mini`, cuyo soporte de entrada de imagen, Responses y Structured
 Outputs se comprobó en la documentación oficial. `OPENAI_TIMEOUT` es 90 segundos.

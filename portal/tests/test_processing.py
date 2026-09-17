@@ -189,7 +189,8 @@ class ProcessingTests(TestCase):
         self.machine.data["contact_public"] = "private-contact@example.com"
         self.machine.save()
         job = enqueue_analysis(self.machine, self.user)
-        response = SimpleNamespace(status="completed", output_parsed=analysis_result(str(asset.pk)),
+        response = SimpleNamespace(status="completed", output_parsed=analysis_result("image_001",
+                                   image_observations=[dict(asset_id="image_001", kind="machine", relevance="machinery")]),
                                    usage=SimpleNamespace(input_tokens=100, output_tokens=50))
         with patch("openai.OpenAI") as mock:
             mock.return_value.responses.parse.return_value = response
@@ -204,7 +205,8 @@ class ProcessingTests(TestCase):
         self.assertEqual(mock.call_args.kwargs["max_retries"], 0)
         self.assertIn("data:image/jpeg;base64,", str(kwargs["input"]))
         self.assertNotIn("private-contact@example.com", str(kwargs["input"]))
-        self.assertEqual(result["data"]["title"], "Excavadora")
+        self.assertEqual(result["relevance"]["status"], "relevant")
+        self.assertEqual(result["input_image_bindings"], [{"alias": "image_001", "asset_id": str(asset.pk)}])
 
     def test_consent_revocation_before_worker_prevents_remote_request(self):
         ingest_asset(self.machine, self.user, photo())

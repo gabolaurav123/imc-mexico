@@ -178,7 +178,8 @@ class PlateReanalysisPipelineTests(TestCase):
         job = enqueue_analysis(self.machine, self.owner, research=True, authorize_ai=True,
                                expected_revision=self.machine.revision)
         self.assertEqual(job.result["input_snapshot"]["provenance"]["power"]["analysis_id"], "old-job")
-        response = SimpleNamespace(status="completed", output_parsed=plate_analysis(str(self.asset.pk)),
+        response = SimpleNamespace(status="completed", output_parsed=plate_analysis("image_001",
+            image_observations=[dict(asset_id="image_001", kind="plate", relevance="related", category="Compactadores")]),
                                    usage=SimpleNamespace(input_tokens=150, output_tokens=100))
         with patch("openai.OpenAI") as provider:
             provider.return_value.responses.parse.return_value = response

@@ -28,9 +28,11 @@ def search_response(text="Retroexcavadoras: equipo con cargador frontal y brazo 
                     "title": "Backhoe loaders", "start_index": len(text) + 1, "end_index": len(full)}]}]}])
 
 
-def photo_analysis(fields=None, category=CATEGORY, visual_description=VISUAL):
+def photo_analysis(fields=None, category=CATEGORY, visual_description=VISUAL, provider_reading=False):
+    extra = {"image_observations": [dict(asset_id="image_001", kind="machine", relevance="machinery",
+                                         category=category, visual_features=[visual_description] if visual_description else [])]} if provider_reading else {}
     return MachineAnalysis(title="Equipo amarillo con accesorios", description="Descripción antigua con modelo no confirmado.",
-        category=category, fields=fields or [], plates=[], warnings=[], questions=[], visual_description=visual_description)
+        category=category, fields=fields or [], plates=[], warnings=[], questions=[], visual_description=visual_description, **extra)
 
 
 class PhotoResearchTests(SimpleTestCase):
@@ -134,7 +136,7 @@ class PhotoResearchPipelineTests(TestCase):
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         with patch("openai.OpenAI") as provider:
             client = provider.return_value
-            client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=photo_analysis(),
+            client.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=photo_analysis(provider_reading=True),
                                                                   usage=SimpleNamespace(input_tokens=200, output_tokens=90))
             client.responses.create.return_value = search_response()
             result, usage = process_analysis(job)
@@ -151,7 +153,7 @@ class PhotoResearchPipelineTests(TestCase):
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         with patch("openai.OpenAI") as provider:
             provider.return_value.responses.parse.return_value = SimpleNamespace(status="completed",
-                output_parsed=photo_analysis(category=None), usage=SimpleNamespace(input_tokens=200, output_tokens=90))
+                output_parsed=photo_analysis(category=None, provider_reading=True), usage=SimpleNamespace(input_tokens=200, output_tokens=90))
             result, _ = process_analysis(job)
             provider.return_value.responses.create.assert_not_called()
         self.assertEqual(result["research"]["status"], "insufficient_identifiers")

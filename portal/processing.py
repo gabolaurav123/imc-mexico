@@ -33,7 +33,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v16"
+PROMPT_VERSION = "imc-vision-research-2026-09-v17"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -150,6 +150,13 @@ En image_observations clasifica el objeto principal de cada fotografía: machine
 si se ve el equipo (aunque contenga una placa pequeña), plate si sólo se aprecia
 la placa identificativa o su primer plano, document, other o unknown si corresponde.
 Usa el asset_id exacto; el propósito declarado de la carga puede estar equivocado.
+Los asset_id de este análisis son alias cortos image_001, image_002, etc. Cada
+fotografía llega en su propio mensaje, entre INICIO FOTO y FIN FOTO con el MISMO
+alias. Ese alias identifica exclusivamente los píxeles de ese mensaje, no el orden
+en que decides describir las fotos. Copia su alias en fields, plates e
+image_observations. No intercambies alias entre mensajes, no uses UUIDs ni tomes
+un identificador impreso dentro de una imagen como asset_id. Comprueba al final
+que cada observación, lectura y placa permanece ligada a su mensaje original.
 Devuelve EXACTAMENTE una image_observation por CADA asset_id recibido, sin omitir
 fotografías. Además de kind, clasifica relevance por el contenido realmente visible:
 machinery para maquinaria industrial, construcción, agrícola, forestal o logística;
@@ -912,6 +919,28 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     return result
 
 
+def _bind_image_aliases(parsed, bindings):
+    """Resolve request-local aliases only; model output never selects a DB UUID."""
+    if "image_observations" not in parsed.model_fields_set or any(
+            "relevance" not in item.model_fields_set for item in parsed.image_observations):
+        raise ValidationError("El análisis no clasificó sus fotografías. Vuelve a preparar la ficha.")
+    aliases = {item["alias"]: item["asset_id"] for item in bindings}
+    observations = {}
+    for item in parsed.fields + parsed.plates + parsed.image_observations:
+        if item.asset_id is not None and item.asset_id not in aliases:
+            raise ValidationError("No pudimos vincular con seguridad la lectura a sus fotografías. Vuelve a preparar la ficha.")
+    for item in parsed.image_observations:
+        previous = observations.setdefault(item.asset_id, item)
+        if previous.model_dump() != item.model_dump():
+            raise ValidationError("El análisis atribuyó observaciones contradictorias a una fotografía. Vuelve a preparar la ficha.")
+    # Copy without changing which optional fields were actually supplied.
+    bound = parsed.model_copy(deep=True)
+    for item in bound.fields + bound.plates + bound.image_observations:
+        if item.asset_id is not None:
+            item.asset_id = aliases[item.asset_id]
+    return bound
+
+
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     from openai import OpenAI
@@ -923,24 +952,42 @@ def process_analysis(job):
                                       kind="image", processing_status="ready").exclude(purpose="document"))
     if len(assets) != len(job.asset_ids):
         raise ValidationError("Una fotografía fue retirada. Solicita un nuevo análisis con las fotos actuales.")
+    # pk__in follows Asset.position by default, while admission persists UUID
+    # order. Use the recorded order for the manifest AND every image message.
+    by_id = {str(asset.pk): asset for asset in assets}
+    if len(by_id) != len(job.asset_ids) or any(str(pk) not in by_id for pk in job.asset_ids):
+        raise ValidationError("La selección de fotografías cambió. Solicita un nuevo análisis.")
+    assets = [by_id[str(pk)] for pk in job.asset_ids]
+    bindings = [{"alias": f"image_{index:03d}", "asset_id": str(asset.pk)}
+                for index, asset in enumerate(assets, start=1)]
     snapshot = job.result.get("input_snapshot", {})
     declared = human_declared_data(snapshot)
     declared_snapshot = {"data": declared, "provenance": {key: value for key, value in snapshot.get("provenance", {}).items() if key in declared}}
     content = [{"type": "input_text", "text": json.dumps({
         "task": "Solo redacta nuevamente la descripción a partir de datos declarados." if job.mode == "description"
                 else "Analiza únicamente estas fotografías y prepara sugerencias para revisar.",
-        "declared_data": declared_snapshot,
+        "declared_data": {"data": declared, "provenance": {
+            key: {name: meta[name] for name in ("source", "review", "component") if name in meta}
+            for key, meta in declared_snapshot["provenance"].items()}},
         # A fresh photograph reading must not anchor itself to a previous AI
         # extraction. Description-only tasks can use stored values labelled
         # with their actual provenance; they do not claim a new plate reading.
         "recorded_data": snapshot if job.mode == "description" else None,
         "allowed_field_keys": sorted(AI_KEYS),
         "allowed_category_names": job.result.get("category_names", []),
+        "image_manifest": [{"asset_id": item["alias"], "message_index": index,
+                            "declared_purpose": asset.purpose}
+                           for index, (item, asset) in enumerate(zip(bindings, assets), start=1)],
     }, ensure_ascii=False)}]
-    for asset in assets:
-        content.extend([{"type": "input_text", "text": f"asset_id={asset.pk}; propósito declarado={asset.purpose}"},
-                        _image_input(asset)])
-    if sum(len(item.get("image_url", "")) for item in content) > 40 * 1024 * 1024:
+    inputs = [{"role": "user", "content": content}]
+    for binding, asset in zip(bindings, assets):
+        alias = binding["alias"]
+        inputs.append({"role": "user", "content": [
+            {"type": "input_text", "text": f"INICIO FOTO {alias}. asset_id={alias}. Esta imagen pertenece únicamente a este alias."},
+            _image_input(asset),
+            {"type": "input_text", "text": f"FIN FOTO {alias}. Toda lectura de la imagen anterior debe usar asset_id={alias}; no otro alias."},
+        ]})
+    if sum(len(item.get("image_url", "")) for message in inputs for item in message["content"]) > 40 * 1024 * 1024:
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     _check_analysis_draft(job)
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
@@ -957,15 +1004,18 @@ def process_analysis(job):
         else:
             response = client.responses.parse(
                 model=job.model, instructions=SYSTEM_PROMPT,
-                input=[{"role": "user", "content": content}],
+                input=inputs,
                 text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
                 max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
             )
             usage.add(response.usage)
             if response.output_parsed is None or response.status != "completed":
                 raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
-            result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode,
+            parsed = (_bind_image_aliases(response.output_parsed, bindings)
+                      if job.mode == "analysis" else response.output_parsed)
+            result = normalize_analysis(parsed, job.asset_ids, job.mode,
                                         allowed_categories=job.result.get("category_names", []))
+        result["input_image_bindings"] = bindings
         result["research_requested"] = research_requested
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())

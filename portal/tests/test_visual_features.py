@@ -82,7 +82,9 @@ class VisualFeatureWorkerTests(TestCase):
                                 expected_revision=self.machine.revision)
 
     def provider_response(self):
-        return SimpleNamespace(status="completed", output_parsed=parsed_result(str(self.asset.pk)),
+        return SimpleNamespace(status="completed", output_parsed=parsed_result("image_001",
+            image_observations=[dict(asset_id="image_001", kind="machine", relevance="machinery",
+                                     category="Motoniveladoras", visual_features=FEATURES)]),
                                usage=SimpleNamespace(input_tokens=100, output_tokens=90))
 
     def test_worker_saves_visible_features_without_serial_or_successful_web_research(self):

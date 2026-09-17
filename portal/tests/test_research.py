@@ -443,9 +443,10 @@ class ResearchPipelineTests(TestCase):
         self.asset = ingest_asset(self.machine, self.user, SimpleUploadedFile("test.jpg", image.getvalue()))
 
     def parsed(self):
-        fields = [dict(key=key, label=key, value=value, source="image", review="clear", asset_id=str(self.asset.pk),
+        fields = [dict(key=key, label=key, value=value, source="image", review="clear", asset_id="image_001",
                        component="machine", evidence=value) for key, value in [("brand", "Caterpillar"), ("model", "420F2")]]
-        return MachineAnalysis(title="Retroexcavadora", description="", category=None, fields=fields, plates=[], warnings=[], questions=[])
+        return MachineAnalysis(title="Retroexcavadora", description="", category=None, fields=fields, plates=[], warnings=[], questions=[],
+                               image_observations=[dict(asset_id="image_001", kind="machine", relevance="machinery")])
 
     def test_research_is_explicit_consent_versioned_separately_fingerprinted_and_reserved(self):
         legacy = enqueue_analysis(self.machine, self.user)

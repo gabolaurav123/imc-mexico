@@ -213,7 +213,7 @@ class AutomaticCompletionTests(TestCase):
         job = self.enqueue()
         with patch("openai.OpenAI") as client:
             client.return_value.responses.parse.return_value = SimpleNamespace(status="completed",
-                output_parsed=analysis_result(str(self.asset.pk)), usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+                output_parsed=analysis_result("image_001", image_observations=[dict(asset_id="image_001", kind="machine", relevance="machinery")]), usage=SimpleNamespace(input_tokens=1, output_tokens=1))
             process_analysis(job)
         import json
         prompt = json.loads(client.return_value.responses.parse.call_args.kwargs["input"][0]["content"][0]["text"])

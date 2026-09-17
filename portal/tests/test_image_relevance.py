@@ -164,9 +164,9 @@ class ImageRelevanceWorkerTests(TestCase):
 
     def response(self, status):
         if status == "empty":
-            return parsed([], [field("brand", "WrongBrand", str(self.asset.pk))])
-        return parsed([observation(str(self.asset.pk), status, "other")],
-                      [field("brand", "WrongBrand", str(self.asset.pk))])
+            return parsed([], [field("brand", "WrongBrand", "image_001")])
+        return parsed([observation("image_001", status, "other")],
+                      [field("brand", "WrongBrand", "image_001")])
 
     def test_unrelated_and_uncertain_finish_with_real_usage_and_never_search_declared_identity(self):
         for relevance in ("unrelated", "uncertain", "empty"):
@@ -203,6 +203,9 @@ class ImageRelevanceWorkerTests(TestCase):
                            observation(unrelated, "unrelated", "other")],
                           [field("power", "10 kW", useful), field("model", "SELFIE-MODEL", unrelated)])
         job = enqueue_analysis(self.machine, self.owner, research=True, authorize_ai=True)
+        aliases = {asset_id: f"image_{index:03d}" for index, asset_id in enumerate(job.asset_ids, start=1)}
+        for item in response.fields + response.image_observations:
+            item.asset_id = aliases[item.asset_id]
         with patch("portal.processing._image_input", return_value={"type": "input_image", "image_url": "data:test"}), \
              patch("openai.OpenAI") as provider, patch("portal.processing.research_machine", return_value=(empty_research(), UsageTotals())) as research:
             provider.return_value.responses.parse.return_value = SimpleNamespace(status="completed", output_parsed=response,
