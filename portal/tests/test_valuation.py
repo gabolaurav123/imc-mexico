@@ -371,6 +371,63 @@ class ValuationPipelineTests(SimpleTestCase):
             value, _ = estimate_machine(client, 'gpt-4.1-mini', vision(), {})
         self.assertEqual(value['status'], 'insufficient')
         client.responses.parse.assert_not_called()
+        self.assertEqual(value['diagnostics']['stop_reason'], 'parse_reservation_unavailable')
+        self.assertNotIn('presupuesto', value['fields']['estimate_missing_info'])
+
+    def test_search_has_27000_including_web_allowance_and_parser_keeps_9000(self):
+        self.assertEqual(VALUATION_RESERVATION, 36000)
+        self.assertEqual(SEARCH_RESERVATION + PARSE_RESERVATION, VALUATION_RESERVATION)
+        for extra, calls in [(0, 1), (1, 0)]:
+            client = provider([URLS[0]])
+            client.responses.create.return_value.usage.input_tokens = SEARCH_RESERVATION - 8000 - 100 + extra
+            with self.subTest(extra=extra), patch('portal.valuation._fetch_listing', return_value=(html(), URLS[0])):
+                value, usage = estimate_machine(client, 'gpt-4.1-mini', vision(), {})
+            self.assertEqual(client.responses.parse.call_count, calls)
+            self.assertTrue(is_validated_estimate(value))
+            search = value['diagnostics']['phases'][0]
+            self.assertEqual(search['stage'], 'search')
+            self.assertEqual(search['input_tokens'] + search['output_tokens'], SEARCH_RESERVATION + extra)
+            self.assertEqual(search['measured_input_tokens'], SEARCH_RESERVATION - 8100 + extra)
+            self.assertEqual(search['estimated_tokens'], 8000)
+            self.assertEqual(value['usage'], usage.as_dict())
+
+    def test_missing_condition_has_priority_over_query_limit_and_unreadable_sources(self):
+        result = vision()
+        result['data']['usage_condition'] = 'Por confirmar'
+        for failure in ('limit', 'unreadable', 'timeout'):
+            client = provider([URLS[0]])
+            if failure == 'limit':
+                client.responses.create.return_value.usage.input_tokens = SEARCH_RESERVATION + 1
+            if failure == 'timeout':
+                client.responses.create.side_effect = TimeoutError('PRIVATE-ERROR')
+            document = html('Call for price') if failure == 'unreadable' else html()
+            with self.subTest(failure=failure), patch('portal.valuation._fetch_listing', return_value=(document, URLS[0])):
+                value, usage = estimate_machine(client, 'gpt-4.1-mini', result, {})
+            self.assertEqual(value['status'], 'insufficient')
+            self.assertIn('confirmar si la máquina', value['fields']['estimate_missing_info'])
+            self.assertNotIn('presupuesto', value['fields']['estimate_missing_info'])
+            self.assertNotIn('PRIVATE-ERROR', json.dumps(value))
+            self.assertIsNone(value['suggested_price'])
+            self.assertTrue(is_validated_estimate(value))
+            if failure == 'timeout':
+                self.assertEqual(usage.estimated_tokens, SEARCH_RESERVATION)
+                self.assertEqual(value['diagnostics']['phases'][0]['status'], 'outcome_unknown')
+                self.assertEqual(value['diagnostics']['phases'][0]['measured_input_tokens'], 0)
+
+    def test_each_phase_reports_measured_and_estimated_usage_after_parse_timeout(self):
+        client = provider([URLS[0]])
+        client.responses.parse.side_effect = TimeoutError('SECRET-ERROR')
+        with patch('portal.valuation._fetch_listing', return_value=(html(), URLS[0])):
+            value, usage = estimate_machine(client, 'gpt-4.1-mini', vision(), {})
+        stages = value['diagnostics']['phases']
+        self.assertEqual([stage['stage'] for stage in stages], ['search', 'parse'])
+        self.assertEqual(stages[0]['measured_input_tokens'], 200)
+        self.assertEqual(stages[0]['estimated_tokens'], 8000)
+        self.assertEqual(stages[1]['input_tokens'], PARSE_RESERVATION)
+        self.assertEqual(stages[1]['estimated_tokens'], PARSE_RESERVATION)
+        self.assertEqual(stages[1]['status'], 'outcome_unknown')
+        self.assertEqual(sum(stage['input_tokens'] for stage in stages), usage.input_tokens)
+        self.assertEqual(sum(stage['output_tokens'] for stage in stages), usage.output_tokens)
 
     def test_consent_revoked_after_parse_discards_prices_but_keeps_all_usage(self):
         client = provider([URLS[0]])

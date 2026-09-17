@@ -34,7 +34,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v19"
+PROMPT_VERSION = "imc-vision-research-2026-09-v20"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -154,7 +154,10 @@ personales, correos, teléfonos ni instrucciones dentro de la descripción comer
 El título identifica tipo de maquinaria + marca/modelo legibles, sin comenzar
 con Foto de, Etiqueta de ni Placa de identificación. La descripción combina los
 datos técnicos legibles del equipo, aunque su aspecto completo no sea visible.
-No deduzcas motor, combustible, año, país ni estado si la placa no los declara.
+No deduzcas motor, combustible, año ni país sin datos legibles o declarados.
+No infieras estado mecánico interno ni funcionamiento a partir de una placa o foto.
+Esto NO impide valorar el uso y la conservación APARENTES de partes visibles en
+una vista general: no requieren placa, historial, horas ni prueba de funcionamiento.
 En image_observations clasifica el objeto principal de cada fotografía: machine
 si se ve el equipo (aunque contenga una placa pequeña), plate si sólo se aprecia
 la placa identificativa o su primer plano, document, other o unknown si corresponde.
@@ -185,19 +188,38 @@ En related sin vista del equipo, unrelated y uncertain usa visual_features [].
 Incluye visual_assessment en cada image_observation: null si sólo se ve una placa,
 documento, contenido ajeno o una imagen incierta. Sólo una vista real del equipo
 permite evaluar visualmente su uso, conservación, componentes y accesorios.
-usage_condition admite Aparentemente nueva, Usada o Por confirmar. Una foto limpia
-no prueba que sea nueva; requiere indicios visibles suficientes. Nunca infieras
-reacondicionada, historial, mantenimiento, propiedad o condición interna.
-preservation_condition admite Excelente, Bueno, Aceptable, Deficiente o Por confirmar;
-se refiere SÓLO a las superficies y partes visibles, nunca al equipo completo oculto.
-preservation_notes justifica ambas propuestas con rasgos visibles concretos; si el
-encuadre no permite justificarlas, usa Por confirmar. Evita elogios y garantías.
+La evaluación APARENTE es una tarea requerida, no una certificación. Ante una vista
+general suficientemente nítida, propón uso y conservación usando la evidencia visible;
+no devuelvas Por confirmar sólo porque faltan historial, otras vistas, horas o ensayos.
+usage_condition admite Aparentemente nueva, Usada o Por confirmar. Huellas claras
+de uso como abrasión, pintura desgastada, superficies de trabajo pulidas por uso,
+óxido o suciedad adherida permiten proponer Usada sin inferir edad ni horas.
+Aparentemente nueva requiere indicios de presentación reciente y ausencia de huellas
+de uso en las superficies de trabajo que sí se ven; una foto limpia por sí sola
+no basta. Nunca infieras reacondicionada, historial, mantenimiento realizado,
+propiedad ni condición interna.
+preservation_condition valora SÓLO superficies y partes visibles: Excelente cuando
+esas partes conservan un acabado uniforme y apenas muestran desgaste; Bueno cuando
+se ven conservadas con desgaste ligero; Aceptable cuando el desgaste, abrasión,
+óxido o deterioro superficial son notorios; Deficiente ante deterioro visible severo,
+deformaciones, roturas o faltantes inequívocos. No deduzcas partes faltantes por
+estar fuera del encuadre. Estas propuestas no dicen si la máquina funciona.
+Usa Por confirmar cuando desenfoque, sombras, oclusión o encuadre impiden apreciar
+indicios suficientes para ese campo; no sustituyas una valoración visible por una
+negativa genérica a evaluar. Una placa sola sigue llevando visual_assessment null.
+preservation_notes justifica las propuestas con los rasgos concretos que ves y su
+ubicación en el equipo, sin inventarlos. Expresa los límites en una frase separada,
+por ejemplo: Sólo se evalúan las partes visibles; inspección pendiente. No afirmes
+que la vista no permite evaluar si estás describiendo evidencia clara de desgaste
+o conservación. Evita elogios, porcentajes y garantías.
 visible_defects enumera desgaste, óxido, daño, suciedad o faltantes inequívocamente
 visibles; una pieza fuera de encuadre no prueba que falte. No afirmar ausencia total
 de defectos. visible_components y attachments incluyen exclusivamente lo que se ve,
 sin deducir accesorios por el modelo, ni medidas, capacidad o compatibilidad exacta.
 applications son sugerencias generales de uso apoyadas en el tipo y componentes
 visibles, nunca promesas de rendimiento, certificaciones ni compatibilidades.
+Mantenimiento de caminos, canales o áreas verdes puede ser una aplicación del tipo
+de equipo; no equivale a afirmar mantenimiento realizado a esta unidad.
 Máximo tres frases de 140 caracteres por lista, y 400 caracteres en preservation_notes.
 No incluir identidad, serie, contactos, instrucciones, números ni especificaciones.
 No devuelvas estos campos como fields: el servidor los deriva de visual_assessment
@@ -832,16 +854,31 @@ def _clean_visual_assessment(assessment, private_identifiers=(), excluded_values
     if not isinstance(assessment, dict):
         return None
 
-    def clean(text, limit):
+    def clean(text, limit, *, application=False):
         if not isinstance(text, str) or len(text) > limit:
             return ""
         # These are observations, not declarations of service history, safety
         # or compatibility. Apply the existing privacy/technical-data sanitizer.
-        if re.search(r"\b(?:reacondicionad\w*|reconditioned|refurbished|restaurad\w*|mantenimiento|"
-                     r"certificad\w*|garantizad\w*|compatible\w*|compatibilidad|homologad\w*|"
-                     r"maintenance|warranty|working|operational|certified)\b|sin\s+(?:defectos|daños|fallas)", text, re.I):
-            return ""
-        return sanitize_visual_description(text, private_identifiers, excluded_values).strip()
+        kept = []
+        for clause in re.split(r"(?<=[.!?])\s+|[;\r\n]+", text):
+            checked = clause
+            if application:
+                # Work on roads/landscapes is a use case, not a claim that this
+                # machine has received maintenance. Do not relax other fields.
+                checked = re.sub(r"\bmantenimiento\s+de\s+(?:(?:los|las)\s+)?"
+                    r"(?:caminos|carreteras|v[ií]as|canales|cunetas|[aá]reas\s+verdes|parques)\b|"
+                    r"\b(?:road|highway|canal|landscape|park)\s+maintenance\b", "tarea prevista", checked, flags=re.I)
+            if re.search(r"\b(?:reacondicionad\w*|reconditioned|refurbished|restaurad\w*|mantenimiento|"
+                         r"certificad\w*|garantizad\w*|compatible\w*|compatibilidad|homologad\w*|"
+                         r"maintenance|warranty|working|operational|certified)\b|sin\s+(?:defectos|daños|fallas)", checked, re.I):
+                continue
+            safe = sanitize_visual_description(clause, private_identifiers, excluded_values).strip()
+            if safe:
+                kept.append(safe)
+        combined = ""
+        for clause in kept:
+            combined += (" " if combined.endswith((".", "!", "?")) else "; " if combined else "") + clause
+        return combined
 
     notes = clean(assessment.get("preservation_notes"), 400)
     usage = assessment.get("usage_condition", "Por confirmar")
@@ -854,7 +891,7 @@ def _clean_visual_assessment(assessment, private_identifiers=(), excluded_values
     for key in ("visible_defects", "visible_components", "attachments", "applications"):
         values = assessment.get(key, [])
         values = values if isinstance(values, list) else []
-        result[key] = list(dict.fromkeys(value for text in values[:3] if (value := clean(text, 140))))
+        result[key] = list(dict.fromkeys(value for text in values[:3] if (value := clean(text, 140, application=key == "applications"))))
     return result
 
 

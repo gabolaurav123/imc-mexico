@@ -29,11 +29,12 @@ from .research_catalogs import _Document, _Node
 from .research_fetch import CatalogFetchError, _read_html, _resolve_public_ip
 
 VALUATION_VERSION = 'imc-valuation-2026-09-v1'
-VALUATION_RESERVATION = 24_000
-SEARCH_RESERVATION = 15_000
+VALUATION_RESERVATION = 36_000
+SEARCH_RESERVATION = 27_000
 PARSE_RESERVATION = 9_000
 VALUATION_DEADLINE_SECONDS = 140
 LABEL = 'Estimación orientativa, editable y sujeta a confirmación'
+CONDITION_MISSING = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
 SIGNING_SALT = 'portal.valuation.manifest.v1'
 MAX_DOCUMENTS = 4
 MAX_PASSAGES = 10
@@ -175,6 +176,8 @@ def is_validated_estimate(valuation):
 
 
 def _empty(identity, message, status='insufficient'):
+    if status == 'insufficient' and identity.get('brand') and identity.get('model') and not identity.get('condition'):
+        message = CONDITION_MISSING
     return {'version': VALUATION_VERSION, 'status': status, 'label': LABEL, 'identity': identity,
         'fields': {'estimate_min': None, 'estimate_max': None, 'estimate_currency': None,
                    'estimate_market': None, 'estimate_basis': LABEL, 'estimate_missing_info': message},
@@ -480,7 +483,7 @@ def _normalize(parsed, passages, identity):
             if identity.get('preservation'):
                 outcome['fields']['estimate_basis'] += f' Conservación aparente: {identity["preservation"]}; no se aplicó un descuento o aumento por apariencia.'
     if not identity['condition']:
-        outcome['fields']['estimate_missing_info'] = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
+        outcome['fields']['estimate_missing_info'] = CONDITION_MISSING
     elif rejected['configuration_missing_or_different'] and outcome['status'] != 'estimated':
         outcome['fields']['estimate_missing_info'] = 'Faltan comparables que documenten la misma configuración: ' + ', '.join(identity['configurations']) + '.'
     elif len(outcome['comparables']) == 1:
@@ -490,18 +493,37 @@ def _normalize(parsed, passages, identity):
 
 
 def estimate_machine(client, model, result, snapshot=None, allowed=None):
-    """One search + one parse at most. Every outcome is signed, including gaps."""
+    """One search + parse, <=140 seconds configured and 36000 tokens reserved.
+
+    The 27000 search allocation includes measured tokens and the existing 8000
+    web allowance; 9000 remains for extraction. Daily platform limits still apply.
+    """
     result, snapshot = result or {}, snapshot or {}
     usage = UsageTotals()
+    phases, fetches = [], []
+    phase_start, phase_usage_start = time.monotonic(), usage.as_dict()
+
+    def record_phase(stage, status):
+        current = usage.as_dict()
+        delta = {key: current[key] - phase_usage_start[key] for key in current}
+        phases.append({'stage': stage, 'status': status, **delta,
+                       'measured_input_tokens': delta['input_tokens'] - delta['estimated_tokens'],
+                       'elapsed_ms': max(0, round((time.monotonic() - phase_start) * 1000))})
+
+    def finish(value):
+        value.setdefault('diagnostics', {}).update(phases=phases, document_attempts=fetches)
+        value['usage'] = usage.as_dict()
+        return _seal(value), usage
+
     identity = _identity(result, snapshot)
     private = _private_values(result, snapshot)
     if _contains_private(json.dumps(identity, ensure_ascii=False), private):
         identity = {'brand': None, 'model': None, 'condition': None, 'configurations': {}}
     missing = [name for key, name in (('brand', 'marca'), ('model', 'modelo')) if not identity[key]]
     if missing:
-        return _seal(_empty(identity, 'Falta ' + ' y '.join(missing) + ' legible o confirmada para buscar comparables.', 'not_run')), usage
+        return finish(_empty(identity, 'Falta ' + ' y '.join(missing) + ' legible o confirmada para buscar comparables.', 'not_run'))
     if allowed is not None and not allowed():
-        return _seal(_empty(identity, 'La autorización de estimación no está vigente.', 'not_run')), usage
+        return finish(_empty(identity, 'La autorización de estimación no está vigente.', 'not_run'))
     received = False
     phase = 'search'
     try:
@@ -518,11 +540,12 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             usage.add(_get(response, 'usage'))
             usage.estimate(8000 * calls)
         usage.web_search_calls += calls
+        record_phase('search', 'completed' if _get(response, 'status') == 'completed' and calls == 1 else 'incomplete')
         if _get(response, 'status') != 'completed' or calls != 1:
             raise ValueError('Incomplete valuation search')
         phase = 'documents'
         deadline = time.monotonic() + 24
-        passages, fetches = [], []
+        passages = []
         candidates = []
         for source in sources:
             if _contains_private(source['url'] + ' ' + source['title'], private):
@@ -534,7 +557,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
                 continue
         for source in candidates[:MAX_DOCUMENTS]:
             if allowed is not None and not allowed():
-                return _seal(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run')), usage
+                return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
             if time.monotonic() >= deadline:
                 break
             try:
@@ -546,12 +569,13 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
                 fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__})
         if not passages:
             value = _empty(identity, 'No se pudieron verificar precios con moneda explícita en anuncios individuales del modelo. Hace falta una fuente pública legible.')
-            value['diagnostics'] = {'document_attempts': fetches}
-            return _seal(value), usage
+            return finish(value)
         if allowed is not None and not allowed():
-            return _seal(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run')), usage
+            return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
         if usage.input_tokens + usage.output_tokens + PARSE_RESERVATION > VALUATION_RESERVATION:
-            return _seal(_empty(identity, 'La búsqueda agotó el presupuesto reservado antes de verificar los precios. No se propone un importe.')), usage
+            value = _empty(identity, 'No se pudo completar la verificación de los precios. Faltan comparables verificables antes de proponer un importe.')
+            value['diagnostics']['stop_reason'] = 'parse_reservation_unavailable'
+            return finish(value)
         # Bound the entire parser input in bytes, not only passage count. This
         # is conservative even for scripts whose tokenizer uses many tokens.
         bounded, payload = [], ''
@@ -563,9 +587,12 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             if len(encoded.encode('utf-8')) + len(PARSE_INSTRUCTIONS.encode('utf-8')) <= MAX_PARSE_INPUT_BYTES:
                 bounded, payload = proposed, encoded
         if not bounded:
-            return _seal(_empty(identity, 'No hay un fragmento verificable dentro del límite de consulta. No se propone un importe.')), usage
+            value = _empty(identity, 'No se pudo verificar un precio del modelo en los anuncios consultados. No se propone un importe.')
+            value['diagnostics']['stop_reason'] = 'parse_input_limit'
+            return finish(value)
         passages = bounded
         phase, received = 'parse', False
+        phase_start, phase_usage_start = time.monotonic(), usage.as_dict()
         response = client.responses.parse(model=model, store=False, timeout=45, max_output_tokens=2500,
             text_format=ComparableCandidates, instructions=PARSE_INSTRUCTIONS,
             input=payload)
@@ -574,16 +601,17 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             usage.estimate(PARSE_RESERVATION)
         else:
             usage.add(_get(response, 'usage'))
+        record_phase('parse', 'completed' if _get(response, 'status') == 'completed' and _get(response, 'output_parsed') is not None else 'incomplete')
         if _get(response, 'status') != 'completed' or _get(response, 'output_parsed') is None:
             raise ValueError('Incomplete valuation extraction')
         if allowed is not None and not allowed():
-            return _seal(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run')), usage
+            return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
         valuation = _normalize(response.output_parsed, passages, identity)
-        valuation['diagnostics']['document_attempts'] = fetches
-        return valuation, usage
+        return finish(valuation)
     except Exception as exc:
         if not received and phase in {'search', 'parse'}:
             usage.estimate(SEARCH_RESERVATION if phase == 'search' else PARSE_RESERVATION)
+            record_phase(phase, 'outcome_unknown')
         outcome = _empty(identity, 'La consulta de comparables no pudo completarse. Faltan precios públicos verificables; no se propone un importe.')
         outcome['diagnostics'] = {'error_stage': phase, 'error_type': type(exc).__name__}
-        return _seal(outcome), usage
+        return finish(outcome)

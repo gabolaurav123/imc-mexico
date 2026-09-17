@@ -125,6 +125,35 @@ class VisualAssessmentNormalizationTests(SimpleTestCase):
         self.assertNotIn("attachments", result["data"])
         self.assertNotIn("power", result["data"])
 
+    def test_visible_wear_proposal_survives_independent_unverifiable_history_sentence(self):
+        result = normalize(visual(value=assessment(usage_condition="Usada", preservation_condition="Bueno",
+            preservation_notes="Pintura desgastada en superficies de trabajo. Mantenimiento al día. Inspección pendiente.")))
+        self.assertEqual(result["data"]["usage_condition"], "Usada")
+        self.assertEqual(result["data"]["preservation_condition"], "Bueno")
+        self.assertIn("Pintura desgastada", result["data"]["preservation_notes"])
+        self.assertIn("Inspección pendiente", result["data"]["preservation_notes"])
+        self.assertNotIn("Mantenimiento al día", str(result))
+        self.assertEqual(result["data"]["operating_status"], "Pendiente de confirmar")
+
+    def test_road_maintenance_is_a_legitimate_application_without_service_history_claim(self):
+        result = normalize(visual(value=assessment(
+            applications=["Mantenimiento de caminos", "Mantenimiento al día", "Mantenimiento de canales"],
+            visible_components=["Equipo con mantenimiento al día", "Hoja visible"],
+            preservation_notes="Desgaste visible en la hoja; historial de mantenimiento desconocido.")))
+        self.assertIn("Mantenimiento de caminos", result["data"]["applications"])
+        self.assertIn("Mantenimiento de canales", result["data"]["applications"])
+        self.assertNotIn("al día", str(result))
+        self.assertEqual(result["data"]["visible_components"], "Hoja visible")
+        self.assertEqual(result["data"]["usage_condition"], "Usada")
+        self.assertEqual(result["data"]["preservation_notes"], "Desgaste visible en la hoja")
+
+    def test_usage_application_allowance_cannot_reintroduce_private_or_technical_values(self):
+        result = normalize(visual(value=assessment(applications=[
+            "Mantenimiento de caminos para serie PRIVATE123", "Road maintenance", "Mantenimiento de carreteras con potencia de 300 kW"])))
+        self.assertIn("Road maintenance", result["data"]["applications"])
+        self.assertNotIn("PRIVATE123", str(result))
+        self.assertNotIn("300 kW", str(result))
+
 
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini")
 class VisualAssessmentWorkerTests(TestCase):
