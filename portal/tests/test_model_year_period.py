@@ -71,6 +71,20 @@ class DocumentedModelPeriodTests(SimpleTestCase):
             with self.subTest(text=text):
                 self.assertEqual(documented_model_period(text), ('1996', '2002'))
 
+    def test_markdown_emphasis_is_parsed_without_changing_original_cited_evidence(self):
+        for marker in ('**', '*', '__', '_', '***'):
+            text = f'Caterpillar 14H: {marker}Production years{marker}: {marker}1996–2002{marker}.'
+            with self.subTest(marker=marker):
+                value = research([field(text=text)])
+                self.assertEqual(len(value['fields']), 3)
+                self.assertEqual({item['evidence'] for item in value['fields']}, {text})
+                for item in value['fields']:
+                    self.assertTrue(is_validated_web_field({'research': value}, item['key'], item['value'], meta(item)))
+        for text in ['**Copyright**: **1996–2002**', '**Published**: 1996–2002',
+                     '**Production years**: 2002–1996', '**Not manufactured**: 1996–2002']:
+            with self.subTest(invalid=text):
+                self.assertIsNone(documented_model_period(text))
+
     def test_copyright_sale_release_isolated_or_unlabelled_years_do_not_estimate(self):
         for text in ['Caterpillar 14H (1996–2002)', 'Copyright 1996–2002',
                      'Caterpillar 14H for sale: 1996–2002', 'Published 1996–2002',

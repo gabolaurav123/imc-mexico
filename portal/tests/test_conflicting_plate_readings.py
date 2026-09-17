@@ -41,7 +41,9 @@ class ConflictingPlateReadingsTests(TestCase):
             self.assertEqual(self.machine.provenance[key]["review_reason"], "conflicting_reading")
             self.assertEqual(summary["field_reasons"][key], "conflicting_reading")
             self.assertNotIn(value, self.machine.data["description"])
-            self.assertNotIn("350", str(self.machine.provenance[key]))
+            self.assertEqual(self.machine.provenance[key]["evidence"], value)
+            self.assertEqual(self.machine.provenance[key]["analysis_id"], str(self.prior.pk))
+            self.assertEqual(self.machine.provenance[key]["asset_id"], str(self.asset.pk))
         self.assertEqual(self.machine.data["model"], "NEW-MODEL")
         for value in ("4.6", "6.3", "350", "TEST-00823"):
             self.assertNotIn(value, self.machine.data["description"])

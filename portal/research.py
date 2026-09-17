@@ -569,6 +569,9 @@ def documented_model_period(evidence):
     contain both years and a production/manufacturing label in the same clause.
     """
     body = str(evidence or "").split("Fragmento citado:", 1)[-1]
+    # Search citations commonly preserve Markdown emphasis around table labels.
+    # Remove paired emphasis only for parsing; provenance keeps the original.
+    body = re.sub(r'(?<!\w)(\*{1,3}|_{1,3})(?=\S)(.+?)(?<=\S)\1(?!\w)', r'\2', body)
     body = "".join(char for char in unicodedata.normalize("NFKD", body).casefold()
                    if not unicodedata.combining(char))
     label = (r"(?:years?\s+of\s+(?:manufacture|manufacturing|production)|"
