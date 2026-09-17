@@ -126,7 +126,7 @@ class PhotoResearchPipelineTests(TestCase):
         self.addCleanup(self.media.cleanup)
         self.user = User.objects.create_user(email="photo-research@example.invalid", password="Test-only-4829")
         self.machine = Machine.objects.create(owner=self.user)
-        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=100000)
+        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=150000)
         Category.objects.create(name=CATEGORY, slug="retroexcavadoras", fields=[])
         image = io.BytesIO()
         Image.new("RGB", (80, 80), "yellow").save(image, format="JPEG")

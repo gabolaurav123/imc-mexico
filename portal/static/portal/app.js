@@ -115,14 +115,17 @@
   const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set(), assetTasks = new Set();
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
-  let analysisOutcome = null;
+  let analysisOutcome = null, valuationFeedback = null;
+  let valuationIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
   const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',country_of_origin:'País de fabricación' };
   const additionalPlateLabels = { front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
-  Object.assign(keyLabels,additionalPlateLabels);
-  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado' };
+  const conditionLabels = { usage_condition:'Uso aparente',preservation_condition:'Conservación aparente',preservation_notes:'Observaciones de conservación',operating_status:'Funcionamiento',visible_defects:'Defectos visibles',visible_components:'Componentes visibles',applications:'Aplicaciones y usos' };
+  const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_currency:'Moneda de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
+  Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels);
+  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
   const fieldValue = (snapshot,key) => key === 'title' || key === 'category' ? snapshot[key] : snapshot.data?.[key];
@@ -159,6 +162,7 @@
   }
   function hydrate(snapshot) {
     if (!snapshot || Number(snapshot.revision) < Number(state.revision)) return false;
+    if (Object.hasOwn(snapshot,'valuation')) valuationIdentity = valuationIdentityOf(snapshot);
     state = {...state,...snapshot,data:{...(snapshot.data || {})},provenance:{...(snapshot.provenance || {})}};
     $$('[data-top-field]',wizard).forEach(input => { if (!pending.has(input.dataset.topField)) input.value = state[input.dataset.topField] ?? ''; });
     categoryFields();
@@ -566,8 +570,43 @@
     }
     if (sources.children.length) target.append(el('h3','','Fuentes consultadas'),sources);
   }
+  function valuationIdentityOf(snapshot) {
+    return JSON.stringify([snapshot.category,...['brand','model','serial'].map(key => snapshot.data?.[key])].map(value => String(value ?? '').trim()));
+  }
+  function renderValuation(value) {
+    const data = value.data, feedback = $('#valuation-status'), target = $('#valuation-comparables');
+    const identityMatches = valuationIdentityOf(value) === valuationIdentity;
+    const hasEstimate = Object.keys(estimateLabels).some(key => !missing(data[key]));
+    const activePrice = !missing(data.price) && value.provenance.price?.source === 'valuation';
+    const activeEstimate = Object.keys(estimateLabels).some(key => !missing(data[key]) && value.provenance[key]?.source === 'valuation');
+    const valuation = identityMatches && (activeEstimate || activePrice) && state.valuation && typeof state.valuation === 'object' ? state.valuation : null;
+    const status = valuation?.status || (identityMatches && state.valuation?.status === 'insufficient' ? 'insufficient' : valuationFeedback);
+    if (!identityMatches) feedback.textContent = 'La identificación cambió. Las referencias anteriores quedan ocultas hasta una nueva estimación; conserva o corrige los importes que quieras.';
+    else if (status === 'insufficient') feedback.textContent = 'No se encontraron referencias de precio suficientes para una estimación fiable. Puedes continuar sin precio o indicar el tuyo.';
+    else if (hasEstimate || activePrice) feedback.textContent = 'Estos importes son orientativos. Puedes modificar o borrar cada propuesta; los anuncios no acreditan precios de venta.';
+    else feedback.textContent = 'No hay una estimación activa. Puedes continuar sin precio o indicar el tuyo.';
+    if (!missing(data.estimate_missing_info)) feedback.textContent += ` Para afinarla: ${String(data.estimate_missing_info)}`;
+    target.replaceChildren();
+    if (!valuation || !Array.isArray(valuation.comparables)) return;
+    const list = el('ul','valuation-reference-list'), seen = new Set();
+    for (const comparable of valuation.comparables.slice(0,12)) {
+      if (!comparable || typeof comparable !== 'object') continue;
+      const link = researchSource(comparable); if (!link) continue;
+      const kind = comparable.price_type === 'sold' ? 'Venta reportada en la fuente' : comparable.price_type === 'asking' ? 'Precio anunciado · no es una venta confirmada' : 'Tipo de precio no indicado';
+      const signature = JSON.stringify([link.href,comparable.price,comparable.currency,comparable.price_type]);
+      if (seen.has(signature)) continue; seen.add(signature);
+      const item = el('li'), number = Number(comparable.price);
+      item.append(link,el('p','valuation-reference-kind',kind));
+      if (!missing(comparable.price) && Number.isFinite(number) && number >= 0 && ['MXN','USD','EUR'].includes(comparable.currency)) item.append(el('p','',`${new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(number)} ${comparable.currency}`));
+      if (typeof comparable.market === 'string' && comparable.market) item.append(el('p','small muted',comparable.market));
+      if (typeof comparable.evidence === 'string' && comparable.evidence) item.append(el('p','small muted',comparable.evidence.slice(0,1200)));
+      list.append(item);
+    }
+    if (list.children.length) target.append(el('h4','','Referencias de precio'),list);
+  }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
+    valuationFeedback = result.valuation?.status === 'insufficient' ? 'insufficient' : null;
     previewImageKinds.clear();
     for (const image of Array.isArray(result.image_observations) ? result.image_observations : []) if (image && ['machine','plate','document','other','unknown'].includes(image.kind)) previewImageKinds.set(String(image.asset_id),image.kind);
     // Legacy jobs identify close-up plates without the newer main-object classification.
@@ -631,6 +670,11 @@
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
     for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
+    const condition = $('#preview-condition-specs'); condition.replaceChildren();
+    for (const key of ['preservation_notes','visible_defects','visible_components','attachments','applications']) addField(condition,key,data[key]);
+    const estimate = $('#preview-valuation-specs'); estimate.replaceChildren();
+    for (const key of ['estimate_market','estimate_basis','estimate_missing_info']) addField(estimate,key,data[key]);
+    renderValuation(value);
     const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
     addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
     addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');

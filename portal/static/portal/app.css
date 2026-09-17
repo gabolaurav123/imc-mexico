@@ -198,3 +198,29 @@
 .machine-card-trash .machine-cover{height:155px}
 .machine-card-trash .machine-cover .no-photo{font-size:13px}
 @media(max-width:600px){.machine-list-actions{width:100%}.machine-list-actions .button{font-size:12px;padding-inline:15px}.draft-delete-row{gap:0 12px}.draft-delete-row .small{flex-basis:100%}}
+
+/* Editable visual observations and price proposals stay in the saved draft. */
+.quick-intake .auto-field-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;min-width:0}
+.quick-intake .auto-field-grid>.form-field{min-width:0;margin-bottom:0}
+.quick-intake .auto-field-grid label{line-height:1.5;font-size:12px}
+.quick-intake .auto-field-grid input,.quick-intake .auto-field-grid select,.quick-intake .auto-field-grid textarea{width:100%;min-width:0;min-height:44px}
+.quick-intake .auto-condition-section>.small{line-height:1.6;margin-bottom:15px}
+.quick-intake .auto-condition-section .spec-grid{margin-top:17px}
+.quick-intake .auto-edit-details{border-top:1px solid var(--line);margin-top:18px;padding-top:8px}
+.quick-intake .auto-edit-details>summary{cursor:pointer;min-height:44px;display:list-item;padding:11px 0;font-size:12px;line-height:1.6;font-weight:650}
+.quick-intake .auto-edit-details[open]>.auto-field-grid{margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.quick-intake .auto-valuation-section{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-top:22px;overflow-wrap:anywhere}
+.quick-intake .valuation-disclaimer{background:#fff3df;border-left:3px solid var(--accent);padding:10px 13px;color:var(--navy);font-weight:650;font-size:12px;line-height:1.7;margin:0 0 13px}
+.quick-intake .auto-valuation-section h4{font-size:13px;margin:18px 0 12px}
+.quick-intake #valuation-status{line-height:1.7}
+.quick-intake .auto-valuation-section .form-grid{margin:0}
+.quick-intake .auto-valuation-section .form-field{margin-bottom:0}
+.quick-intake .auto-valuation-section .spec-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:18px 0 0}
+.quick-intake .auto-valuation-section .spec-grid dt{font-size:11px;color:var(--muted);margin-bottom:5px}
+.quick-intake .auto-valuation-section .spec-grid dd{font-size:13px;margin:0;line-height:1.65;white-space:pre-line}
+.quick-intake .valuation-reference-list{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.quick-intake .valuation-reference-list li{border:1px solid var(--line);padding:13px;border-radius:4px;min-width:0}
+.quick-intake .valuation-reference-list p{font-size:12px;line-height:1.6;margin:6px 0 0}
+.quick-intake .valuation-reference-list a{overflow-wrap:anywhere}
+.quick-intake .valuation-reference-kind{font-weight:650;color:var(--navy)}
+@media(max-width:719px){.quick-intake .auto-field-grid{grid-template-columns:minmax(0,1fr);gap:12px}.quick-intake .auto-edit-details[open]>.auto-field-grid{grid-template-columns:minmax(0,1fr)}.quick-intake .auto-valuation-section{padding:19px}.quick-intake .auto-valuation-section .spec-grid{grid-template-columns:minmax(0,1fr)}}

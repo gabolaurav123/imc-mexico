@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine, MachineVersion,
                      Message, Notification, NotificationTemplate, Publication, Submission, User, WorkflowStatus)
+from .commercial import VISUAL_LABELS, VISUAL_CHOICES, ESTIMATE_LABELS, VALUATION_KEYS
 
 
 PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
@@ -30,6 +31,8 @@ DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "loca
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
 WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
+DATA_FIELDS |= VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys()
+AUTOMATIC_DATA_FIELDS |= VISUAL_LABELS.keys() | VALUATION_KEYS
 WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
                     "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS}
@@ -167,6 +170,93 @@ def web_research_for_provenance(provenance):
             for job in AnalysisJob.objects.filter(pk__in=valid_identifiers) if isinstance(job.result, dict)}
 
 
+def valuations_for_provenance(provenance):
+    ids = set()
+    for meta in provenance.values():
+        if isinstance(meta, dict) and meta.get("source") == "valuation":
+            try:
+                ids.add(UUID(meta.get("analysis_id")))
+            except (ValueError, TypeError, AttributeError):
+                pass
+    return {str(job.pk): deepcopy(job.result.get("valuation", {}))
+            for job in AnalysisJob.objects.filter(pk__in=ids).order_by("created_at")}
+
+
+def _valuation_identity_matches(data, valuation):
+    identity = valuation.get("identity", {})
+    # Insufficient identity is a valid result with a concrete missing-data note.
+    if not isinstance(identity, dict) or not all(
+        not identity.get(key) or _reference_text(data.get(key)) == _reference_text(identity[key])
+        for key in ("brand", "model")):
+        return False
+    if valuation.get("status") != "estimated":
+        return True
+    condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
+                 "Para reparación": "for_repair"}.get(data.get("condition"))
+    if data.get("operating_status") == "No funciona (declarado por el propietario)":
+        condition = "for_repair"
+    if condition is None and data.get("usage_condition") == "Usada":
+        condition = "used"
+    if identity.get("condition") and condition != identity["condition"]:
+        return False
+    return all(_reference_text(data.get(key)) == _reference_text(value)
+               for key, value in identity.get("configurations", {}).items())
+
+
+def public_valuation(snapshot):
+    """Publish only signed, identity-compatible references, never raw AI output."""
+    from .valuation import is_validated_estimate
+    data, provenance = snapshot.get("data", {}), snapshot.get("provenance", {})
+    manifests = snapshot.get("valuations", {})
+    ids = {meta.get("analysis_id") for key, meta in provenance.items()
+           if key in VALUATION_KEYS and data.get(key) not in (None, "")
+           and isinstance(meta, dict) and meta.get("source") == "valuation"}
+    serials = {_reference_text(data.get(key)) for key in ("serial", "vin")} - {""}
+    for job_id, valuation in reversed(list(manifests.items())):
+        if job_id not in ids or not is_validated_estimate(valuation) or not _valuation_identity_matches(data, valuation):
+            continue
+        safe = {key: deepcopy(valuation[key]) for key in ("status", "fields", "suggested_price", "label") if key in valuation}
+        safe["fields"] = {key: data[key] for key in ESTIMATE_LABELS if data.get(key) not in (None, "")
+                          and not any(serial in _reference_text(data[key]) for serial in serials)}
+        safe["suggested_price"] = data.get("price") if provenance.get("price", {}).get("source") == "valuation" else None
+        safe["edited"] = any(_human_provenance_value(provenance.get(key)) for key in ESTIMATE_LABELS if data.get(key) not in (None, ""))
+        safe["comparables"] = []
+        for item in valuation.get("comparables", []):
+            url = _public_reference_url(item.get("url"), serials)
+            if not url:
+                continue
+            clean = {key: deepcopy(item[key]) for key in ("title", "price", "currency", "market", "price_type", "retrieved_at", "condition") if key in item}
+            if any(serial in _reference_text(value) for serial in serials for value in clean.values()):
+                continue
+            safe["comparables"].append({**clean, "url": url})
+        return safe
+    return {}
+
+
+def _human_provenance_value(meta):
+    return isinstance(meta, dict) and (meta.get("source") == "user" or meta.get("review") == "confirmed")
+
+
+def machine_valuation(machine):
+    return public_valuation({"data": machine.data, "provenance": machine.provenance,
+                             "valuations": valuations_for_provenance(machine.provenance)})
+
+
+def _remove_incompatible_valuation(machine):
+    from .valuation import is_validated_estimate
+    manifests = valuations_for_provenance(machine.provenance)
+    removed = []
+    for key, meta in list(machine.provenance.items()):
+        if key not in VALUATION_KEYS or not isinstance(meta, dict) or meta.get("source") != "valuation" or _human_provenance_value(meta):
+            continue
+        valuation = manifests.get(meta.get("analysis_id"), {})
+        if is_validated_estimate(valuation) and not _valuation_identity_matches(machine.data, valuation):
+            machine.data.pop(key, None)
+            machine.provenance.pop(key, None)
+            removed.append(key)
+    return removed
+
+
 def detected_plate_asset_ids(machine):
     """Classify visible plate evidence without changing the uploaded originals.
 
@@ -268,7 +358,7 @@ def _automatic_field_record(machine, key):
     value = machine.title if key == "title" else machine.category_id if key == "category" else machine.data.get(key)
     meta = machine.provenance.get(key, {})
     if (value in (None, "") or not isinstance(meta, dict) or _human_provenance(machine, key)
-            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web"}
+            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web", "valuation"}
             or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]):
         return None
     return {"value": value, "provenance": deepcopy(meta)}
@@ -325,6 +415,19 @@ def _clear_automatic_field(job, key, value, meta):
         return False
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
         return False
+    if key in VALUATION_KEYS:
+        from .valuation import is_validated_estimate
+        valuation = job.result.get("valuation", {})
+        values = valuation.get("fields", {})
+        expected = valuation.get("suggested_price") if key == "price" else values.get("estimate_currency") if key == "currency" else values.get(key)
+        return (meta.get("source") == "valuation" and meta.get("review") == "needs_review"
+                and is_validated_estimate(valuation) and str(value) == str(expected))
+    if key in VISUAL_LABELS:
+        from .processing import visual_assessment_fields
+        field = visual_assessment_fields(job.result).get(key, {})
+        return (meta.get("source") == "visual_proposal" and field.get("value") == value and meta.get("review") == "needs_review"
+                and meta.get("asset_id") in job.asset_ids and meta.get("asset_id") == field.get("asset_id")
+                and meta.get("evidence") == field.get("evidence"))
     if meta.get("source") == "web":
         if key not in WEB_DATA_FIELDS | {"year"} or meta.get("review") != "needs_review" or meta.get("component") != "machine":
             return False
@@ -501,12 +604,21 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         and isinstance(meta, dict) and meta.get("source") == "web"
         for key, meta in machine.provenance.items())
     conflicting_fields = []
+    estimate_protected = any(_human_provenance(machine, key) for key in ESTIMATE_LABELS)
     # Apply clear readings before model references so a corrected AI identity
     # can receive its own research, while human identity changes still reject it.
     candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
-                             isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "web"))
+                             (2 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "valuation" else
+                              1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "web" else 0)))
     for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
+            continue
+        if key in ESTIMATE_LABELS and estimate_protected:
+            skip(key, "human_correction")
+            continue
+        if key in {"price", "currency", "estimate_min", "estimate_max", "estimate_currency"}:
+            # Apply this pair together below; never attach a foreign price to a
+            # currency the owner selected while the analysis was running.
             continue
         if key == "description" and (compose_after_research or conflicting_fields):
             # Compose from the final accepted fields below, never from a web
@@ -515,6 +627,9 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         meta = provenance.get(key, {})
         if not isinstance(meta, dict) or not _clear_automatic_field(job, key, value, meta):
             skip(key, "not_identifiable" if value is None or value == "" else "uncertain")
+            continue
+        if meta.get("source") == "valuation" and not _valuation_identity_matches(machine.data, job.result.get("valuation", {})):
+            skip(key, "identity_changed")
             continue
         if meta.get("source") == "web" and not _web_identity_unchanged(machine, job, meta.get("scope")):
             skip(key, "identity_changed")
@@ -539,6 +654,29 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                 skip(key, "conflicting_reading")
                 continue
             add_validated(key, value, meta)
+    valuation = job.result.get("valuation", {})
+    range_keys = [key for key in ("estimate_min", "estimate_max", "estimate_currency") if not estimate_protected and key in candidates
+                  and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {}))
+                  and _valuation_identity_matches(machine.data, valuation) and can_fill(key)]
+    if len(range_keys) == 3:
+        candidate = deepcopy(machine)
+        try:
+            _validate_payload(candidate, {"data": {key: candidates[key] for key in range_keys},
+                "provenance": {key: {**provenance[key], "analysis_id": str(job.pk)} for key in range_keys}}, trusted_provenance=True)
+            machine.data, machine.provenance = candidate.data, candidate.provenance
+            result["applied_fields"].extend(range_keys)
+        except ValidationError:
+            for key in range_keys:
+                skip(key, "invalid_value")
+    if all(key in candidates and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {})) for key in ("price", "currency")):
+        if not estimate_protected and _valuation_identity_matches(machine.data, valuation) and can_fill("price"):
+            same_currency = machine.data.get("currency") == candidates["currency"]
+            if same_currency or can_fill("currency"):
+                add_validated("price", candidates["price"], provenance["price"])
+                if not same_currency:
+                    add_validated("currency", candidates["currency"], provenance["currency"])
+            else:
+                skip("price", "currency_changed")
     category = job.result.get("category")
     if isinstance(category, str) and category.strip() and can_fill("category"):
         def normalized(text):
@@ -549,7 +687,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = _remove_incompatible_web_values(machine)
+    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:
@@ -654,7 +792,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                 raise ValidationError({"data": f"El campo {key} debe contener texto o un número."})
             if isinstance(value, str):
                 value = value.strip()
-                if len(value) > (12000 if key in {"description", "notes", "plate_transcription"} else 1000):
+                if len(value) > (12000 if key in {"description", "notes", "plate_transcription"} else 2000 if key in VISUAL_LABELS or key in ESTIMATE_LABELS else 1000):
                     raise ValidationError({"data": f"El campo {key} es demasiado largo."})
             clean[key] = value
         if clean.get("price") not in (None, "", "consultar", "Consultar precio"):
@@ -664,8 +802,27 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                     raise InvalidOperation
             except (InvalidOperation, ValueError):
                 raise ValidationError({"price": "Escribe un precio válido o déjalo vacío para consultar."})
-        if clean.get("currency") and clean["currency"] not in {"MXN", "USD", "EUR"}:
-            raise ValidationError({"currency": "Selecciona MXN, USD o EUR."})
+        for key in ("currency", "estimate_currency"):
+            if clean.get(key) and clean[key] not in {"MXN", "USD", "EUR"}:
+                raise ValidationError({key: "Selecciona MXN, USD o EUR."})
+        for key in ("estimate_min", "estimate_max"):
+            if clean.get(key) not in (None, ""):
+                try:
+                    number = Decimal(str(clean[key]))
+                    if not number.is_finite() or number < 0 or number > Decimal("999999999999"):
+                        raise InvalidOperation
+                except (InvalidOperation, ValueError):
+                    raise ValidationError({key: "Escribe un valor orientativo válido o déjalo vacío."})
+        merged = {**machine.data, **clean}
+        if all(merged.get(key) not in (None, "") for key in ("estimate_min", "estimate_max")):
+            try:
+                if Decimal(str(merged["estimate_min"])) > Decimal(str(merged["estimate_max"])):
+                    raise ValidationError({"estimate_min": "El mínimo no puede superar al máximo."})
+            except InvalidOperation:
+                raise ValidationError({"estimate_min": "El rango de valor debe contener números válidos."})
+        for key, choices in VISUAL_CHOICES.items():
+            if clean.get(key) not in (None, "") and clean[key] not in choices:
+                raise ValidationError({key: "Selecciona una de las opciones disponibles."})
         for key in ("year", "hours", "kilometers"):
             if clean.get(key) not in (None, ""):
                 try:
@@ -720,6 +877,7 @@ def save_draft(machine, user, payload, expected_revision):
     if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision != machine.revision:
         raise DraftRevisionConflict("El borrador cambió en otra ventana. Actualiza la página para recuperar la versión actual.")
     _validate_payload(machine, payload)
+    _remove_incompatible_valuation(machine)
     machine.revision += 1
     if machine.status in {WorkflowStatus.APPROVED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED}:
         machine.status = WorkflowStatus.DRAFT
@@ -751,6 +909,10 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
     result_provenance = job.result.get("provenance", {})
     if set(fields) - set(result_data) or set(fields) - (DATA_FIELDS | {"title"}):
         raise ValidationError("Las sugerencias seleccionadas no pertenecen al análisis.")
+    for amount_keys, currency_key in (({"price"}, "currency"), ({"estimate_min", "estimate_max"}, "estimate_currency")):
+        if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") == "valuation" for key in set(fields) & amount_keys)
+                and currency_key not in fields and machine.data.get(currency_key) != result_data.get(currency_key)):
+            raise ValidationError("Aplica el importe junto con su moneda de referencia.")
     payload = {"data": {}, "provenance": {}}
     for key in set(fields):
         value = result_data[key]
@@ -758,6 +920,12 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
             continue
         if _analysis_excludes_asset(job, result_provenance.get(key, {})):
             raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
+        if key in VISUAL_LABELS and not _clear_automatic_field(job, key, value, result_provenance.get(key, {})):
+            raise ValidationError("La observación visual no está validada para esta fotografía.")
+        if result_provenance.get(key, {}).get("source") == "valuation" and (
+                not _clear_automatic_field(job, key, value, result_provenance[key])
+                or not _valuation_identity_matches(machine.data, job.result.get("valuation", {}))):
+            raise ValidationError("La estimación no está validada para esta maquinaria.")
         if result_provenance.get(key, {}).get("source") == "web" and (
                 not _clear_automatic_field(job, key, value, result_provenance[key])
                 or not _web_identity_unchanged(machine, job, result_provenance[key].get("scope"))
@@ -800,6 +968,7 @@ def snapshot(machine, user):
         "category_name": machine.category.name if machine.category_id else "",
         "data": deepcopy(machine.data), "provenance": deepcopy(machine.provenance),
         "web_research": web_research_for_provenance(machine.provenance),
+        "valuations": valuations_for_provenance(machine.provenance),
         "asset_ids": [str(asset.pk) for asset in assets],
         "private_plate_asset_ids": sorted(plate_ids),
         "public_asset_ids": [str(asset.pk) for asset in assets if asset.public_authorized and asset.purpose not in {"plate", "document"} and str(asset.pk) not in plate_ids],

@@ -355,5 +355,71 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    partial.close();
  }
  pass('partial mixed reads preserve useful values and concurrent edits, label only unfinished photos and never announce a ready sheet');
+ const conditionData={usage_condition:'Usada',preservation_condition:'Bueno',preservation_notes:'Desgaste visible en pintura',operating_status:'Pendiente de confirmar',visible_defects:'Rayón visible <img src=x onerror=alert(1)>',visible_components:'Mástil y ruedas',attachments:'Horquillas',applications:'Movimiento de cargas'};
+ const valuationData={estimate_min:'1000.25',estimate_max:'1500.75',estimate_currency:'USD',estimate_market:'Mercado de prueba',estimate_basis:'Dos anuncios comparables; precio solicitado',estimate_missing_info:'Horas y funcionamiento',price:'1200.50',currency:'USD'};
+ const valuationMeta={status:'estimated',suggested_price:'999999',proof:'PRIVATE-PROOF-NOT-FOR-UI',comparables:[
+   {url:'https://source.example/listing',title:'Anuncio <img src=x onerror=alert(1)>',price:'1400',currency:'USD',market:'Mercado A',price_type:'asking',evidence:'Referencia <script>bad()</script>'},
+   {url:'https://source.example/sold',title:'Registro de venta',price:'1000',currency:'USD',market:'Mercado B',price_type:'sold'},
+   {url:'https://source.example/unknown',title:'Otra referencia',price:0,currency:'USD',price_type:'unknown'},
+   {url:'javascript:alert(1)',title:'Inseguro',price:1,currency:'USD',price_type:'sold'},
+   {url:'https://user:password@source.example/',title:'Credenciales no permitidas',price:1,currency:'USD',price_type:'asking'}]};
+ const editableProposal=setup(async()=>{throw Error('Initial proposals need no request or copy action');},{query:'?paso=2',state:{valuation:valuationMeta,provenance:{price:{source:'valuation',review:'needs_review'},preservation_notes:{source:'visual_proposal',review:'needs_review'}}},data:{...conditionData,...valuationData}});
+ for(const [key,value] of Object.entries({...conditionData,...valuationData})){
+   const nodes=editableProposal.doc.querySelectorAll(`[data-field="${key}"]`);assert.equal(nodes.length,1,key+' has a single editable control');assert.equal(nodes[0].value,value);
+ }
+ assert.equal(editableProposal.doc.querySelector('#usage_condition').closest('details'),null);
+ assert.equal(editableProposal.doc.querySelector('#price').closest('details'),null);
+ assert.equal(editableProposal.doc.querySelector('#estimate_min').closest('details'),null);
+ assert.equal(editableProposal.doc.querySelector('#valuation-details').open,false);
+ assert.match(editableProposal.doc.querySelector('.valuation-disclaimer').textContent,/^Estimación orientativa, editable y sujeta a confirmación$/);
+ assert.match(editableProposal.doc.querySelector('#preview-condition-specs').textContent,/Desgaste visible|Horquillas/);
+ assert.equal(editableProposal.doc.querySelector('#preview-condition-specs img'),null);
+ const refs=editableProposal.doc.querySelector('#valuation-comparables');
+ assert.equal(refs.querySelectorAll('a').length,3);assert.equal(refs.querySelector('img,script'),null);
+ assert.match(refs.textContent,/Precio anunciado · no es una venta confirmada/);assert.match(refs.textContent,/Venta reportada en la fuente/);assert.match(refs.textContent,/Tipo de precio no indicado/);
+ assert.doesNotMatch(editableProposal.doc.querySelector('#auto-valuation-section').textContent,/PRIVATE-PROOF-NOT-FOR-UI/);
+ for(const a of refs.querySelectorAll('a')){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener noreferrer');}
+ assert.equal(editableProposal.doc.querySelector('#price').value,'1200.50','valuation suggested_price never replaces saved asking price');
+ input(editableProposal,'model','Otra identificación');assert.equal(refs.children.length,0);assert.match(editableProposal.doc.querySelector('#valuation-status').textContent,/identificación cambió/);
+ editableProposal.close();pass('visual and price proposals are directly editable, source prices distinguish asking versus sold, and unsafe or stale identity links stay hidden');
+
+ let evolving,releaseInitial,server,evolvingSaves=[];
+ evolving=setup(async(url,o)=>{
+   if(url.includes('/api/analisis/evolving-initial/')){
+     await new Promise(resolve=>releaseInitial=resolve);
+     const job=completed(evolving.state,{...conditionData,...valuationData});job.machine.valuation=valuationMeta;job.result.valuation={...valuationMeta,fields:{price:'777777',currency:'EUR'}};server=JSON.parse(JSON.stringify(job.machine));return response(200,job);
+   }
+   if(url.endsWith('guardar/')){
+     const payload=JSON.parse(o.body);evolvingSaves.push(payload);assert.equal(payload.revision,server.revision);
+     Object.assign(server.data,payload.data);Object.assign(server.provenance,payload.provenance);server.revision++;
+     return response(200,{revision:server.revision});
+   }
+   if(url.endsWith('analizar/')){assert.equal(JSON.parse(o.body).revision,server.revision);return response(200,{id:'evolving-again',status:'running'});}
+   if(url.includes('/api/analisis/evolving-again/')){
+     const job=completed(server,{applications:'Uso actualizado sin reemplazar la estimación corregida'});job.machine.valuation=valuationMeta;job.result.valuation={...valuationMeta,suggested_price:'999999'};server=JSON.parse(JSON.stringify(job.machine));return response(200,job);
+   }
+   throw Error(url);
+ },{job:{id:'evolving-initial',status:'completed'}});
+ input(evolving,'price','0');input(evolving,'currency','EUR');input(evolving,'preservation_condition','Aceptable');
+ releaseInitial();await pause(40);
+ assert.equal(evolving.doc.querySelector('#price').value,'0');assert.equal(evolving.doc.querySelector('#currency').value,'EUR');assert.equal(evolving.doc.querySelector('#preservation_condition').value,'Aceptable');assert.equal(evolving.doc.querySelector('#estimate_min').value,'1000.25');
+ await pause(900);assert.equal(evolvingSaves.length,1);assert.deepEqual(evolvingSaves[0].data,{price:'0',currency:'EUR',preservation_condition:'Aceptable'});assert.equal(evolvingSaves[0].revision,2);
+ input(evolving,'estimate_min','');input(evolving,'visible_defects','');input(evolving,'operating_status','');
+ click(evolving,'analyze-button');await pause(90);
+ assert.deepEqual(evolvingSaves[1].data,{estimate_min:null,visible_defects:null,operating_status:null});
+ assert.deepEqual(evolvingSaves[1].provenance.visible_defects,{source:'user',review:'confirmed'});
+ assert.equal(evolving.doc.querySelector('#estimate_min').value,'');assert.equal(evolving.doc.querySelector('#visible_defects').value,'');assert.equal(evolving.doc.querySelector('#operating_status').value,'');
+ assert.equal(evolving.doc.querySelector('#estimate_max').value,'1500.75');assert.equal(evolving.doc.querySelector('#applications').value,'Uso actualizado sin reemplazar la estimación corregida');assert.equal(evolving.doc.querySelector('#price').value,'0');assert.equal(evolving.doc.querySelector('#currency').value,'EUR');assert.equal(evolving.doc.querySelector('#preservation_condition').value,'Aceptable');
+ assert.equal(evolving.doc.querySelector('#preview-condition-specs [data-preview-field="visible_defects"]'),null);
+ assert.match(evolving.doc.querySelector('#preview-commercial-specs').textContent,/Precio0 EUR/);
+ evolving.close();pass('valuation hydration preserves in-flight edits, zero and asking currency; deliberate clears flush before reanalysis and remain cleared afterward');
+
+ let insufficient;
+ insufficient=setup(async(url)=>{assert.ok(url.includes('/api/analisis/'));await pause(1);const job=completed(insufficient.state,{estimate_missing_info:'Faltan comparables de la misma configuración y mercado'});job.machine.valuation={};job.result.valuation={status:'insufficient',fields:{estimate_min:'99999',price:'99999'},suggested_price:'99999',comparables:valuationMeta.comparables};return response(200,job);},{job:{id:'insufficient',status:'completed'}});
+ await pause(40);assert.match(insufficient.doc.querySelector('#valuation-status').textContent,/referencias de precio suficientes.*misma configuración y mercado/);assert.equal(insufficient.doc.querySelector('#estimate_min').value,'');assert.equal(insufficient.doc.querySelector('#price').value,'');assert.equal(insufficient.doc.querySelector('#valuation-comparables').children.length,0);assert.equal(insufficient.doc.querySelector('#submit-machine').disabled,false);assert.equal(insufficient.doc.querySelectorAll('input[type="checkbox"]').length,1);insufficient.close();
+ const clearedEstimate=setup(async()=>{throw Error('No request expected');},{state:{valuation:valuationMeta},data:{...valuationData}});
+ for(const key of ['estimate_min','estimate_max','estimate_currency','estimate_market','estimate_basis','estimate_missing_info','price'])input(clearedEstimate,key,'');
+ assert.equal(clearedEstimate.doc.querySelector('#valuation-comparables').children.length,0);assert.match(clearedEstimate.doc.querySelector('#valuation-status').textContent,/No hay una estimación activa/);clearedEstimate.close();
+ pass('insufficient valuation gives concrete missing information without inventing a price or blocking submission, and clearing proposals hides their references');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -167,7 +167,7 @@ class PlateReanalysisPipelineTests(TestCase):
         self.addCleanup(override.disable)
         self.owner = User.objects.create_user(email="plate-reanalysis@example.invalid", is_test=True)
         Category.objects.create(name="Compactadores", slug="compactadores")
-        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=100000)
+        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=150000)
         self.machine = Machine.objects.create(owner=self.owner, title="Título previo de IA", data={"power": "4.5 kW", "brand": "OLD"},
             provenance={key: {"source": "plate", "review": "clear", "analysis_id": "old-job"} for key in ("power", "brand")})
         image = BytesIO()

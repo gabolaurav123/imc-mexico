@@ -71,7 +71,7 @@ class VisualFeatureWorkerTests(TestCase):
         self.addCleanup(override.disable)
         self.owner = User.objects.create_user(email="visual-features@example.invalid", is_test=True)
         self.machine = Machine.objects.create(owner=self.owner)
-        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=100000)
+        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=150000)
         Category.objects.create(name="Motoniveladoras", slug="motoniveladoras")
         raw = BytesIO()
         Image.new("RGB", (90, 60), "yellow").save(raw, format="JPEG")

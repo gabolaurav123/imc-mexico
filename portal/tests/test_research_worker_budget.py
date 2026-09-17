@@ -14,6 +14,7 @@ from portal.processing import (
     _reservation, enqueue_analysis, process_next_job,
 )
 from portal.research import RESEARCH_RESERVATION, UsageTotals, empty_research
+from portal.valuation import VALUATION_RESERVATION
 
 
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_TIMEOUT=90,
@@ -42,7 +43,7 @@ class ResearchWorkerBudgetTests(TestCase):
         self.assertEqual(job.prompt_version, PROMPT_VERSION)
         self.assertEqual(job.result["reservation_per_attempt"], RESEARCH_RESERVATION)
         self.assertEqual(job.reserved_tokens, 2 * RESEARCH_RESERVATION)
-        self.assertEqual(_reservation(3, "analysis", True), 3 * 12200 + RESEARCH_RESERVATION)
+        self.assertEqual(_reservation(3, "analysis", True), 3 * 12200 + RESEARCH_RESERVATION + VALUATION_RESERVATION)
         self.assertEqual(_reservation(0, "description", False), 9000)
         self.limits.refresh_from_db()
         self.assertEqual(self.limits.ai_daily_token_limit, 5 * RESEARCH_RESERVATION)

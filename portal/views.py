@@ -189,7 +189,8 @@ def asset_info(asset):
 
 def machine_state(machine):
     return {'id':str(machine.pk),'revision':machine.revision,'title':machine.title,'category':machine.category_id,
-            'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status}
+            'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status,
+            'valuation':services.machine_valuation(machine)}
 
 
 def analysis_state(job, machine):
@@ -306,7 +307,7 @@ def safe_public_data(snapshot):
     data=copy.deepcopy(snapshot.get('data',{}))
     # Keep exclusions from this version before removing its private fields.
     identifiers={services._reference_text(data.get(key)) for key in ('serial','vin')} - {''}
-    technical_keys=set(services.WEB_FIELD_LABELS) | {'hours','kilometers','attachments'}
+    technical_keys=set(services.WEB_FIELD_LABELS) | {'hours','kilometers','attachments'} | services.VISUAL_LABELS.keys() | services.ESTIMATE_LABELS.keys()
     for key in technical_keys:
         if key in data and any(identifier in services._reference_text(data[key]) for identifier in identifiers):
             data.pop(key)
@@ -321,6 +322,7 @@ def public_record(token):
 
 def sheet_context(machine,version=None,public=False,token=None):
     from .sheet_details import build_sheet_details
+    from .commercial import commercial_rows, ESTIMATE_LABEL
     original_data=version.data.get('data',{}) if version else machine.data
     plate_ids=services.detected_plate_asset_ids(machine)
     if version:plate_ids |= set(version.data.get('private_plate_asset_ids',[]))
@@ -364,7 +366,9 @@ def sheet_context(machine,version=None,public=False,token=None):
         phone=re.sub(r'[\s()-]','',contact_settings.contact_phone if contact_settings else '')
         if re.fullmatch(r'\+[1-9]\d{7,14}',phone):
             whatsapp_url=f'https://wa.me/{phone[1:]}?'+urlencode({'text':f'Hola IMC México. Quiero información sobre {machine.folio}: {title}.'})
-    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance}
+    valuation_snapshot=version.data if version else {'data':machine.data,'provenance':field_provenance,'valuations':services.valuations_for_provenance(field_provenance)}
+    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,
+            'commercial_rows':commercial_rows(data,field_provenance),'valuation':services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL}
 
 @login_required
 def machine_sheet(request,pk):

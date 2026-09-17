@@ -427,6 +427,9 @@ class ResearchValidationTests(SimpleTestCase):
 @override_settings(OPENAI_API_KEY="test-not-real", OPENAI_MODEL="gpt-4.1-mini", PRIVATE_S3_BUCKET="")
 class ResearchPipelineTests(TestCase):
     def setUp(self):
+        # These tests isolate technical research; valuation is covered separately.
+        from portal.research import UsageTotals
+        self.enterContext(patch("portal.processing.estimate_machine", return_value=({"status": "not_run"}, UsageTotals())))
         self.media = tempfile.TemporaryDirectory(prefix="imc-research-test-")
         self.override = override_settings(MEDIA_ROOT=self.media.name)
         self.override.enable()
@@ -434,7 +437,8 @@ class ResearchPipelineTests(TestCase):
         self.addCleanup(self.media.cleanup)
         self.user = User.objects.create_user(email="research@example.invalid", password="Test-only-483")
         self.machine = Machine.objects.create(owner=self.user)
-        self.per_attempt = 12200 + RESEARCH_RESERVATION
+        from portal.valuation import VALUATION_RESERVATION
+        self.per_attempt = 12200 + RESEARCH_RESERVATION + VALUATION_RESERVATION
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True,
             ai_daily_token_limit=2 * self.per_attempt + 10000, ai_max_attempts=2)
         Consent.objects.create(user=self.user, machine=self.machine, kind="ai", granted=True)

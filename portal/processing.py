@@ -32,8 +32,9 @@ from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
+from .valuation import VALUATION_RESERVATION, estimate_machine
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v18"
+PROMPT_VERSION = "imc-vision-research-2026-09-v19"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -48,6 +49,13 @@ AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capa
            "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
            "manufacturer", "manufacturer_address", "voltage", "lift_height", "load_center",
            "battery_weight", "battery_capacity", "fork_length"}
+VISUAL_ASSESSMENT_LABELS = {
+    "usage_condition": "Condición de uso aparente", "preservation_condition": "Conservación aparente",
+    "preservation_notes": "Observaciones de conservación", "operating_status": "Funcionamiento",
+    "visible_defects": "Defectos visibles", "visible_components": "Componentes visibles",
+    "attachments": "Accesorios visibles", "applications": "Aplicaciones sugeridas",
+}
+AI_KEYS |= set(VISUAL_ASSESSMENT_LABELS)
 SYSTEM_PROMPT = """Eres un asistente de preparación de fichas de maquinaria de IMC México.
 El objeto de la ficha es la MÁQUINA identificada, aunque la única foto sea un primer
 plano de su placa. Una placa de identificación aporta datos del equipo; el anuncio
@@ -174,6 +182,27 @@ identificable en ESA foto, o null; y visual_features: rasgos observables de ESA 
 con las mismas restricciones de privacidad y sin cifras que se indican abajo.
 Cada foto tendrá como máximo tres rasgos cortos de hasta 140 caracteres cada uno.
 En related sin vista del equipo, unrelated y uncertain usa visual_features [].
+Incluye visual_assessment en cada image_observation: null si sólo se ve una placa,
+documento, contenido ajeno o una imagen incierta. Sólo una vista real del equipo
+permite evaluar visualmente su uso, conservación, componentes y accesorios.
+usage_condition admite Aparentemente nueva, Usada o Por confirmar. Una foto limpia
+no prueba que sea nueva; requiere indicios visibles suficientes. Nunca infieras
+reacondicionada, historial, mantenimiento, propiedad o condición interna.
+preservation_condition admite Excelente, Bueno, Aceptable, Deficiente o Por confirmar;
+se refiere SÓLO a las superficies y partes visibles, nunca al equipo completo oculto.
+preservation_notes justifica ambas propuestas con rasgos visibles concretos; si el
+encuadre no permite justificarlas, usa Por confirmar. Evita elogios y garantías.
+visible_defects enumera desgaste, óxido, daño, suciedad o faltantes inequívocamente
+visibles; una pieza fuera de encuadre no prueba que falte. No afirmar ausencia total
+de defectos. visible_components y attachments incluyen exclusivamente lo que se ve,
+sin deducir accesorios por el modelo, ni medidas, capacidad o compatibilidad exacta.
+applications son sugerencias generales de uso apoyadas en el tipo y componentes
+visibles, nunca promesas de rendimiento, certificaciones ni compatibilidades.
+Máximo tres frases de 140 caracteres por lista, y 400 caracteres en preservation_notes.
+No incluir identidad, serie, contactos, instrucciones, números ni especificaciones.
+No devuelvas estos campos como fields: el servidor los deriva de visual_assessment
+y fija SIEMPRE operating_status a Pendiente de confirmar. Una foto no demuestra
+funcionamiento, seguridad, ausencia de fallas ni que esté lista para trabajar.
 No extraigas fields, plates ni propuestas de fotos unrelated o uncertain. Si ninguna
 foto es machinery o related, devuelve fields [], plates [], title y description
 vacíos, category null, visual_description null y visual_features []; no conviertas
@@ -226,12 +255,23 @@ class Plate(StrictModel):
     readability: Literal["clear", "partial", "unreadable"]
 
 
+class VisualAssessment(StrictModel):
+    usage_condition: Literal["Aparentemente nueva", "Usada", "Por confirmar"] = "Por confirmar"
+    preservation_condition: Literal["Excelente", "Bueno", "Aceptable", "Deficiente", "Por confirmar"] = "Por confirmar"
+    preservation_notes: str | None = None
+    visible_defects: list[str] = Field(default_factory=list)
+    visible_components: list[str] = Field(default_factory=list)
+    attachments: list[str] = Field(default_factory=list)
+    applications: list[str] = Field(default_factory=list)
+
+
 class ImageObservation(StrictModel):
     asset_id: str
     kind: Literal["machine", "plate", "document", "other", "unknown"]
     relevance: Literal["machinery", "related", "unrelated", "uncertain"] = "uncertain"
     category: str | None = None
     visual_features: list[str] = Field(default_factory=list)
+    visual_assessment: VisualAssessment | None = None
 
 
 class MachineAnalysis(StrictModel):
@@ -431,7 +471,7 @@ def _reservation(image_count, mode, research=False, *, research_description_only
     # A conservative operational reservation, not a token prediction or price quote.
     if mode == "description" and research and research_description_only:
         return RESEARCH_RESERVATION
-    return (9000 if mode == "description" else max(1, image_count) * IMAGE_RESERVATION) + (RESEARCH_RESERVATION if research else 0)
+    return (9000 if mode == "description" else max(1, image_count) * IMAGE_RESERVATION) + (RESEARCH_RESERVATION if research else 0) + (VALUATION_RESERVATION if research and mode == "analysis" else 0)
 
 
 def _attempt_limit(job, limits):
@@ -494,7 +534,8 @@ def _job_lease_seconds(job=None):
     timeout = float(option("OPENAI_TIMEOUT", 90))
     vision_extra = max(0, timeout - 90)
     additional_images = max(0, len(job.asset_ids) - 1) if job and job.mode == "analysis" else 0
-    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout,
+    valuation_extra = 180 if job and job.mode == "analysis" and job.result.get("research_requested") else 0
+    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout + valuation_extra,
                      int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
     recorded = job.result.get("execution_lease_seconds") if job else None
     return max(configured, recorded) if type(recorded) in {int, float} and recorded > 0 else configured
@@ -787,6 +828,81 @@ def _image_relevance(parsed, asset_ids):
             "uncertain_asset_ids": uncertain}
 
 
+def _clean_visual_assessment(assessment, private_identifiers=(), excluded_values=()):
+    if not isinstance(assessment, dict):
+        return None
+
+    def clean(text, limit):
+        if not isinstance(text, str) or len(text) > limit:
+            return ""
+        # These are observations, not declarations of service history, safety
+        # or compatibility. Apply the existing privacy/technical-data sanitizer.
+        if re.search(r"\b(?:reacondicionad\w*|reconditioned|refurbished|restaurad\w*|mantenimiento|"
+                     r"certificad\w*|garantizad\w*|compatible\w*|compatibilidad|homologad\w*|"
+                     r"maintenance|warranty|working|operational|certified)\b|sin\s+(?:defectos|daños|fallas)", text, re.I):
+            return ""
+        return sanitize_visual_description(text, private_identifiers, excluded_values).strip()
+
+    notes = clean(assessment.get("preservation_notes"), 400)
+    usage = assessment.get("usage_condition", "Por confirmar")
+    preservation = assessment.get("preservation_condition", "Por confirmar")
+    result = {
+        "usage_condition": usage if notes and usage in {"Aparentemente nueva", "Usada", "Por confirmar"} else "Por confirmar",
+        "preservation_condition": preservation if notes and preservation in {"Excelente", "Bueno", "Aceptable", "Deficiente", "Por confirmar"} else "Por confirmar",
+        "preservation_notes": notes or None,
+    }
+    for key in ("visible_defects", "visible_components", "attachments", "applications"):
+        values = assessment.get(key, [])
+        values = values if isinstance(values, list) else []
+        result[key] = list(dict.fromkeys(value for text in values[:3] if (value := clean(text, 140))))
+    return result
+
+
+def visual_assessment_fields(result):
+    """Derive reviewable proposals only from retained, sanitized photo evidence.
+
+    Services may recompute this mapping when accepting a proposal. Scalar
+    provenance uses its first contributor; the complete evidence remains in
+    image_observations and visual_assessment_support in the stored result.
+    """
+    accepted = set(result.get("relevance", {}).get("accepted_asset_ids", []))
+    private = [item.get("value") for item in result.get("fields", []) if item.get("key") == "serial"]
+    excluded = [item.get("value") for item in result.get("fields", [])
+                if item.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS)]
+    contributions = {}
+    for item in result.get("image_observations", []):
+        if item.get("asset_id") not in accepted or item.get("kind") != "machine":
+            continue
+        assessment = _clean_visual_assessment(item.get("visual_assessment"), private, excluded)
+        if assessment is None:
+            continue
+        for key, value in {**assessment, "operating_status": "Pendiente de confirmar"}.items():
+            if value in (None, "", []):
+                continue
+            if isinstance(value, list):
+                value = "; ".join(value)
+            contributions.setdefault(key, []).append((item["asset_id"], value, assessment.get("preservation_notes")))
+    fields = {}
+    for key, readings in contributions.items():
+        values = list(dict.fromkeys(value for _, value, _ in readings))
+        if key in {"usage_condition", "preservation_condition"}:
+            value = values[0] if len(values) == 1 else "Por confirmar"
+        elif key == "operating_status":
+            value = "Pendiente de confirmar"
+        else:
+            value = "; ".join(values)[:1600]
+            if key == "applications":
+                value = "Usos sugeridos, sujetos a verificación: " + value
+        evidence = ("Evaluación visual limitada a las partes visibles. "
+                    + " ".join(dict.fromkeys(notes for _, _, notes in readings if notes)))[:800]
+        if key not in {"usage_condition", "preservation_condition", "operating_status"}:
+            evidence = ("Observación visual: " + value)[:800]
+        fields[key] = dict(key=key, label=VISUAL_ASSESSMENT_LABELS[key], value=value,
+                           source="visual_proposal", review="needs_review", component="machine",
+                           asset_id=readings[0][0], evidence=evidence)
+    return fields
+
+
 def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories=None, response_size_limit=100_000):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
@@ -802,8 +918,13 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     # Keep exclusions from every field while sanitizing per-image prose, even
     # when the field itself comes from an image that must be discarded.
     raw_fields = result.get("fields", [])
-    visual_exclusions = [field.get("value") for field in raw_fields if field.get("key") in AI_KEYS]
+    visual_exclusions = [field.get("value") for field in raw_fields
+                         if field.get("key") in AI_KEYS - set(VISUAL_ASSESSMENT_LABELS)]
     private_serials = [field.get("value") for field in raw_fields if field.get("key") == "serial"]
+    # Provider-authored flat assessments cannot bypass per-photo relevance and
+    # machine-view requirements. Derive them from the structured observation.
+    raw_fields = [item for item in raw_fields if item.get("key") not in VISUAL_ASSESSMENT_LABELS]
+    result["fields"] = raw_fields
     if assessed:
         accepted = set(relevance["accepted_asset_ids"])
         result["fields"] = [item for item in raw_fields
@@ -823,6 +944,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
                     if clean:
                         safe_features.append(clean)
             item["visual_features"] = safe_features
+            item["visual_assessment"] = (_clean_visual_assessment(item.get("visual_assessment"), private_serials, visual_exclusions)
+                                         if useful and item["kind"] == "machine" else None)
             features.extend(safe_features)
         result["category"] = next(iter(categories)) if len(categories) == 1 else None
         result["visual_description"], result["visual_features"] = None, features[:12]
@@ -837,6 +960,17 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
             result.update(data={}, provenance={}, visual_features=[], visual_description="")
             return result
         allowed = accepted
+        assessment_fields = visual_assessment_fields(result)
+        result["fields"].extend(assessment_fields.values())
+        result["visual_assessment_support"] = {
+            key: list(dict.fromkeys(item["asset_id"] for item in observations
+                if item.get("asset_id") in accepted and item.get("kind") == "machine"
+                and isinstance(item.get("visual_assessment"), dict)
+                and (key == "operating_status" or item["visual_assessment"].get(key) not in (None, "", []))))
+            for key in assessment_fields}
+    else:
+        for item in observations:
+            item["visual_assessment"] = None
     plate_only = bool(allowed and {item["asset_id"] for item in observations} == allowed
                       and all(item["kind"] == "plate" for item in observations))
     visual_text = result.get("visual_description") if mode == "analysis" else None
@@ -1197,6 +1331,31 @@ def process_analysis(job):
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         else:
             result["research"] = empty_research()
+        if job.mode == "analysis" and research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, VALUATION_RESERVATION):
+            def valuation_allowed():
+                try:
+                    _check_image_execution(job)
+                except ValidationError:
+                    return False
+                consent = Consent.objects.filter(user=job.requested_by, user__is_active=True,
+                    machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
+                return bool(consent and consent.granted and consent.version == CONSENT_VERSION)
+
+            valuation, valuation_usage = estimate_machine(client, job.model, result, snapshot, allowed=valuation_allowed)
+            usage.add(valuation_usage)
+            usage.estimated_tokens += valuation_usage.estimated_tokens
+            usage.web_search_calls += valuation_usage.web_search_calls
+            result["valuation"] = valuation
+            for key, value in valuation.get("fields", {}).items():
+                if value not in (None, ""):
+                    result["data"][key] = value
+                    result["provenance"][key] = {"source": "valuation", "review": "needs_review", "component": "machine"}
+            if valuation.get("status") == "estimated" and valuation.get("suggested_price"):
+                for key, value in (("price", valuation["suggested_price"]), ("currency", valuation["fields"]["estimate_currency"])):
+                    result["data"][key] = value
+                    result["provenance"][key] = {"source": "valuation", "review": "needs_review", "component": "machine"}
+        elif job.mode == "analysis" and research_requested:
+            result["valuation"] = {"status": "not_run", "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
         if not str(result["data"].get("title", "")).strip() and job.mode == "analysis":
             result["data"]["title"] = result.get("category") or "Maquinaria para revisión"
             result["title"] = result["data"]["title"]

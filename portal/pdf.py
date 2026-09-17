@@ -17,6 +17,8 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (CondPageBreak, Flowable, KeepTogether, LongTable, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
 from .services import PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text, public_web_references, web_research_for_provenance
+from .services import public_valuation, valuations_for_provenance
+from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, ESTIMATE_LABEL
 
 NAVY = colors.HexColor("#000033")
 ORANGE = colors.HexColor("#E38C1A")
@@ -32,14 +34,14 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
-    **PLATE_TECHNICAL_LABELS,
+    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS,
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
                   "document", "owner_email", "owner_phone", "email", "phone"}
 SOURCE_LABELS = {"user": "Anunciante", "image": "Fotografía", "plate": "Lectura de placa",
                  "visual_proposal": "Propuesta visual", "external": "Fuente externa",
-                 "web": "Referencia documental", "system": "Texto de preparación"}
+                 "web": "Referencia documental", "system": "Texto de preparación", "valuation": "Comparables de mercado"}
 REVIEW_LABELS = {"clear": "Lectura clara", "confirmed": "Confirmado por el anunciante",
                  "needs_review": "Por revisar", "not_identifiable": "No identificable"}
 
@@ -104,6 +106,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
     reference_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                    "web_research": web_research_for_provenance(provenance)}
     web_references = public_web_references(reference_snapshot, include_private=not public)
+    valuation_snapshot = snapshot if version else {"data": values, "provenance": provenance,
+                                                  "valuations": valuations_for_provenance(provenance)}
+    valuation = public_valuation(valuation_snapshot)
     reference_by_field = {item["field"]: item for item in web_references}
     plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
                                         else getattr(machine, "_detected_plate_asset_ids", set()))}
@@ -119,7 +124,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         if not version:
             raise ValueError("Una ficha de difusión requiere una versión autorizada.")
         private_identifiers = {_reference_text(values.get(key)) for key in ("serial", "vin")} - {""}
-        for key in set(WEB_FIELD_LABELS) | {"hours", "kilometers", "attachments"}:
+        for key in set(WEB_FIELD_LABELS) | {"hours", "kilometers", "attachments"} | VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys():
             if key in values and any(identifier in _reference_text(values[key]) for identifier in private_identifiers):
                 values.pop(key)
         public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
@@ -289,7 +294,8 @@ def build_pdf(machine, data, assets, public=False, version=None):
         story.append(para("Una fotografía no estaba disponible al generar este documento.", "Small"))
 
     price = _price(values.get("price"), values.get("currency"))
-    commercial = [[para("PRECIO", "Label"), para(price, "Value")],
+    price_label = "PRECIO SUGERIDO" if provenance.get("price", {}).get("source") == "valuation" else "PRECIO"
+    commercial = [[para(price_label, "Label"), para(price, "Value")],
                   [para("DISPONIBILIDAD", "Label"), para(AVAILABILITY.get(machine.availability, machine.availability), "Value")],
                   [para("UBICACIÓN", "Label"), para(values.get("location") or "Por confirmar")]]
     story.extend([Spacer(1, 3 * mm), panel(commercial, [width * .34, width * .30, width * .36])])
@@ -309,8 +315,29 @@ def build_pdf(machine, data, assets, public=False, version=None):
                                                                        "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
                                                                        "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length")
                                                         if key not in highlights])
-    specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "attachments", "condition")
+    specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "condition")
                                                    if key not in displayed_identity])
+    specification_table("Estado aparente, componentes y aplicaciones", list(VISUAL_LABELS))
+    if any(_present(values.get(key)) for key in ESTIMATE_LABELS):
+        items = [para(ESTIMATE_LABEL, "Small")]
+        if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
+            items.append(para(f"{values['estimate_min']} - {values['estimate_max']} {values.get('estimate_currency') or ''}", "Value"))
+        else:
+            for key in ("estimate_min", "estimate_max"):
+                if _present(values.get(key)):
+                    items.append(para(f"{ESTIMATE_LABELS[key]}: {values[key]} {values.get('estimate_currency') or ''}", "Value"))
+        for key in ("estimate_market", "estimate_basis", "estimate_missing_info"):
+            if values.get(key):
+                items.append(para(f"{ESTIMATE_LABELS[key]}: {values[key]}"))
+        if valuation.get("edited"):
+            items.append(para("Estimación modificada en la ficha. Las fuentes conservan los precios originales consultados.", "Small"))
+        for item in valuation.get("comparables", []):
+            kind = "Precio de anuncio" if item.get("price_type") == "asking" else "Venta registrada" if item.get("price_type") == "sold" else "Referencia de precio"
+            items.append(para(f"{kind}: {item.get('price', '')} {item.get('currency', '')} · {item.get('market', '')}", "Small"))
+            url = escape(item["url"], {'"': "&quot;", "'": "&#39;"})
+            title = escape(item.get("title") or "Consultar comparable")
+            items.append(Paragraph(f'<link href="{url}" color="#0074A5">{title}</link>', styles["Small"]))
+        section("Referencia de valor y precio", items)
     custom_keys = [f.get("key") if isinstance(f, dict) else f for f in category_fields]
     custom_keys = list(dict.fromkeys(key for key in custom_keys if key and key not in LABELS
                                     and key not in PRIVATE_FIELDS | {"description", "contact_public", "price", "currency"}))

@@ -152,6 +152,9 @@ class ImageRelevanceNormalizationTests(SimpleTestCase):
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini")
 class ImageRelevanceWorkerTests(TestCase):
     def setUp(self):
+        # These tests isolate technical research; valuation is covered separately.
+        from portal.research import UsageTotals
+        self.enterContext(patch("portal.processing.estimate_machine", return_value=({"status": "not_run"}, UsageTotals())))
         self.owner = User.objects.create_user(email="image-relevance@example.invalid")
         self.machine = Machine.objects.create(owner=self.owner, title="Human title",
             data={"brand": "HumanBrand", "model": "HumanModel", "description": "Human description"},

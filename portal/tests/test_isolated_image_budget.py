@@ -10,6 +10,7 @@ from django.utils import timezone
 from portal.models import AnalysisJob, Asset, Machine, PlatformSettings, User
 from portal.processing import _claim_job, _job_lease_seconds, _reservation, enqueue_analysis
 from portal.research import RESEARCH_RESERVATION
+from portal.valuation import VALUATION_RESERVATION
 
 
 IMAGE_COST = 12_200
@@ -49,13 +50,13 @@ class IsolatedImageBudgetTests(TestCase):
         for count in (1, 2, 20):
             with self.subTest(count=count):
                 self.assertEqual(_reservation(count, 'analysis'), count * IMAGE_COST)
-                self.assertEqual(_reservation(count, 'analysis', True), count * IMAGE_COST + RESEARCH_RESERVATION)
+                self.assertEqual(_reservation(count, 'analysis', True), count * IMAGE_COST + RESEARCH_RESERVATION + VALUATION_RESERVATION)
         self.assertEqual(_reservation(0, 'description'), 9000)
         self.assertEqual(_reservation(0, 'description', True, research_description_only=True), RESEARCH_RESERVATION)
 
     def test_exact_budget_admits_one_complete_attempt_without_raising_limits(self):
         self.assets(2)
-        cost = 2 * IMAGE_COST + RESEARCH_RESERVATION
+        cost = 2 * IMAGE_COST + RESEARCH_RESERVATION + VALUATION_RESERVATION
         self.budget(cost)
         with patch('openai.OpenAI') as provider:
             job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True)
@@ -67,7 +68,7 @@ class IsolatedImageBudgetTests(TestCase):
 
     def test_one_token_short_rejects_before_any_image_or_provider_work(self):
         self.assets(2)
-        self.budget(2 * IMAGE_COST + RESEARCH_RESERVATION - 1)
+        self.budget(2 * IMAGE_COST + RESEARCH_RESERVATION + VALUATION_RESERVATION - 1)
         with patch('openai.OpenAI') as provider, patch('portal.processing._image_input') as image, self.assertRaises(ValidationError):
             enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True)
         provider.assert_not_called()

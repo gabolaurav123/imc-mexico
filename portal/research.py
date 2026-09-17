@@ -1003,4 +1003,17 @@ def compose_description(data, provenance, category=None, visual_description="", 
         text += "Fotografías disponibles para identificar sus características. "
     if references:
         text += "Referencia técnica del modelo o documentación consultada: " + "; ".join(references) + ". Estos datos requieren comprobación en esta unidad."
+    from .commercial import VISUAL_LABELS
+    observations = []
+    for key, label in VISUAL_LABELS.items():
+        value, meta = data.get(key), provenance.get(key, {})
+        if not isinstance(value, str) or not value.strip() or contains_private_identifier(value) or re.search(r"https?://|@|[<>]", value):
+            continue
+        if meta.get("source") not in {"visual_proposal", "user"}:
+            continue
+        if key == "operating_status" and meta.get("source") != "user":
+            value = "Pendiente de confirmar"
+        observations.append(f"{label}: {value.strip()}")
+    if observations:
+        text = text.rstrip() + "\n\n" + ". ".join(observations) + "."
     return text.strip()
