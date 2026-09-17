@@ -181,7 +181,7 @@ def api_save(request,pk):
     if str(body.get('revision'))!=str(machine.revision):return JsonResponse({'error':'Hay una versión más reciente. Recarga antes de guardar para no sobrescribir cambios.','revision':machine.revision},status=409)
     revision=body.pop('revision',None)
     machine=services.save_draft(machine,request.user,body,revision)
-    return JsonResponse({'revision':machine.revision,'saved_at':machine.updated_at.isoformat()})
+    return JsonResponse({'revision':machine.revision,'saved_at':machine.updated_at.isoformat(),'machine':machine_state(machine)})
 
 def asset_info(asset):
     return {'id':str(asset.pk),'url':f'/archivos/{asset.pk}/','kind':asset.kind,'purpose':asset.purpose,'is_cover':asset.is_cover,'processing_status':asset.processing_status,'error':asset.error,'position':asset.position}

@@ -209,6 +209,9 @@
             if (pending.get(key)?.sequence === entry.sequence) pending.delete(key);
           }
           state.revision = result.revision;
+          // The server may invalidate automatic suggestions after an identity edit.
+          // hydrate keeps newer pending values, including explicit blanks and zero.
+          if (result.machine) hydrate(result.machine);
           markSave(pending.size ? 'Cambios pendientes' : 'Guardado',pending.size ? 'pending' : 'saved');
         } catch (error) {
           if (error.status === 409 && !recovered && await rebaseOwnAnalysis(payload.revision)) { recovered = true; continue; }

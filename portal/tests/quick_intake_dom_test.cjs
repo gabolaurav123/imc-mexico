@@ -421,5 +421,44 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  for(const key of ['estimate_min','estimate_max','estimate_currency','estimate_market','estimate_basis','estimate_missing_info','price'])input(clearedEstimate,key,'');
  assert.equal(clearedEstimate.doc.querySelector('#valuation-comparables').children.length,0);assert.match(clearedEstimate.doc.querySelector('#valuation-status').textContent,/No hay una estimación activa/);clearedEstimate.close();
  pass('insufficient valuation gives concrete missing information without inventing a price or blocking submission, and clearing proposals hides their references');
+ let invalidatedSave,invalidatedCalls=[];
+ invalidatedSave=setup(async(url,o)=>{
+   assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);invalidatedCalls.push(body);
+   assert.deepEqual(body.data,{model:'NUEVA IDENTIDAD'});
+   const clean={...invalidatedSave.state.data,model:'NUEVA IDENTIDAD'};
+   for(const key of [...Object.keys(valuationData),'price','currency'])delete clean[key];
+   return response(200,{revision:2,machine:{...invalidatedSave.state,revision:2,data:clean,provenance:{model:{source:'user',review:'confirmed'}},valuation:{}}});
+ },{data:{...valuationData,model:'ANTERIOR',preservation_notes:'Nota manual conservada'},state:{valuation:valuationMeta,provenance:{price:{source:'valuation',review:'needs_review'},estimate_min:{source:'valuation',review:'needs_review'}}}});
+ input(invalidatedSave,'model','NUEVA IDENTIDAD');await pause(950);
+ assert.equal(invalidatedCalls.length,1);assert.equal(invalidatedSave.doc.querySelector('#save-status').textContent,'Guardado');
+ for(const key of ['price','estimate_min','estimate_max','estimate_currency','estimate_basis'])assert.equal(invalidatedSave.doc.querySelector(`[data-field="${key}"]`).value,'',key+' server invalidation must be reflected immediately');
+ assert.equal(invalidatedSave.doc.querySelector('#valuation-comparables').children.length,0);
+ assert.match(invalidatedSave.doc.querySelector('#preview-commercial-specs').textContent,/Consultar precio/);
+ assert.equal(invalidatedSave.doc.querySelector('#preservation_notes').value,'Nota manual conservada');invalidatedSave.close();
+ pass('successful identity save rehydrates server-invalidated automatic price and range instead of leaving stale values marked saved');
+
+ for(const manualPrice of ['0','']){
+   let duringSave,finishFirst,finishSecond,serverSaved;const bodies=[];
+   duringSave=setup(async(url,o)=>{
+     assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);bodies.push(body);
+     if(bodies.length===1){
+       await new Promise(resolve=>finishFirst=resolve);
+       serverSaved={...duringSave.state,revision:2,data:{brand:'Original',model:'NUEVO',preservation_notes:'Nota aún pendiente de corregir'},provenance:{model:{source:'user',review:'confirmed'}},valuation:{}};
+       return response(200,{revision:2,machine:JSON.parse(JSON.stringify(serverSaved))});
+     }
+     assert.equal(body.revision,2);assert.deepEqual(body.data,{price:manualPrice===''?null:'0',currency:'EUR',preservation_notes:null});
+     await new Promise(resolve=>finishSecond=resolve);
+     serverSaved={...serverSaved,revision:3,data:{...serverSaved.data,...body.data},provenance:{...serverSaved.provenance,...body.provenance}};
+     return response(200,{revision:3,machine:serverSaved});
+   },{data:{...valuationData,preservation_notes:'Nota aún pendiente de corregir'},state:{valuation:valuationMeta,provenance:{price:{source:'valuation',review:'needs_review'}}}});
+   input(duringSave,'model','NUEVO');await pause(900);
+   input(duringSave,'price',manualPrice);input(duringSave,'currency','EUR');input(duringSave,'preservation_notes','');finishFirst();await pause(35);
+   assert.equal(bodies.length,2);assert.equal(duringSave.doc.querySelector('#price').value,manualPrice);assert.equal(duringSave.doc.querySelector('#currency').value,'EUR');assert.equal(duringSave.doc.querySelector('#preservation_notes').value,'');assert.equal(duringSave.doc.querySelector('#estimate_min').value,'');
+   finishSecond();await pause(35);
+   assert.equal(duringSave.doc.querySelector('#price').value,manualPrice);assert.equal(duringSave.doc.querySelector('#currency').value,'EUR');assert.equal(duringSave.doc.querySelector('#preservation_notes').value,'');assert.equal(duringSave.doc.querySelector('#save-status').textContent,'Guardado');
+   assert.equal(duringSave.doc.querySelector('#valuation-comparables').children.length,0);
+   const unload=new duringSave.w.Event('beforeunload',{cancelable:true});duringSave.w.dispatchEvent(unload);assert.equal(unload.defaultPrevented,false);duringSave.close();
+ }
+ pass('save response hydration preserves newer pending manual zero, EUR and explicit blanks, then saves them against the returned revision');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});
