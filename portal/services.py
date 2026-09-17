@@ -304,7 +304,25 @@ def automatic_application_status(job):
             "revision_before": None, "revision_after": None}
 
 
+def _analysis_relevance_status(job):
+    relevance = job.result.get("relevance")
+    return relevance.get("status") if job.mode == "analysis" and isinstance(relevance, dict) else None
+
+
+def _analysis_excludes_asset(job, meta):
+    relevance = job.result.get("relevance")
+    if job.mode != "analysis" or not isinstance(relevance, dict) or not isinstance(meta, dict):
+        return False
+    for key in ("excluded_asset_ids", "uncertain_asset_ids"):
+        excluded = relevance.get(key)
+        if isinstance(excluded, list) and meta.get("asset_id") and meta["asset_id"] in excluded:
+            return True
+    return False
+
+
 def _clear_automatic_field(job, key, value, meta):
+    if _analysis_relevance_status(job) in {"unrelated", "uncertain"} or _analysis_excludes_asset(job, meta):
+        return False
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
         return False
     if meta.get("source") == "web":
@@ -335,6 +353,8 @@ def _visual_description_for_completion(machine, job):
     The processing boundary strips technical and private values. Recheck against
     the saved draft here because a human correction may have arrived meanwhile.
     """
+    if _analysis_relevance_status(job) in {"unrelated", "uncertain"}:
+        return ""
     text = job.result.get("visual_description")
     if job.mode != "analysis" or not isinstance(text, str) or not text.strip():
         return ""
@@ -401,6 +421,11 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at", "-pk").first()
     if not consent or not consent.granted:
         return finish("consent_revoked")
+    relevance = _analysis_relevance_status(job)
+    if relevance in {"unrelated", "uncertain"}:
+        # A successful image check can find no machinery. Preserve the draft
+        # exactly instead of applying fallback titles or recomposing old facts.
+        return finish("images_" + relevance)
     base = job.application_snapshot
     legacy = not base
     if legacy:
@@ -718,6 +743,8 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         raise ValidationError("El análisis no está disponible para esta maquinaria.")
     if job.revision != machine.revision:
         raise ValidationError("El borrador cambió después del análisis. Solicita un nuevo análisis para conservar tus correcciones.")
+    if _analysis_relevance_status(job) in {"unrelated", "uncertain"}:
+        raise ValidationError("Estas fotos no permiten identificar maquinaria. Agrega una foto del equipo o de su placa y vuelve a preparar la ficha.")
     if not isinstance(fields, list) or not fields or any(not isinstance(field, str) for field in fields):
         raise ValidationError("Selecciona los datos que deseas aplicar.")
     result_data = job.result.get("data", {})
@@ -729,6 +756,8 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         value = result_data[key]
         if value in (None, ""):
             continue
+        if _analysis_excludes_asset(job, result_provenance.get(key, {})):
+            raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
         if result_provenance.get(key, {}).get("source") == "web" and (
                 not _clear_automatic_field(job, key, value, result_provenance[key])
                 or not _web_identity_unchanged(machine, job, result_provenance[key].get("scope"))

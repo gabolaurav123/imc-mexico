@@ -46,6 +46,30 @@ la configuración de un bucket remoto.
 
 ## OpenAI Responses y revisión humana
 
+### Fotografías relacionadas con maquinaria
+
+La lectura clasifica cada fotografía como maquinaria, material relacionado
+(placas y componentes), contenido ajeno o contenido incierto. Una placa válida
+sigue siendo útil sin una foto general. Una imagen borrosa no se declara ajena
+por la sola falta de una marca, modelo o serie.
+
+Si todas las imágenes son ajenas o no permiten identificar equipo, el trabajo
+termina con un aviso específico: no consulta fuentes externas ni genera o aplica
+un título, descripción o especificaciones de maquinaria. Conserva el borrador,
+sus archivos y las correcciones anteriores. La interfaz vuelve a las fotos para
+que el anunciante pueda agregar una imagen útil y preparar la ficha nuevamente.
+
+En lotes mixtos, los datos y observaciones provienen de las imágenes admitidas.
+Los archivos descartados del análisis se identifican en pantalla. La exclusión
+no borra archivos ni sustituye la revisión editorial de un eventual anuncio.
+La aplicación automática y la aplicación manual de sugerencias verifican esta
+condición en el servidor. Los análisis históricos sin clasificación conservan
+su comportamiento; no se reclasifican ni se gastan tokens al abrirlos.
+
+La detección forma parte de la llamada de lectura existente, sin una llamada
+adicional de clasificación. Es probabilística y conserva una salida incierta
+para no presentar una imagen ilegible como contenido ajeno con certeza.
+
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
 inicial es `gpt-4.1-mini`, cuyo soporte de entrada de imagen, Responses y Structured
 Outputs se comprobó en la documentación oficial. `OPENAI_TIMEOUT` es 90 segundos.

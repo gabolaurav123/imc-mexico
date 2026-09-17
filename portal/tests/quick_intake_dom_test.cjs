@@ -235,5 +235,69 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.deepEqual(forkliftSave.data,{mast_tilt:'Rearward 5 deg'});
  assert.equal(forklift.doc.querySelectorAll('[data-step-panel]').length,2);
  forklift.close();pass('forklift plate fields render and remain editable with literal qualifiers; manufacturer address never becomes location or origin');
+ for(const relevanceStatus of ['unrelated','uncertain']){
+   let rejected,releaseRelevance;const rejectedCalls=[];
+   rejected=setup(async(url,o)=>{
+     rejectedCalls.push(url);
+     if(url.includes('/api/analisis/')){
+       await new Promise(resolve=>releaseRelevance=resolve);
+       const job=completed(rejected.state,{brand:'NO DEBE APLICARSE',model:'NO DEBE HIDRATARSE'});
+       job.auto_apply={requested:false,status:'disabled'};
+       job.result.relevance={status:relevanceStatus,message:'<img src=x onerror=alert(1)>',accepted_asset_ids:[],excluded_asset_ids:relevanceStatus==='unrelated'?['1','2']:[],uncertain_asset_ids:relevanceStatus==='uncertain'?['1','2']:[]};return response(200,job);
+     }
+     if(url.endsWith('guardar/')){assert.equal(JSON.parse(o.body).revision,1);return response(200,{revision:2});}
+     if(url.endsWith('enviar/'))return response(200,{url:'/panel/solicitudes/'});
+     throw Error('Unexpected relevance request '+url);
+   },{job:{id:'rejected-job',status:'completed'}});
+   const retainedIds=[...rejected.doc.querySelectorAll('.asset-card')].map(card=>card.dataset.assetId);
+   input(rejected,'brand','Corrección conservada');releaseRelevance();await pause(40);
+   assert.equal(rejected.doc.querySelector('[data-step-panel="1"]').hidden,false);
+   assert.equal(rejected.doc.querySelector('[data-step-panel="2"]').hidden,true);
+   assert.equal(rejected.doc.querySelector('#brand').value,'Corrección conservada');
+   assert.equal(rejected.doc.querySelector('#model').value,rejected.state.data.model ?? '');
+   assert.deepEqual([...rejected.doc.querySelectorAll('.asset-card')].map(card=>card.dataset.assetId),retainedIds);
+   assert.equal(rejected.doc.querySelectorAll('.asset-relevance[role="note"]').length,2);
+   assert.equal(rejected.doc.querySelector('#analysis-status').dataset.state,relevanceStatus);
+   assert.match(rejected.doc.querySelector('#analysis-status').textContent,/Agrega una foto/);
+   assert.doesNotMatch(rejected.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
+   assert.equal(rejected.doc.querySelector('#analysis-feedback img'),null);
+   assert.equal(rejected.doc.querySelector('#analyze-button').disabled,false);
+   assert.equal(rejected.doc.querySelector('[data-file-open]').disabled,false);
+   assert.equal(rejectedCalls.some(url=>url.endsWith('aplicar/')),false);
+   click(rejected,'manual-continue');click(rejected,'submit-machine');await pause(40);
+   assert.equal(rejectedCalls.filter(url=>url.endsWith('enviar/')).length,1,'manual submission remains available');
+   rejected.close();
+ }
+ pass('unrelated and uncertain photos stay in step 1, never hydrate or request autofill, retain edits/files, and permit manual submission');
+
+ let mixed;
+ mixed=setup(async(url)=>{assert.ok(url.includes('/api/analisis/'));await pause(1);const job=completed(mixed.state,{model:'Equipo leído'});job.result.relevance={status:'mixed',accepted_asset_ids:['1'],excluded_asset_ids:['2'],uncertain_asset_ids:[]};return response(200,job);},{job:{id:'mixed',status:'completed'}});
+ await pause(35);assert.equal(mixed.doc.querySelector('#model').value,'Equipo leído');assert.equal(mixed.doc.querySelector('[data-step-panel="2"]').hidden,false);
+ assert.match(mixed.doc.querySelector('#analysis-status').textContent,/Se omitió 1 foto ajena a maquinaria/);
+ assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.relevance,'excluded');
+ assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.purpose,'plate','relevance never changes original file classification');
+ assert.equal(mixed.doc.querySelector('[data-asset-id="1"] .asset-relevance'),null);mixed.close();
+ pass('mixed photos complete normally with a visible omission count and an accessible per-photo note');
+
+ for(const relevance of [undefined,{status:'unassessed',excluded_asset_ids:['1']},{status:'invalid'}]){
+   let compatible;let applies=0;
+   compatible=setup(async(url)=>{await pause(1);if(url.includes('/api/analisis/')){const job=completed(compatible.state,{});job.result.relevance=relevance;job.auto_apply={requested:false,status:'disabled'};return response(200,job);}if(url.endsWith('aplicar/')){applies++;const job=completed(compatible.state,{model:'Legacy conservado'});return response(200,{machine:job.machine,auto_apply:job.auto_apply});}throw Error(url);},{job:{id:'legacy-relevance',status:'completed'}});
+   await pause(45);assert.equal(applies,1);assert.equal(compatible.doc.querySelector('#model').value,'Legacy conservado');assert.equal(compatible.doc.querySelector('[data-step-panel="2"]').hidden,false);assert.equal(compatible.doc.querySelector('.asset-relevance'),null);compatible.close();
+ }
+ pass('legacy missing, unassessed or invalid relevance retains the existing completion flow');
+
+ let retryPhotos,finishReplacement;const retryBodies=[];
+ retryPhotos=setup(async(url,o)=>{
+   await pause(1);
+   if(url.includes('/api/analisis/rejected/'))return response(200,{id:'rejected',status:'completed',result:{relevance:{status:'unrelated',excluded_asset_ids:['1','2']}},machine:retryPhotos.state,auto_apply:{requested:true,status:'skipped'}});
+   if(url==='/api/archivos/2/accion/'){assert.equal(JSON.parse(o.body).action,'delete');return response(200,{revision:2});}
+   if(url.endsWith('analizar/')){const body=JSON.parse(o.body);retryBodies.push(body);assert.deepEqual(body.asset_ids,['1','replacement']);assert.equal(body.revision,3);assert.equal(body.consent,true);return response(200,{id:'replacement-job',status:'running'});}
+   if(url.includes('/api/analisis/replacement-job/')){const job=completed({...retryPhotos.state,revision:3},{model:'Equipo de nueva foto'});job.result.relevance={status:'relevant',accepted_asset_ids:['1','replacement'],excluded_asset_ids:[],uncertain_asset_ids:[]};return response(200,job);}
+   throw Error('Unexpected retry request '+url);
+ },{job:{id:'rejected',status:'completed'},before(w){w.XMLHttpRequest=class extends w.EventTarget{constructor(){super();this.upload=new w.EventTarget();}open(){}setRequestHeader(){}send(){finishReplacement=()=>{this.status=200;this.responseText=JSON.stringify({id:'replacement',kind:'image',purpose:'general',revision:3});this.dispatchEvent(new w.Event('load'));};}};}});
+ await pause(30);retryPhotos.doc.querySelector('[data-asset-id="2"] [data-asset-action="delete"]').click();await pause(25);
+ const replacementInput=retryPhotos.doc.querySelector('#gallery-input');Object.defineProperty(replacementInput,'files',{value:[new retryPhotos.w.File(['photo'],'replacement.jpg',{type:'image/jpeg'})]});replacementInput.dispatchEvent(new retryPhotos.w.Event('change'));await pause(10);finishReplacement();await pause(25);
+ click(retryPhotos,'analyze-button');await pause(50);assert.equal(retryBodies.length,1);assert.equal(retryPhotos.doc.querySelector('#model').value,'Equipo de nueva foto');assert.equal(retryPhotos.doc.querySelector('[data-step-panel="2"]').hidden,false);assert.equal(retryPhotos.doc.querySelector('.asset-relevance'),null);assert.equal(retryPhotos.doc.querySelectorAll('input[type="checkbox"]').length,1);retryPhotos.close();
+ pass('rejected photos can be removed/replaced and reanalyzed without another consent control; success clears old photo notices');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

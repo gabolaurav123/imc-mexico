@@ -33,7 +33,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v15"
+PROMPT_VERSION = "imc-vision-research-2026-09-v16"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -100,7 +100,8 @@ país de fabricación. Una dirección como ciudad/país se conserva únicamente 
 manufacturer_address, nunca como country_of_origin ni location sin otra evidencia.
 Revisa también el pie completo de la placa: brand es la marca comercial del equipo,
 manufacturer es la razón social del fabricante impresa, aunque difieran entre sí.
-Devuelve SIEMPRE en fields una entrada manufacturer y una manufacturer_address:
+Cuando haya maquinaria o una placa relacionada, devuelve SIEMPRE en fields una
+entrada manufacturer y una manufacturer_address:
 si el nombre o la dirección son legibles, copia literalmente cada uno en su value,
 con source plate, component machine, asset_id y evidence de su texto impreso.
 Si están ausentes, ilegibles o no puede establecerse que sean del fabricante del
@@ -149,6 +150,27 @@ En image_observations clasifica el objeto principal de cada fotografía: machine
 si se ve el equipo (aunque contenga una placa pequeña), plate si sólo se aprecia
 la placa identificativa o su primer plano, document, other o unknown si corresponde.
 Usa el asset_id exacto; el propósito declarado de la carga puede estar equivocado.
+Devuelve EXACTAMENTE una image_observation por CADA asset_id recibido, sin omitir
+fotografías. Además de kind, clasifica relevance por el contenido realmente visible:
+machinery para maquinaria industrial, construcción, agrícola, forestal o logística;
+related para placas, componentes, accesorios o documentos técnicos vinculados a
+esa maquinaria; unrelated para mascotas, selfies o personas sin equipo, comida,
+memes y documentos personales o ajenos; uncertain cuando el desenfoque, oscuridad
+o encuadre no permiten determinarlo. Una persona junto a una máquina visible no
+invalida la máquina. No supongas relevancia por la intención o los datos del usuario.
+Una etiqueta con SERIAL o MODEL no basta: placas de teléfonos, computadoras o
+electrodomésticos domésticos son unrelated si ese objeto está claro; si no se
+puede determinar el tipo de equipo por la placa, usa uncertain. Las placas de
+maquinaria y motores industriales identificables sí son related.
+En CADA image_observation incluye category: un nombre exacto de allowed_category_names
+identificable en ESA foto, o null; y visual_features: rasgos observables de ESA foto
+con las mismas restricciones de privacidad y sin cifras que se indican abajo.
+Cada foto tendrá como máximo tres rasgos cortos de hasta 140 caracteres cada uno.
+En related sin vista del equipo, unrelated y uncertain usa visual_features [].
+No extraigas fields, plates ni propuestas de fotos unrelated o uncertain. Si ninguna
+foto es machinery o related, devuelve fields [], plates [], title y description
+vacíos, category null, visual_description null y visual_features []; no conviertas
+contenido ajeno en un anuncio ni uses declaraciones previas para justificarlo.
 visual_description es una descripción separada de rasgos directamente visibles:
 tipo de equipo, accesorios, configuración y color. No incluyas marca, modelo,
 serie, año, cifras técnicas, precio, contactos ni afirmaciones de funcionamiento.
@@ -200,6 +222,9 @@ class Plate(StrictModel):
 class ImageObservation(StrictModel):
     asset_id: str
     kind: Literal["machine", "plate", "document", "other", "unknown"]
+    relevance: Literal["machinery", "related", "unrelated", "uncertain"] = "uncertain"
+    category: str | None = None
+    visual_features: list[str] = Field(default_factory=list)
 
 
 class MachineAnalysis(StrictModel):
@@ -713,18 +738,97 @@ def plate_serial_is_clear(field, plate):
                 and re.search(r"(?<![A-Za-z0-9])" + literal, transcription, re.I))
 
 
-def normalize_analysis(parsed, asset_ids, mode="analysis"):
+RELEVANCE_MESSAGES = {
+    "relevant": "Las fotografías muestran maquinaria o contenido relacionado.",
+    "mixed": "Se usaron las fotografías de maquinaria. Las fotos ajenas o inciertas no aportaron datos a la ficha.",
+    "unrelated": "Las fotografías no muestran maquinaria ni contenido relacionado. Agrega fotos del equipo o de su placa.",
+    "uncertain": "No pudimos confirmar maquinaria en las fotografías. Agrega una foto más clara del equipo o de su placa.",
+    "unassessed": "Este análisis no incluye una clasificación de relevancia por fotografía.",
+}
+
+
+def _image_relevance(parsed, asset_ids):
+    observations = getattr(parsed, "image_observations", [])
+    assessed = (any("relevance" in item.model_fields_set for item in observations)
+                or ("image_observations" in parsed.model_fields_set and not observations and bool(asset_ids)))
+    accepted, excluded, uncertain = [], [], []
+    if assessed:
+        for asset_id in dict.fromkeys(asset_ids):
+            matches = [item for item in observations if item.asset_id == asset_id]
+            classifications = {(item.relevance, item.kind) for item in matches}
+            if not matches or len(classifications) != 1 or any(
+                    "relevance" not in item.model_fields_set for item in matches):
+                uncertain.append(asset_id)
+            elif matches[0].relevance in {"machinery", "related"}:
+                accepted.append(asset_id)
+            elif matches[0].relevance == "unrelated":
+                excluded.append(asset_id)
+            else:
+                uncertain.append(asset_id)
+    if not assessed:
+        status = "unassessed"
+    elif accepted:
+        status = "mixed" if excluded or uncertain else "relevant"
+    else:
+        status = "unrelated" if excluded and not uncertain else "uncertain"
+    return {"status": status, "message": RELEVANCE_MESSAGES[status],
+            "accepted_asset_ids": accepted, "excluded_asset_ids": excluded,
+            "uncertain_asset_ids": uncertain}
+
+
+def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories=None):
     """Defense in depth beyond the schema. No write to Machine happens here."""
     result = parsed.model_dump()
     allowed = set(asset_ids)
     observations = result.setdefault("image_observations", [])
     if any(item["asset_id"] not in allowed for item in observations):
         raise ValidationError("El análisis vinculó una observación a una fotografía desconocida.")
+    if any(item.get("asset_id") is not None and item["asset_id"] not in allowed
+           for item in result.get("fields", []) + result.get("plates", [])):
+        raise ValidationError("El análisis vinculó un dato a una fotografía desconocida.")
+    relevance = result["relevance"] = _image_relevance(parsed, asset_ids)
+    assessed = mode == "analysis" and relevance["status"] != "unassessed"
+    # Keep exclusions from every field while sanitizing per-image prose, even
+    # when the field itself comes from an image that must be discarded.
+    raw_fields = result.get("fields", [])
+    visual_exclusions = [field.get("value") for field in raw_fields if field.get("key") in AI_KEYS]
+    private_serials = [field.get("value") for field in raw_fields if field.get("key") == "serial"]
+    if assessed:
+        accepted = set(relevance["accepted_asset_ids"])
+        result["fields"] = [item for item in raw_fields
+                            if item.get("asset_id") in accepted and item.get("source") != "user"]
+        result["plates"] = [item for item in result.get("plates", []) if item["asset_id"] in accepted]
+        categories, features = set(), []
+        for item in observations:
+            useful = item["asset_id"] in accepted
+            category = item.get("category") if useful else None
+            item["category"] = category if category in (allowed_categories or ()) else None
+            if item["category"]:
+                categories.add(item["category"])
+            safe_features = []
+            for feature in item.get("visual_features", [])[:3] if useful and item["kind"] == "machine" else []:
+                if isinstance(feature, str) and len(feature) <= 140:
+                    clean = sanitize_visual_description(feature, private_serials, visual_exclusions)
+                    if clean:
+                        safe_features.append(clean)
+            item["visual_features"] = safe_features
+            features.extend(safe_features)
+        result["category"] = next(iter(categories)) if len(categories) == 1 else None
+        result["visual_description"], result["visual_features"] = None, features[:12]
+        # Free global prose cannot be attributed to a retained photograph.
+        result["title"], result["description"] = "", ""
+        if relevance["status"] != "relevant":
+            result["warnings"] = [relevance["message"]]
+            result["questions"] = []
+        if len(categories) > 1:
+            result["warnings"].append("Las fotografías útiles muestran categorías distintas; revisa a qué equipo corresponde cada foto.")
+        if not accepted:
+            result.update(data={}, provenance={}, visual_features=[], visual_description="")
+            return result
+        allowed = accepted
     plate_only = bool(allowed and {item["asset_id"] for item in observations} == allowed
                       and all(item["kind"] == "plate" for item in observations))
     visual_text = result.get("visual_description") if mode == "analysis" else None
-    visual_exclusions = [field.get("value") for field in result.get("fields", []) if field.get("key") in AI_KEYS]
-    private_serials = [field.get("value") for field in result.get("fields", []) if field.get("key") == "serial"]
     visual_text = sanitize_visual_description(visual_text, private_serials, visual_exclusions)
     visual_features, combined = [], [visual_text] if visual_text else []
     features = result.get("visual_features", []) if mode == "analysis" else []
@@ -793,17 +897,18 @@ def normalize_analysis(parsed, asset_ids, mode="analysis"):
         seen.add(key)
         result["data"][key] = item["value"]
         result["provenance"][key] = {k: item[k] for k in ("source", "review", "asset_id", "component", "evidence")}
-    if plate_only:
+    if plate_only or assessed:
         # Describing the support of the label adds no equipment information.
         # Compose from the independently validated fields, never from its OCR
         # transcription (which may contain ambiguous serial characters).
         result["description"] = result["data"]["description"] = compose_description(
-            result["data"], result["provenance"], result.get("category"))
+            result["data"], result["provenance"], result.get("category"),
+            visual_description=result.get("visual_description", ""), private_identifiers=private_serials)
         result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
-        if re.match(r"^(?:foto(?:graf[ií]a)?|imagen|etiqueta|placa\s+(?:de\b|con\b|met[aá]lica|identificativa|negra|blanca))", result["title"], re.I):
+        if assessed or re.match(r"^(?:foto(?:graf[ií]a)?|imagen|etiqueta|placa\s+(?:de\b|con\b|met[aá]lica|identificativa|negra|blanca))", result["title"], re.I):
             parts = [equipment_category_label(result.get("category"))] + [str(result["data"][key]) for key in ("brand", "model")
                 if result["data"].get(key) and result["provenance"].get(key, {}).get("review") == "clear"]
-            result["title"] = result["data"]["title"] = " ".join(parts)[:180]
+            result["title"] = result["data"]["title"] = " ".join(part for part in parts if part)[:180]
     return result
 
 
@@ -859,11 +964,19 @@ def process_analysis(job):
             usage.add(response.usage)
             if response.output_parsed is None or response.status != "completed":
                 raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
-            result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode)
+            result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode,
+                                        allowed_categories=job.result.get("category_names", []))
         result["research_requested"] = research_requested
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         result["reservation_per_attempt"] = _reserved_attempt_cost(job, platform_settings())
+        if job.mode == "analysis" and result["relevance"]["status"] in {"unrelated", "uncertain"}:
+            # The paid image assessment completed normally. Neither previous
+            # human identifiers nor generic fallbacks can turn unrelated input
+            # into a new machinery proposal or trigger an external search.
+            result["research"] = {**empty_research("not_run"), "reason": "image_relevance"}
+            result["usage"] = usage.as_dict()
+            return result, usage
         if research_requested:
             def research_allowed():
                 if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):

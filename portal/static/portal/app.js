@@ -381,6 +381,41 @@
   pdfDownload.addEventListener('click',event => openDocument(event,'pdf'));
   sheetLinks.forEach(link => link.addEventListener('click',event => openDocument(event,'screen')));
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
+  function relevanceOf(job) {
+    const relevance = job.result?.relevance;
+    return relevance && typeof relevance === 'object' && ['relevant','mixed','unrelated','uncertain','unassessed'].includes(relevance.status) ? relevance : null;
+  }
+  function relevanceAssetIds(value) {
+    return new Set((Array.isArray(value) ? value : []).filter(id => typeof id === 'string' || typeof id === 'number').map(String));
+  }
+  function renderRelevance(relevance) {
+    const excluded = relevanceAssetIds(relevance?.excluded_asset_ids), uncertain = relevanceAssetIds(relevance?.uncertain_asset_ids);
+    $$('.asset-card',wizard).forEach(card => {
+      $('.asset-relevance',card)?.remove(); delete card.dataset.relevance;
+      if (!relevance || relevance.status === 'unassessed') return;
+      const status = excluded.has(card.dataset.assetId) ? 'excluded' : uncertain.has(card.dataset.assetId) ? 'uncertain' : null;
+      if (!status) return;
+      card.dataset.relevance = status;
+      const label = el('p','small muted asset-relevance',status === 'excluded' ? 'Foto ajena a maquinaria · omitida en esta lectura' : 'No se pudo identificar el equipo en esta foto');
+      label.setAttribute('role','note');
+      $('.asset-preview',card).insertAdjacentElement('afterend',label);
+    });
+  }
+  function blockedRelevance(job) {
+    const relevance = relevanceOf(job);
+    if (!relevance || !['unrelated','uncertain'].includes(relevance.status)) return false;
+    renderRelevance(relevance); analysisOutcome = relevance.status;
+    const message = relevance.status === 'unrelated'
+      ? 'Estas fotos no corresponden a maquinaria ni a una placa de equipo. Agrega una foto de la máquina o de su placa para preparar la ficha. Tus archivos y datos se conservan.'
+      : 'No pudimos identificar maquinaria o una placa con claridad en estas fotos. Agrega una foto del equipo o una placa más legible. Tus archivos y datos se conservan.';
+    analysisStatus(message,relevance.status);
+    $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.';
+    $('.wizard-progress [data-step-to="2"] b',wizard).textContent = 'Ficha';
+    $('#analysis-results').hidden = true; $('#research-brief').hidden = true;
+    renderPreview();
+    if (!deleting) displayStep(1);
+    return true;
+  }
   function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
@@ -390,7 +425,11 @@
     return job;
   }
   async function completedJob(job) {
+    // Rejected/uncertain photos must never trigger legacy autofill or replace
+    // the existing draft, even when an older client result contains fields.
+    if (blockedRelevance(job)) return;
     job = await syncSnapshot(job);
+    if (blockedRelevance(job)) return;
     // A previous, already consented analysis can fill blanks without a second AI call.
     if (editable && !conflict && !deleting && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
       legacyAttempts.add(job.id);
@@ -398,9 +437,17 @@
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
     renderResults(job);
+    const relevance = relevanceOf(job); renderRelevance(relevance);
     const metadata = job.auto_apply || {}, count = metadata.applied_fields?.length || 0;
     const message = metadata.status === 'skipped' ? 'Conservamos tus datos. Las fotos o la ficha cambiaron durante la lectura; puedes editar la información o volver a prepararla con las fotos actuales.' : count ? `Ficha preparada. Completamos ${count} dato${count === 1 ? '' : 's'} disponible${count === 1 ? '' : 's'} y conservamos tus correcciones.` : 'Tu ficha está lista para revisar. Los datos que no se encontraron quedan sin indicar.';
-    analysisStatus(message,'completed'); $('#ready-heading').textContent = 'Tu ficha está preparada.';
+    let relevanceMessage = '';
+    if (relevance?.status === 'mixed') {
+      const excluded = relevanceAssetIds(relevance.excluded_asset_ids).size, uncertain = relevanceAssetIds(relevance.uncertain_asset_ids).size;
+      relevanceMessage = excluded ? `Se ${excluded === 1 ? 'omitió 1 foto ajena' : `omitieron ${excluded} fotos ajenas`} a maquinaria en esta lectura. ` : 'La ficha se preparó con las fotos que se pudieron identificar. ';
+      if (uncertain) relevanceMessage += `No se pudo identificar el equipo en ${uncertain} foto${uncertain === 1 ? '' : 's'} adicional${uncertain === 1 ? '' : 'es'}. `;
+    }
+    analysisStatus(relevanceMessage + message,'completed'); $('#ready-heading').textContent = 'Tu ficha está preparada.';
+    $('.wizard-progress [data-step-to="2"] b',wizard).textContent = 'Ficha lista';
     if (currentStep === 1 && !conflict && !deleting) displayStep(2);
   }
   function pollJob(id) {
@@ -435,6 +482,7 @@
       if (!assetIds.length) throw new Error('Agrega al menos una fotografía para preparar la ficha.');
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
+      renderRelevance(null);
       displayStep(2); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
     } catch (error) { analysisOutcome = 'failed'; renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
     finally { preparing = false; prepareLabel(); }
@@ -519,7 +567,7 @@
   function renderPreview() {
     const value = collect(), data = value.data;
     $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Maquinaria · ficha en preparación';
-    $('#preview-description').textContent = data.description || (['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
+    $('#preview-description').textContent = data.description || (['unrelated','uncertain'].includes(analysisOutcome) ? 'Agrega una foto del equipo o de su placa para preparar la descripción.' : ['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
     const selectedCategory = $('#category')?.selectedOptions[0];
     const categoryLabel = value.category && selectedCategory?.value ? selectedCategory.textContent.trim() : 'Maquinaria';
     $('#preview-category').textContent = categoryLabel;

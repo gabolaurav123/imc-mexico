@@ -53,7 +53,7 @@ class PlateEquipmentTests(SimpleTestCase):
         self.assertEqual(research_identity(result)[1], "exact_serial")
 
     def test_numeric_leading_zero_serial_is_kept_but_ambiguous_reading_is_not_reconstructed(self):
-        data = plate_analysis().model_dump()
+        data = plate_analysis().model_dump(exclude_unset=True)
         serial = next(field for field in data["fields"] if field["key"] == "serial")
         serial.update(value=None, review="needs_review", evidence="Primer dígito borroso")
         result = normalize_analysis(MachineAnalysis(**data), ["plate-image"])
@@ -65,7 +65,7 @@ class PlateEquipmentTests(SimpleTestCase):
         self.assertIsNone(normalize_analysis(MachineAnalysis(**data), ["plate-image"])["data"]["serial"])
 
     def test_component_plate_never_becomes_machine_model_serial_or_new_specs(self):
-        data = plate_analysis().model_dump()
+        data = plate_analysis().model_dump(exclude_unset=True)
         for field in data["fields"]:
             field["component"] = "engine"
         data["plates"][0]["component"] = "engine"
@@ -89,7 +89,7 @@ class PlateEquipmentTests(SimpleTestCase):
                          "Fabricado en China; sede en Alemania", "País de origen de la marca: Alemania"):
             with self.subTest(evidence=evidence):
                 self.assertFalse(explicit_manufacturing_origin(evidence, "Alemania"))
-        data = plate_analysis().model_dump()
+        data = plate_analysis().model_dump(exclude_unset=True)
         field = dict(key="country_of_origin", label="País de fabricación", value="Alemania", source="plate",
             review="clear", asset_id="plate-image", component="machine", evidence="Sede: Alemania")
         data["fields"].append(field)

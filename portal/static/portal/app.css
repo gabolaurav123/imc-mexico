@@ -28,6 +28,7 @@
 .quick-intake .asset-grid:empty,.quick-intake .upload-queue:empty{display:none}
 .quick-intake .asset-info summary{font-size:11px;cursor:pointer;min-height:32px;overflow-wrap:anywhere}
 .quick-intake .asset-info[open] summary{margin-bottom:8px}
+.quick-intake .asset-relevance{margin:8px;line-height:1.5;overflow-wrap:anywhere}
 .quick-intake .asset-actions{flex-wrap:wrap}
 .quick-intake .quick-options{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);margin:12px 0;padding:0 18px;min-width:0}
 .quick-intake .quick-options>summary{padding:14px 0;margin:0;font-size:13px;line-height:1.5;cursor:pointer;min-height:48px;overflow-wrap:anywhere}
