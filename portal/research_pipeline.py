@@ -233,18 +233,25 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
             usage.estimate(token_reservation(model, NORMALIZE_RESERVATION))
 
 
-def research_identified_machine(client, model, result, identity, basis, allowed=None, category=None):
+def research_identified_machine(client, model, result, identity, basis, allowed=None, category=None,
+                                initial_evidence=None):
     original_identity = dict(identity)
     identity = dict(identity)
     outcome, usage = empty_research("no_results", identity, basis), UsageTotals()
-    sources, passages, titles, attempts = [], [], {}, []
-    retrieved, direct_fields, document_attempts = [], [], []
+    seed = initial_evidence if isinstance(initial_evidence, dict) else {}
+    sources = list(seed.get("sources", []))
+    passages = list(seed.get("passages", []))
+    titles = dict(seed.get("titles", {}))
+    direct_fields = list(seed.get("direct_fields", []))
+    attempts = []
+    retrieved, document_attempts = [], []
     discovery = None
     interrupted = False
     observed_search_cost = 0
     from .research_documents import collect_registered_fields
-    direct_fields, document_attempts, interrupted = collect_registered_fields(
+    registered_fields, document_attempts, interrupted = collect_registered_fields(
         identity, category, sources, passages, titles, allowed)
+    direct_fields.extend(registered_fields)
     stages = ["serial", "manufacturer", "catalogs"] if identity.get("serial") else ["manufacturer", "catalogs", "manuals"]
     for stage in stages:
         if interrupted or (allowed is not None and not allowed()):

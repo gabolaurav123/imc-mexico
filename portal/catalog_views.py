@@ -12,6 +12,13 @@ from .public_data import public_json
 
 UNDERCARRIAGE_LABELS = {"crawler": "Orugas", "wheeled": "Ruedas", "special": "Especial"}
 CURRENCIES = ("MXN", "USD", "EUR")
+SORT_OPTIONS = (
+    ("latest", "Más recientes"),
+    ("hours_asc", "Horas: menor a mayor"),
+    ("year_desc", "Año: más nuevo"),
+    ("price_asc", "Precio: menor a mayor"),
+    ("price_desc", "Precio: mayor a menor"),
+)
 PRESERVATION_CHOICES = (("excellent", "Excelente"), ("good", "Buena"),
                         ("acceptable", "Aceptable"), ("poor", "Deficiente"))
 PRESERVATION_ALIASES = {"excelente": "excellent", "buena": "good", "bueno": "good",
@@ -55,7 +62,7 @@ def catalogue(request):
         "category", "brand", "model", "variant", "undercarriage", "currency",
         "location_country", "location_region", "location_city", "preservation_condition",
         "hours_min", "hours_max", "year", "year_mode", "price_min", "price_max",
-        "weight_min", "weight_max", "depth_min", "depth_max")}
+        "weight_min", "weight_max", "depth_min", "depth_max", "sort")}
     qs = public_qs
 
     category = filters["category"]
@@ -105,9 +112,26 @@ def catalogue(request):
         else:
             qs = qs.filter(version__year=exact_year)
 
-    page = Paginator(qs.select_related("machine", "version", "version__category").order_by("-updated_at"), 18).get_page(params.get("page"))
+    sort = filters["sort"] if filters["sort"] in dict(SORT_OPTIONS) else "latest"
+    # Price ordering is meaningful only within one currency.  Fall back to the
+    # stable recency order when no currency was selected, rather than mixing
+    # incomparable amounts.
+    if sort.startswith("price_") and not currency:
+        sort = "latest"
+    ordering = {
+        "latest": ["-updated_at", "pk"],
+        "hours_asc": [F("version__hours").asc(nulls_last=True), "-updated_at", "pk"],
+        "year_desc": [F("version__year").desc(nulls_last=True), "-updated_at", "pk"],
+        "price_asc": [F("version__price").asc(nulls_last=True), "-updated_at", "pk"],
+        "price_desc": [F("version__price").desc(nulls_last=True), "-updated_at", "pk"],
+    }[sort]
+    filters["sort"] = sort
+    ordered_qs = qs.select_related("machine", "version", "version__category").order_by(*ordering)
+    result_count = ordered_qs.count()
+    page = Paginator(ordered_qs, 18).get_page(params.get("page"))
     query_params = params.copy()
     query_params.pop("page", None)
+    query_params["sort"] = sort
     query = query_params.urlencode()
     cards = []
     for publication in page:
@@ -125,7 +149,8 @@ def catalogue(request):
         cards.append({"publication": publication, "data": data, "asset_ids": assets[:1], "summary": summary,
                       "title": title, "url": f"/ficha/{publication.token}/?back={quote(back, safe='')}"})
     return render(request, "portal/catalogue.html", {
-        "cards": cards, "page_obj": page, "query": query, "filters": filters,
+        "cards": cards, "page_obj": page, "result_count": result_count, "query": query, "filters": filters,
         "categories": categories, "undercarriage_labels": UNDERCARRIAGE_LABELS.items(),
         "currencies": CURRENCIES, "preservation_choices": PRESERVATION_CHOICES,
+        "sort_options": SORT_OPTIONS,
     })

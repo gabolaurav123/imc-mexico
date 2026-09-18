@@ -9,6 +9,7 @@
     <summary>Herramientas administrativas</summary>
     <nav class="management-nav" aria-label="Administración">
       <a href="{{ management_url }}" {% if request.path == '/operaciones/' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Panel administrativo</a>
+      {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/" {% if '/operaciones/base-tecnica/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▤</span> Base técnica</a>{% endif %}
       {% if perms.portal.operate_platform %}{% if perms.portal.view_submission or perms.portal.change_submission or perms.portal.review_submission %}<a href="/operaciones/#solicitudes" {% if '/operaciones/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Solicitudes</a>{% endif %}{% endif %}
       {% if perms.portal.view_lead or perms.portal.change_lead %}<a href="/admin/portal/lead/"><span aria-hidden="true">◎</span> Leads y seguimiento</a>{% endif %}
       {% if perms.portal.view_user or perms.portal.change_user %}<a href="/admin/portal/user/"><span aria-hidden="true">♙</span> Usuarios</a>{% if perms.portal.manage_advertisers %}<a href="/admin/portal/user/?advertiser_status__exact=pending"><span aria-hidden="true">✓</span> Permisos de anunciantes</a>{% endif %}{% endif %}

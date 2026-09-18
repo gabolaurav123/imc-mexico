@@ -6,7 +6,7 @@ does not infer a model, variant, market or a unit characteristic.
 from __future__ import annotations
 
 from copy import deepcopy
-from .research import identifier_key, normalize_direct_fields, ResearchField
+from .research import identifier_key, normalize_direct_fields, ResearchField, _brand_aliases, documented_model_period
 
 
 def _value(data, key):
@@ -79,21 +79,40 @@ def retrieve_technical_references(snapshot, category=None, identity=None):
     identity = identity or {}
     brand, model = identity.get("brand") or _value(source, "brand"), identity.get("model") or _value(source, "model")
     variant, market = _trusted_variant(snapshot), _market(snapshot)
-    if not category or not brand or not model:
+    if not category or not category.active or not brand or not model:
         return []
+    from django.db.models import Q
+    brand_query = Q()
+    for alias in _brand_aliases(brand):
+        brand_query |= Q(brand__iexact=str(alias).strip())
     queryset = TechnicalReference.objects.filter(category=category, active=True,
-                                                 review=TechnicalReference.Review.APPROVED,
-                                                 brand__iexact=str(brand).strip(), model__iexact=str(model).strip())
+                                                 review=TechnicalReference.Review.APPROVED).filter(brand_query).select_related("equipment_model__brand")
     matched = []
     for reference in queryset:
+        if not isinstance(reference.provenance, dict) or not isinstance(reference.specs, dict):
+            continue
+        if identifier_key(reference.model) != identifier_key(model):
+            continue
+        if reference.equipment_model_id and (not reference.equipment_model.active or not reference.equipment_model.brand.active):
+            continue
         # A generation-specific reference cannot silently become a generic
         # model reference when the unit's generation is unknown.
         if reference.generation and identifier_key(reference.generation) != identifier_key(_value(source, "generation")):
             continue
         if identifier_key(reference.variant) != identifier_key(variant):
             continue
-        if identifier_key(reference.market) != identifier_key(market):
+        global_scope = not reference.market and reference.provenance.get("market_scope") == "global"
+        if not global_scope and identifier_key(reference.market) != identifier_key(market):
             continue
+        year_meta = snapshot.get("provenance", {}).get("year", {}) if isinstance(snapshot, dict) else {}
+        if year_meta.get("source") == "user" or year_meta.get("review") in {"clear", "confirmed"}:
+            try:
+                year = int(_value(source, "year"))
+            except (TypeError, ValueError):
+                year = None
+            if year and ((reference.period_from and year < reference.period_from) or
+                         (reference.period_to and year > reference.period_to)):
+                continue
         matched.append(reference)
     return matched
 
@@ -142,6 +161,17 @@ def research_from_knowledge(result, snapshot, category=None, identity=None):
             fields.append(ResearchField(key=str(key), value=value, scope="model", source_url=url,
                                         evidence=evidence, matched_serial=None,
                                         matched_brand=reference.brand, matched_model=reference.model))
+        # A model's documented production period is an approximate guide, never
+        # the exact build year of the photographed unit. Metadata alone is not
+        # evidence; the existing normalizer must recognize the source passage.
+        period_evidence = reference.provenance.get("period_evidence", "")
+        if (reference.period_from and reference.period_to and isinstance(period_evidence, str)
+                and documented_model_period(period_evidence) == (str(reference.period_from), str(reference.period_to))):
+            passages.append({"source_url": url, "text": period_evidence})
+            for key, value in (("estimated_year_from", reference.period_from), ("estimated_year_to", reference.period_to)):
+                fields.append(ResearchField(key=key, value=str(value), scope="model", source_url=url,
+                                            evidence=period_evidence, matched_serial=None,
+                                            matched_brand=reference.brand, matched_model=reference.model))
     if not fields:
         return None
     search_text = "\n".join(item["text"] for item in passages)

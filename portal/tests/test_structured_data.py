@@ -113,13 +113,19 @@ class VersionProjectionTests(TestCase):
         self.assertEqual(reference.review, TechnicalReference.Review.PENDING)
         self.assertFalse(reference.active)
 
-    def test_local_reviewed_reference_precedes_external_research(self):
+    def test_complete_local_reference_precedes_external_research(self):
         from unittest.mock import Mock
         TechnicalReference.objects.create(
             category=self.category, brand="Caterpillar", model="320", market="MX",
             source="https://www.cat.com/en_MX/products/new/equipment/excavators/medium-excavators/126534.html",
             source_title="320 Hydraulic Excavator", retrieved_at=timezone.localdate(),
-            specs={"weight": {"value": "21300 kg", "evidence": "Caterpillar 320: Operating Weight 21300 kg."}},
+            specs={
+                "weight": {"value": "21300 kg", "evidence": "Caterpillar 320: Operating Weight 21300 kg."},
+                "power": {"value": "117 kW", "evidence": "Caterpillar 320: Net Power 117 kW."},
+                "digging_depth": {"value": "6720 mm", "evidence": "Caterpillar 320: Maximum Digging Depth 6720 mm."},
+                "estimated_year_from": {"value": "2018", "evidence": "Caterpillar 320: Production years 2018-2024."},
+                "estimated_year_to": {"value": "2024", "evidence": "Caterpillar 320: Production years 2018-2024."},
+            },
             review=TechnicalReference.Review.APPROVED, active=True)
         client = Mock()
         snapshot = {"category": "Excavadoras", "provenance": {"category": {"source": "user"},
@@ -131,8 +137,56 @@ class VersionProjectionTests(TestCase):
         research, usage = research_machine(client, "gpt-4.1-mini", visual, snapshot,
                                            allowed_categories=["Excavadoras"], knowledge_category=self.category)
         self.assertEqual(research["status"], "completed")
-        self.assertEqual(research["fields"][0]["value"], "21300 kg")
+        self.assertEqual({field["key"] for field in research["fields"]},
+                         {"weight", "power", "digging_depth", "estimated_year_from", "estimated_year_to", "estimated_year_basis"})
         self.assertEqual(usage.web_search_calls, 0)
+        client.responses.create.assert_not_called()
+
+    def test_partial_local_period_supplements_and_retains_verified_fields_after_provider_failure(self):
+        from unittest.mock import Mock
+        TechnicalReference.objects.create(
+            category=self.category, brand="Volvo", model="EC210B", market="MX",
+            source="https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-b-prime-series/ec210b/",
+            source_title="EC210B - Volvo | Volvo Construction Equipment", retrieved_at=timezone.localdate(),
+            specs={
+                "estimated_year_from": {"value": "2003", "evidence": "Volvo EC210B: Production year 2003-2009."},
+                "estimated_year_to": {"value": "2009", "evidence": "Volvo EC210B: Production year 2003-2009."},
+            }, review=TechnicalReference.Review.APPROVED, active=True)
+        client = Mock()
+        client.responses.create.side_effect = TimeoutError("provider unavailable")
+        snapshot = {"category": "Excavadoras", "data": {"brand": "Volvo", "model": "EC210B", "location_country": "México"},
+                    "provenance": {"category": {"source": "user"}, "brand": {"source": "user"},
+                                   "model": {"source": "user"}, "location_country": {"source": "user"}}}
+        visual = {"data": {"brand": "Volvo", "model": "EC210B"},
+                  "provenance": {"brand": {"source": "user"}, "model": {"source": "user"}}}
+        research, _ = research_machine(client, "gpt-4.1-mini", visual, snapshot,
+                                       allowed_categories=["Excavadoras"], knowledge_category=self.category)
+        self.assertTrue(client.responses.create.called)
+        self.assertEqual({field["key"] for field in research["fields"]},
+                         {"estimated_year_from", "estimated_year_to", "estimated_year_basis"})
+        self.assertEqual(research["status"], "completed")
+        self.assertTrue(any(warning.startswith("Una etapa de la investigación no se completó")
+                            for warning in research["warnings"]))
+
+    def test_cancelled_partial_local_supplement_does_not_apply_partial_fields(self):
+        from unittest.mock import Mock
+        TechnicalReference.objects.create(
+            category=self.category, brand="Volvo", model="EC210B", market="MX",
+            source="https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-b-prime-series/ec210b/",
+            source_title="EC210B - Volvo | Volvo Construction Equipment", retrieved_at=timezone.localdate(),
+            specs={"estimated_year_from": {"value": "2003", "evidence": "Volvo EC210B: Production year 2003-2009."},
+                   "estimated_year_to": {"value": "2009", "evidence": "Volvo EC210B: Production year 2003-2009."}},
+            review=TechnicalReference.Review.APPROVED, active=True)
+        client = Mock()
+        snapshot = {"category": "Excavadoras", "data": {"brand": "Volvo", "model": "EC210B", "location_country": "México"},
+                    "provenance": {"category": {"source": "user"}, "brand": {"source": "user"},
+                                   "model": {"source": "user"}, "location_country": {"source": "user"}}}
+        visual = {"data": {"brand": "Volvo", "model": "EC210B"},
+                  "provenance": {"brand": {"source": "user"}, "model": {"source": "user"}}}
+        research, _ = research_machine(client, "gpt-4.1-mini", visual, snapshot, allowed=lambda: False,
+                                       allowed_categories=["Excavadoras"], knowledge_category=self.category)
+        self.assertEqual(research["fields"], [])
+        self.assertEqual(research["status"], "degraded")
         client.responses.create.assert_not_called()
 
     def test_bundled_reference_requires_explicit_tier_three_variant(self):

@@ -94,6 +94,19 @@ def _measure(value, units):
     return amount * factor if amount is not None and factor is not None else None
 
 
+def _length_metres(value):
+    # Manufacturer sheets may express one depth as feet plus inches. Keep the
+    # original reading, while projecting the exact documented measurement.
+    match = re.fullmatch(r"\s*(\d+)\s*ft\s+(\d+(?:[.,]\d+)?)\s*in\s*", str(value or ""), re.I)
+    if match:
+        inches = parse_decimal(match.group(2))
+        if inches is not None and 0 <= inches < 12:
+            return Decimal(match.group(1)) * Decimal("0.3048") + inches * Decimal("0.0254")
+        return None
+    return _measure(value, {"m": Decimal("1"), "cm": Decimal("0.01"), "mm": Decimal("0.001"),
+                            "ft": Decimal("0.3048"), "in": Decimal("0.0254")})
+
+
 def _clean_text(value, limit=180):
     if not isinstance(value, str):
         return None
@@ -139,7 +152,7 @@ def normalize_structured_data(data, category=None, strict=False):
         "price": parse_decimal(source.get("price")),
         "currency": _currency(source.get("currency")),
         "weight_kg": _measure(source.get("weight"), {"kg": Decimal("1"), "t": Decimal("1000"), "ton": Decimal("1000"), "tons": Decimal("1000"), "lb": Decimal("0.45359237"), "lbs": Decimal("0.45359237")}),
-        "digging_depth_m": _measure(source.get("digging_depth"), {"m": Decimal("1"), "cm": Decimal("0.01"), "mm": Decimal("0.001"), "ft": Decimal("0.3048"), "in": Decimal("0.0254")}),
+        "digging_depth_m": _length_metres(source.get("digging_depth")),
         "power_kw": _measure(source.get("power"), {"kw": Decimal("1"), "hp": Decimal("0.745699872"), "cv": Decimal("0.73549875")}),
         "capacity_m3": _measure(source.get("capacity"), {"m3": Decimal("1"), "l": Decimal("0.001"), "lt": Decimal("0.001"), "yd3": Decimal("0.764554858")}),
         "power_type": _controlled(source, "power_type"),

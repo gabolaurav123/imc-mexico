@@ -1,0 +1,13 @@
+{
+  "version": "2026-09-18",
+  "files": [
+    {
+      "path": "excavadoras/caterpillar_320.json",
+      "sha256": "7f60cfcb518a79b8ac850b3cf2d328e0ea37e2925213469798526d15f37ab2b5"
+    },
+    {
+      "path": "excavadoras/catalogo_tecnico_us_2026-09-18.json",
+      "sha256": "7d0cb4aaf1685dec7ca34cac6d5c72b1c26f7c131656be2e264a7f144a1962e1"
+    }
+  ]
+}

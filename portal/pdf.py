@@ -258,7 +258,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     if not primary and not public:
         primary = next(iter(pictures), None)
     primary_is_plate = bool(primary and is_plate(primary[0]))
-    identity_keys = ["brand", "model", "year", "hours"]
+    identity_keys = ["brand", "model", "hours", "year"]
     serial_meta = provenance.get("serial", {})
     if not public and isinstance(serial_meta, dict) and (
         serial_meta.get("source") == "user" and serial_meta.get("review") == "confirmed"
@@ -323,7 +323,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     section("Descripción del equipo", [para(values["description"])] if values.get("description") else [])
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
-    specification_table("Identificación del equipo", [key for key in ("brand", "model", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
+    specification_table("Identificación del equipo", [key for key in ("brand", "model", "hours", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
     if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):
         age_items = []

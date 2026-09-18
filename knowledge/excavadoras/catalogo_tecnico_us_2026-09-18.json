@@ -1,0 +1,283 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "319",
+      "variant": "Tier 4 / Stage V",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/small-excavators/130560.html",
+      "source_title": "319 Hydraulic Excavator | Cat | Caterpillar",
+      "source_version": "Tier 4 / Stage V product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Ficha US. Peso, capacidad y profundidad se publican con tren de rodaje largo, pluma Reach 5.1 m, brazo Reach 3.1 m, cucharón GD de 1 m³ y zapatas triple garra de 700 mm; no confirman la configuración de una unidad."
+      },
+      "specs": {
+        "power": {
+          "value": "99 kW",
+          "evidence": "Caterpillar 319 Tier 4 / Stage V: Net Power - ISO 9249 99 kW."
+        },
+        "weight": {
+          "value": "20000 kg",
+          "evidence": "Caterpillar 319 Tier 4 / Stage V: Operating Weight 20000 kg."
+        },
+        "digging_depth": {
+          "value": "6550 mm",
+          "evidence": "Caterpillar 319 Tier 4 / Stage V: Maximum Digging Depth 6550 mm."
+        },
+        "capacity": {
+          "value": "1 m³",
+          "evidence": "Caterpillar 319 Tier 4 / Stage V: GD bucket 1 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "M315",
+      "variant": "Tier 4 / Stage V",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/wheel-excavators/127282.html",
+      "source_title": "M315 Wheel Excavator | Cat | Caterpillar",
+      "source_version": "Tier 4 / Stage V product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Excavadora de ruedas, ficha US. El peso máximo incluye combustible, operador, cucharón GD y neumáticos duales; cambia según configuración. La profundidad usa pluma Variable Adjustable de 5.02 m, brazo de 2.2 m y cucharón GD de 0.76 m³."
+      },
+      "specs": {
+        "power": {
+          "value": "110 kW",
+          "evidence": "Caterpillar M315 Tier 4 / Stage V: Engine Power - ISO 14396 110 kW."
+        },
+        "weight": {
+          "value": "18000 kg",
+          "evidence": "Caterpillar M315 Tier 4 / Stage V: Operating Weight Maximum 18000 kg."
+        },
+        "digging_depth": {
+          "value": "5290 mm",
+          "evidence": "Caterpillar M315 Tier 4 / Stage V: Maximum Digging Depth 5290 mm."
+        },
+        "capacity": {
+          "value": "0.76 m³",
+          "evidence": "Caterpillar M315 Tier 4 / Stage V: GD bucket 0.76 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC220LC-12",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc220lc-12",
+      "source_title": "PC220LC-12 | Komatsu",
+      "source_version": "US product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Excavadora LC sobre orugas, ficha US. El fabricante publica intervalos de peso y capacidad; no se reduce el intervalo ni se atribuye a una configuración concreta de unidad."
+      },
+      "specs": {
+        "power": {
+          "value": "129 kW",
+          "evidence": "Komatsu PC220LC-12: Horsepower 129 kW at 2,000 rpm."
+        },
+        "weight": {
+          "value": "24200-24800 kg",
+          "evidence": "Komatsu PC220LC-12: Operating weight 24200-24800 kg."
+        },
+        "capacity": {
+          "value": "0.50-1.41 m³",
+          "evidence": "Komatsu PC220LC-12: Bucket capacity 0.50-1.41 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC290LC-11 SLF",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc290lc-11-slf",
+      "source_title": "PC290LC-11 SLF | Komatsu",
+      "source_version": "US product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Excavadora LC con super long front (SLF), ficha US. La capacidad y el peso documentados corresponden a esa versión de largo alcance; no se aplican al PC290LC-11 estándar."
+      },
+      "specs": {
+        "power": {
+          "value": "146 kW",
+          "evidence": "Komatsu PC290LC-11 SLF: Horsepower 146 kW at 2,000 rpm."
+        },
+        "weight": {
+          "value": "32538-33168 kg",
+          "evidence": "Komatsu PC290LC-11 SLF: Operating weight 32538-33168 kg."
+        },
+        "capacity": {
+          "value": "0.57 m³",
+          "evidence": "Komatsu PC290LC-11 SLF: Bucket capacity 0.57 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "John Deere",
+      "model": "160 P-Tier",
+      "market": "US",
+      "source": "https://www.deere.com/assets/pdfs/common/products/sync/ME160PAU-160-p-tier-excavator.pdf",
+      "source_title": "160 P-Tier Excavator | John Deere",
+      "source_version": "ME160PAU technical specifications",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Especificación para motor base US, territorios US y Canadá. Excavadora de orugas. Peso publicado con tanque lleno, operador, cucharón GP de 0.60 m³, brazo de 3.10 m, contrapeso de 3200 kg y zapatas de 700 mm; la profundidad máxima corresponde al brazo de 3.10 m."
+      },
+      "specs": {
+        "power": {
+          "value": "90 kW",
+          "evidence": "John Deere 160 P-Tier: Net Rated Power (ISO 9249) 90 kW."
+        },
+        "weight": {
+          "value": "17945 kg",
+          "evidence": "John Deere 160 P-Tier: Operating Weight 17 945 kg."
+        },
+        "digging_depth": {
+          "value": "6.49 m",
+          "evidence": "John Deere 160 P-Tier: Maximum Digging Depth 6.49 m."
+        },
+        "capacity": {
+          "value": "0.60 m³",
+          "evidence": "John Deere 160 P-Tier: general-purpose bucket 0.60 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "John Deere",
+      "model": "210 P-Tier",
+      "market": "US",
+      "source": "https://www.deere.com/assets/pdfs/common/products/sync/ME210PAU-210-p-tier-excavator.pdf",
+      "source_title": "210 P-Tier Excavator | John Deere",
+      "source_version": "ME210PAU (25-01) technical specifications",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Especificación para motor base US, territorios US y Canadá. Excavadora de orugas. El peso varía por zapata, contrapeso y pluma; se conserva la cifra documentada para zapata de 800 mm, contrapeso y pluma estándar. La profundidad usa brazo de 2.91 m."
+      },
+      "specs": {
+        "power": {
+          "value": "119 kW",
+          "evidence": "John Deere 210 P-Tier: Net Rated Power (ISO 9249) 119 kW."
+        },
+        "weight": {
+          "value": "23560 kg",
+          "evidence": "John Deere 210 P-Tier: 800 mm shoes, standard counterweight and boom 23 560 kg."
+        },
+        "digging_depth": {
+          "value": "6.67 m",
+          "evidence": "John Deere 210 P-Tier: Maximum Digging Depth 6.67 m."
+        },
+        "capacity": {
+          "value": "0.91 m³",
+          "evidence": "John Deere 210 P-Tier: general-purpose bucket 0.91 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EW160E",
+      "variant": "Stage IV / Tier 4f",
+      "market": "US",
+      "source": "https://www.volvoce.com/united-states/en-us/products/excavators/ew160e/",
+      "source_title": "EW160E | Excavators | Volvo Construction Equipment",
+      "source_version": "US product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "Excavadora de ruedas, ficha US. Peso, capacidad y profundidad se basan en pluma de dos piezas, brazo de 2.6 m, hoja frontal y estabilizador trasero; el fabricante advierte que la configuración y oferta cambian por mercado."
+      },
+      "specs": {
+        "power": {
+          "value": "156 hp",
+          "evidence": "Volvo EW160E Stage IV / Tier 4f: Gross power 156 hp."
+        },
+        "weight": {
+          "value": "35714-40124 lbs",
+          "evidence": "Volvo EW160E Stage IV / Tier 4f: Operating weight 35,714-40,124 lbs."
+        },
+        "digging_depth": {
+          "value": "18 ft 8 in",
+          "evidence": "Volvo EW160E Stage IV / Tier 4f: Max. digging depth 18 ft 8 in."
+        },
+        "capacity": {
+          "value": "1.02 yd³",
+          "evidence": "Volvo EW160E Stage IV / Tier 4f: Bucket capacity 1.02 yd³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EC210B",
+      "variant": "2009 specifications",
+      "period_from": 2003,
+      "period_to": 2009,
+      "source": "https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-b-prime-series/ec210b/",
+      "source_title": "EC210B - Volvo B Prime series | Volvo Construction Equipment",
+      "source_version": "Past products archive; 2009 specifications",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "period_evidence": "Volvo EC210B: Production year 2003-2009.",
+        "note": "Archivo global de producto pasado, excavadora de orugas. Volvo advierte que la EC210B tuvo configuraciones diferentes durante su producción. Por ello estas cifras se etiquetan como “2009 specifications” y no deben aplicarse a una EC210B de otro año sin confirmar esa configuración.",
+        "market_scope": "global"
+      },
+      "specs": {
+        "power": {
+          "value": "107 kW",
+          "evidence": "Volvo EC210B 2009 specifications: Rated output 107 kW."
+        },
+        "weight": {
+          "value": "20.9-22.3 t",
+          "evidence": "Volvo EC210B 2009 specifications: Operating weight 20.9-22.3 t."
+        },
+        "capacity": {
+          "value": "0.75-1.55 m³",
+          "evidence": "Volvo EC210B 2009 specifications: Bucket capacity 0.75-1.55 m³."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EC210B",
+      "variant": "",
+      "period_from": 2003,
+      "period_to": 2009,
+      "source": "https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-b-prime-series/ec210b/",
+      "source_title": "EC210B - Volvo B Prime series | Volvo Construction Equipment",
+      "source_version": "Past products archive; documented model production period",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "period_evidence": "Volvo EC210B: Production year 2003-2009.",
+        "note": "Periodo de producción del modelo EC210B documentado por Volvo: 2003–2009. No establece el año de una unidad ni permite aplicar automáticamente las especificaciones de la configuración 2009.",
+        "market_scope": "global"
+      },
+      "specs": {}
+    }
+  ]
+}

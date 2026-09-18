@@ -1380,9 +1380,101 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
     if knowledge_category is not None:
         from .knowledge import research_from_knowledge
         local = research_from_knowledge(result, snapshot or {}, knowledge_category, identity)
-        if local is not None:
-            return local, UsageTotals()
+        if local is not None and _verified_local_reference(local, identity):
+            if allowed is not None and not allowed():
+                cancelled = empty_research("degraded", identity, basis)
+                cancelled["warnings"].append("La autorización de búsqueda ya no está vigente. Se conservó la lectura de las fotos.")
+                return cancelled, UsageTotals()
+            profile_category = "Excavadoras" if getattr(knowledge_category, "slug", None) == "excavadoras" else category
+            if _local_reference_is_complete(local, identity, profile_category, result, snapshot):
+                return local, UsageTotals()
+            return research_identified_machine(client, model, result, identity, basis, allowed, category,
+                                               initial_evidence=_local_pipeline_evidence(local, identity))
     return research_identified_machine(client, model, result, identity, basis, allowed, category)
+
+
+def _protected_research_keys(result, snapshot):
+    keys = set()
+    for candidate in (result, snapshot or {}):
+        if not isinstance(candidate, dict):
+            continue
+        data, provenance = candidate.get("data", {}), candidate.get("provenance", {})
+        if not isinstance(data, dict) or not isinstance(provenance, dict):
+            continue
+        for key, value in data.items():
+            meta = provenance.get(key, {})
+            if value not in (None, "") and isinstance(meta, dict) and (meta.get("source") == "user" or meta.get("review") in {"clear", "confirmed"}):
+                keys.add(key)
+    return keys
+
+
+def _local_reference_is_complete(local, identity, category, result, snapshot):
+    """Keep an exact local reference fast only when it answers the model query.
+
+    A production interval alone is useful evidence, but it must not prevent the
+    ordinary research stages from looking for the missing operating figures.
+    """
+    if not identity.get("brand") or not identity.get("model"):
+        return False
+    fields = {field.get("key") for field in local.get("fields", []) if isinstance(field, dict)}
+    fields.update(_protected_research_keys(result, snapshot))
+    if category != "Excavadoras":
+        return bool(fields)
+    has_period = {"estimated_year_from", "estimated_year_to"}.issubset(fields)
+    return {"weight", "power", "digging_depth"}.issubset(fields) and ("year" in fields or has_period)
+
+
+def _verified_local_reference(local, identity):
+    """Accept a seed only if its local normalizer proof and identity still match."""
+    if not isinstance(local, dict):
+        return False
+    try:
+        verified = signing.Signer(salt=SIGNING_SALT).unsign_object(local.get("proof", ""))
+    except (signing.BadSignature, TypeError, ValueError):
+        return False
+    if verified != _manifest(local):
+        return False
+    local_identity = local.get("identity", {})
+    return (isinstance(local_identity, dict)
+            and identifier_key(local_identity.get("brand")) == identifier_key(identity.get("brand"))
+            and identifier_key(local_identity.get("model")) == identifier_key(identity.get("model"))
+            and local_identity.get("serial") == identity.get("serial"))
+
+
+def _local_pipeline_evidence(local, identity):
+    """Rebuild reviewed local fields as direct evidence for the shared normalizer.
+
+    The pipeline receives the same identity and literal passages used by the
+    local normalizer. It can therefore retain those fields if external work
+    fails, without trusting or re-signing an unverified merged result.
+    """
+    source_titles = {item.get("url"): item.get("title") for item in local.get("sources", [])
+                     if isinstance(item, dict) and safe_public_url(item.get("url")) and isinstance(item.get("title"), str)}
+    sources, passages, direct_fields = [], [], []
+    seen_sources, seen_passages = set(), set()
+    for field in local.get("fields", []):
+        if not isinstance(field, dict) or field.get("key") not in WEB_KEYS or field.get("key") == "estimated_year_basis":
+            continue
+        url = safe_public_url(field.get("source_url"))
+        evidence = field.get("evidence")
+        value = field.get("value")
+        if not url or not isinstance(evidence, str) or not evidence.strip() or not isinstance(value, (str, int, float)):
+            continue
+        title = source_titles.get(url) or field.get("source_title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        if url not in seen_sources:
+            sources.append({"url": url, "title": title})
+            seen_sources.add(url)
+        passage_key = (url, evidence)
+        if passage_key not in seen_passages:
+            passages.append({"source_url": url, "source_title": title, "text": evidence,
+                             "origin": "direct_document"})
+            seen_passages.add(passage_key)
+        direct_fields.append(ResearchField(key=field["key"], value=str(value), scope="model", source_url=url,
+                                           evidence=evidence, matched_serial=None,
+                                           matched_brand=identity["brand"], matched_model=identity["model"]))
+    return {"sources": sources, "passages": passages, "titles": source_titles, "direct_fields": direct_fields}
 
 
 def _direct_catalog_context(identity, allowed=None):

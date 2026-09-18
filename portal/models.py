@@ -302,6 +302,8 @@ class TechnicalReference(models.Model):
 
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="technical_references",
                                  verbose_name="categoría")
+    equipment_model = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, null=True, blank=True,
+                                        related_name="technical_references", verbose_name="modelo del catálogo")
     brand = models.CharField("marca", max_length=100)
     model = models.CharField("modelo", max_length=100)
     variant = models.CharField("variante", max_length=180, blank=True)
@@ -333,12 +335,21 @@ class TechnicalReference(models.Model):
 
     def clean(self):
         errors = {}
+        if self.equipment_model_id:
+            from .research import identifier_key, _brand_key
+            catalogue = self.equipment_model
+            if (catalogue.category_id != self.category_id or
+                    _brand_key(catalogue.brand.name) != _brand_key(self.brand) or
+                    identifier_key(catalogue.name) != identifier_key(self.model)):
+                errors["equipment_model"] = "El modelo del catálogo debe coincidir con la categoría, marca y modelo de la referencia."
         if self.period_from and self.period_to and self.period_from > self.period_to:
             errors["period_to"] = "El final del periodo no puede ser anterior al inicio."
         if self.active and self.review != self.Review.APPROVED:
             errors["active"] = "Sólo una referencia aprobada puede activarse."
         if not isinstance(self.specs, dict):
             errors["specs"] = "Las especificaciones deben ser un objeto estructurado."
+        if not isinstance(self.provenance, dict):
+            errors["provenance"] = "La procedencia debe ser un objeto estructurado."
         if errors:
             raise ValidationError(errors)
 

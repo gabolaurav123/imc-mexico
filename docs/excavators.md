@@ -37,13 +37,13 @@ referencia aprobada/activa. Sus valores atraviesan el normalizador y manifiesto
 firmado existentes. Una especificación de modelo sigue pendiente de comprobar
 en la unidad. Ninguna corrección del propietario modifica la biblioteca global.
 
-Cobertura inicial de la biblioteca: **una referencia Caterpillar 320 Tier 3,
-mercado MX**, con potencia neta, peso y profundidad de excavación. No se presenta
-como una base universal de series. La investigación externa existente permanece
-como respaldo cuando no hay una referencia local aplicable. `knowledge/excavadoras`
-documenta las fuentes oficiales y el alcance exacto.
+La primera entrega incluía una referencia Caterpillar 320 Tier 3 para MX. La
+[ampliación de la base técnica](technical-database.md) contiene diez referencias
+para nueve modelos de cuatro fabricantes, incluidas excavadoras de ruedas y
+orugas y un periodo histórico. `knowledge/excavadoras` documenta las fuentes,
+variantes y alcance exacto. La investigación externa complementa la biblioteca.
 
-`seed` instala esa referencia inicial sin sobrescribir cambios administrativos.
+`seed` instala el paquete revisado sin sobrescribir cambios administrativos.
 `import_technical_knowledge --path ...` importa archivos locales; los nuevos o
 modificados quedan pendientes/inactivos hasta revisión. Administración permite
 editar, aprobar y desactivar referencias con auditoría.

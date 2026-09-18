@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from portal.models import Category, TechnicalReference
+from portal.knowledge_catalogue import link_catalogue, validate_record
 
 
 class Command(BaseCommand):
@@ -40,8 +41,7 @@ class Command(BaseCommand):
         records = list(self._documents(path))
         seen, categories, created, updated = set(), set(), 0, 0
         for item in records:
-            if not isinstance(item, dict):
-                raise CommandError("Cada referencia debe ser un objeto JSON.")
+            validate_record(item)
             slug = item.get("category_slug")
             category = Category.objects.filter(slug=slug).first()
             if category is None:
@@ -62,6 +62,9 @@ class Command(BaseCommand):
                       "retrieved_at": retrieved_at}
             reference, is_created = TechnicalReference.objects.get_or_create(**lookup, defaults=values)
             if is_created:
+                link_catalogue(reference)
+                reference.full_clean()
+                reference.save()
                 created += 1
             else:
                 # Imports never bypass human review. A changed source is placed
@@ -77,6 +80,10 @@ class Command(BaseCommand):
                     reference.full_clean()
                     reference.save()
                     updated += 1
+                if reference.equipment_model_id is None:
+                    link_catalogue(reference)
+                    reference.full_clean()
+                    reference.save(update_fields=["equipment_model", "updated_at"])
             seen.add((category.pk, lookup["brand"], lookup["model"], lookup["variant"], lookup["generation"], lookup["market"], lookup["source"]))
             categories.add(category.pk)
         if options["deactivate_missing"]:

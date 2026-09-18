@@ -15,9 +15,12 @@ class CatalogReferenceTests(TestCase):
         call_command('seed',stdout=StringIO())
 
     def test_reference_seed_adds_suggestions_without_inventory_or_technical_data(self):
-        self.seed();self.seed()
-        self.assertEqual(Brand.objects.count(),9)
-        self.assertEqual(EquipmentModel.objects.count(),9)
+        self.seed()
+        counts = (Brand.objects.count(), EquipmentModel.objects.count())
+        self.seed()
+        self.assertEqual((Brand.objects.count(), EquipmentModel.objects.count()), counts)
+        self.assertGreaterEqual(Brand.objects.count(),9)
+        self.assertGreaterEqual(EquipmentModel.objects.count(),9)
         self.assertEqual(Category.objects.count(),23)
         for category in Category.objects.all():self.assertLessEqual(set(category.fields),DATA_FIELDS)
         for model in (Machine,MachineVersion,Asset,Publication,User):self.assertEqual(model.objects.count(),0)

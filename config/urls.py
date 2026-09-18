@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import path
-from portal import views as v, auth_views as a
+from portal import views as v, auth_views as a, knowledge_views
 from portal.analytics import preferences as analytics_preferences
 from portal import catalog_views
 
@@ -23,5 +23,5 @@ urlpatterns=[
  path('panel/',v.panel,name='panel'),path('panel/maquinarias/',v.machines,name='machines'),path('panel/maquinarias/nueva/',v.machine_create,name='machine_create'),path('panel/maquinarias/<uuid:pk>/',v.machine_wizard,name='machine_wizard'),path('panel/maquinarias/<uuid:pk>/ficha/',v.machine_sheet,name='machine_sheet'),path('panel/maquinarias/<uuid:pk>/pdf/',v.machine_pdf,name='machine_pdf'),path('panel/solicitudes/',v.requests_list,name='requests_list'),path('panel/mensajes/',v.messages_list,name='messages_list'),path('panel/perfil/',a.profile,name='profile'),path('panel/seguridad/',a.security,name='security'),
  path('api/maquinarias/',v.api_create),path('api/maquinarias/<uuid:pk>/guardar/',v.api_save),path('api/maquinarias/<uuid:pk>/archivos/',v.api_upload),path('api/archivos/<uuid:pk>/accion/',v.api_asset_action),path('api/maquinarias/<uuid:pk>/analizar/',v.api_analyze),path('api/analisis/<uuid:pk>/',v.api_analysis),path('api/maquinarias/<uuid:pk>/aplicar/',v.api_apply),path('api/maquinarias/<uuid:pk>/enviar/',v.api_submit),path('api/maquinarias/<uuid:pk>/accion/',v.api_machine_action),
  path('archivos/<uuid:pk>/',v.asset_download,name='asset_download'),path('ficha/<uuid:token>/',v.public_sheet,name='public_sheet'),path('ficha/<uuid:token>/archivo/<uuid:pk>/',v.public_asset,name='public_asset'),path('ficha/<uuid:token>/pdf/',v.public_pdf,name='public_pdf'),
- path('operaciones/',v.operations,name='operations'),path('operaciones/solicitudes/<int:pk>/',v.review,name='review'),path('operaciones/maquinarias/<uuid:pk>/exportar/',v.export_machine,name='export_machine'),path('admin/',admin.site.urls),
+ path('operaciones/',v.operations,name='operations'),path('operaciones/base-tecnica/',knowledge_views.technical_library,name='technical_library'),path('operaciones/base-tecnica/<int:pk>/',knowledge_views.technical_reference_detail,name='technical_reference_detail'),path('operaciones/solicitudes/<int:pk>/',v.review,name='review'),path('operaciones/maquinarias/<uuid:pk>/exportar/',v.export_machine,name='export_machine'),path('admin/',admin.site.urls),
 ]

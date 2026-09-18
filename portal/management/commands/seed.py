@@ -2,10 +2,9 @@ from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand
 from django.db import transaction
 import json
-from datetime import date
 from pathlib import Path
 
-from portal.models import Brand, Category, EquipmentModel, PlatformSettings, SiteContent, Unit, NotificationTemplate, TechnicalReference
+from portal.models import Brand, Category, EquipmentModel, PlatformSettings, SiteContent, Unit, NotificationTemplate
 
 
 class Command(BaseCommand):
@@ -31,36 +30,8 @@ class Command(BaseCommand):
         categories.update({item['slug']:(item['name'],item['fields']) for item in reference['categories']})
         for slug, (name, fields) in categories.items():
             Category.objects.get_or_create(slug=slug, defaults={"name": name, "fields": fields})
-        # Curated bundled documentation has already been checked against the
-        # manufacturer source and is safe to make available on a fresh install.
-        # Staff-imported or changed records still enter through the separate
-        # command as pending/inactive and require authenticated review.
-        knowledge_path = Path(__file__).resolve().parents[3] / "knowledge" / "excavadoras" / "caterpillar_320.json"
-        try:
-            bundled_references = json.loads(knowledge_path.read_text(encoding="utf-8")).get("references", [])
-        except (OSError, json.JSONDecodeError):
-            bundled_references = []
-        for bundle_item in bundled_references:
-            if not isinstance(bundle_item, dict) or bundle_item.get("category_slug") != "excavadoras":
-                continue
-            try:
-                retrieved_at = date.fromisoformat(bundle_item["retrieved_at"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            category = Category.objects.get(slug="excavadoras")
-            lookup = {"category": category, "brand": str(bundle_item.get("brand", "")).strip(),
-                      "model": str(bundle_item.get("model", "")).strip(), "variant": str(bundle_item.get("variant", "")).strip(),
-                      "generation": str(bundle_item.get("generation", "")).strip(), "market": str(bundle_item.get("market", "")).strip(),
-                      "source": bundle_item.get("source", "")}
-            if not all(lookup[key] for key in ("brand", "model", "source")):
-                continue
-            TechnicalReference.objects.get_or_create(**lookup, defaults={
-                "period_from": bundle_item.get("period_from"), "period_to": bundle_item.get("period_to"),
-                "specs": bundle_item.get("specs", {}), "provenance": bundle_item.get("provenance", {}),
-                "source_title": str(bundle_item.get("source_title", ""))[:300],
-                "source_version": str(bundle_item.get("source_version", ""))[:100], "retrieved_at": retrieved_at,
-                "review": TechnicalReference.Review.APPROVED, "active": True,
-            })
+        from portal.knowledge_catalogue import install_bundled_knowledge
+        install_bundled_knowledge()
         for item in reference['models']:
             # Preserve staff choices, including inactive records and capitalization.
             brand=Brand.objects.filter(name__iexact=item['brand']).first()

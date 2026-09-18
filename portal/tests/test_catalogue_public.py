@@ -84,6 +84,38 @@ class PublicCatalogueTests(TestCase):
         self.assertIn(b'id="location_region" name="location_region" value="Quintana Roo"', response.content)
         self.assertIn(b'name="weight_max"', response.content)
         self.assertIn(b'name="depth_max"', response.content)
+        self.assertIn(b'id="variant" name="variant"', response.content)
+        self.assertIn(b'id="sort" name="sort"', response.content)
+
+    def test_variant_filter_result_count_and_safe_sorting(self):
+        lower_hours = Machine.objects.create(owner=self.owner, category=self.category,
+            title="CAT 321", data={"brand": "CAT", "model": "321", "hours": 10,
+                "variant": "LC", "year": 2020, "price": "50000", "currency": "USD",
+                "provenance": {"price": {"source": "user", "review": "confirmed"}}})
+        lower_version = MachineVersion.objects.create(machine=lower_hours, number=1,
+            created_by=self.owner, data={"title": "CAT 321", "data": lower_hours.data,
+                "provenance": lower_hours.data["provenance"], "public_asset_ids": []})
+        lower_hours.approved_version = lower_version
+        lower_hours.save(update_fields=["approved_version"])
+        Publication.objects.create(machine=lower_hours, version=lower_version,
+            destination="share", enabled=True, status="published")
+
+        variant_response = self.client.get("/maquinaria/?variant=LC")
+        self.assertContains(variant_response, "1 resultado")
+        self.assertContains(variant_response, "CAT 321")
+
+        sorted_response = self.client.get("/maquinaria/?sort=hours_asc")
+        html = sorted_response.content.decode()
+        self.assertContains(sorted_response, "2 resultados")
+        self.assertLess(html.index("CAT 320"), html.index("CAT 321"))
+
+        # Price order is only enabled within an explicitly selected currency;
+        # the unscoped request falls back to recency instead of mixing MXN/USD.
+        mixed_response = self.client.get("/maquinaria/?sort=price_asc")
+        self.assertIn(b'<option value="latest" selected>', mixed_response.content)
+        usd_response = self.client.get("/maquinaria/?sort=price_asc&currency=USD")
+        usd_html = usd_response.content.decode()
+        self.assertLess(usd_html.index("CAT 321"), usd_html.index("CAT 320"))
 
     def test_combined_numeric_filters_and_currency_are_applied_together(self):
         self.version.refresh_from_db()
