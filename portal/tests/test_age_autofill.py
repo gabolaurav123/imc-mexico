@@ -128,8 +128,8 @@ class AgeAutofillTests(TestCase):
         result = {'data': {}, 'provenance': {}, 'fields': [], 'warnings': []}
         merge_research(result, research())
         self.apply(self.job(result))
-        self.assertEqual(self.machine.data['estimated_year_from'], '1996')
-        self.assertEqual(self.machine.data['estimated_year_to'], '2002')
+        self.assertEqual(self.machine.data['estimated_year_from'], 1996)
+        self.assertEqual(self.machine.data['estimated_year_to'], 2002)
         self.assertNotIn('year', self.machine.data)
         self.assertIn('Año aproximado: 1996–2002 (por confirmar)', self.machine.data['description'])
         snap = {'data': self.machine.data, 'provenance': self.machine.provenance,
@@ -174,8 +174,8 @@ class AgeAutofillTests(TestCase):
         merge_research(result, research)
         applied = self.apply(self.job(result))
         self.assertTrue(AGE_LABELS.keys() <= set(applied['applied_fields']))
-        self.assertEqual(self.machine.data['estimated_year_from'], '1996')
-        self.assertEqual(self.machine.data['estimated_year_to'], '2007')
+        self.assertEqual(self.machine.data['estimated_year_from'], 1996)
+        self.assertEqual(self.machine.data['estimated_year_to'], 2007)
         self.assertNotIn('year', self.machine.data)
         for key in AGE_LABELS:
             self.assertEqual(self.machine.provenance[key]['source'], 'web')

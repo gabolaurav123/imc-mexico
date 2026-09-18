@@ -1,0 +1,25 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "320",
+      "variant": "Tier 3",
+      "market": "MX",
+      "source": "https://www.cat.com/en_MX/products/new/equipment/excavators/medium-excavators/126534.html",
+      "source_title": "320 Hydraulic Excavator | Cat | Caterpillar",
+      "source_version": "Tier 3 product page",
+      "retrieved_at": "2026-09-18",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "note": "La ficha del modelo no confirma características de una unidad anunciada."
+      },
+      "specs": {
+        "power": {"value": "117 kW", "evidence": "Caterpillar 320 Tier 3: Net Power - ISO 9249 117 kW."},
+        "weight": {"value": "21300 kg", "evidence": "Caterpillar 320 Tier 3: Operating Weight 21300 kg."},
+        "digging_depth": {"value": "6720 mm", "evidence": "Caterpillar 320 Tier 3: Maximum Digging Depth 6720 mm."}
+      }
+    }
+  ]
+}

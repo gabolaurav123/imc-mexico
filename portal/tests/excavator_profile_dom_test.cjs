@@ -1,0 +1,32 @@
+const {JSDOM,VirtualConsole}=require('jsdom');
+const fs=require('fs'),assert=require('node:assert/strict');
+const path=require('node:path'),{execFileSync}=require('node:child_process');
+const html=execFileSync(process.env.PYTHON || 'python',[path.join(__dirname,'render_quick_fixture.py'),'--excavator'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8',maxBuffer:4*1024*1024,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+const script=fs.readFileSync(path.join(__dirname,'../static/portal/app.js'),'utf8');
+const errors=[],virtualConsole=new VirtualConsole();virtualConsole.on('jsdomError',error=>{if(!error.message.includes('navigation'))errors.push(error.message);});
+const dom=new JSDOM(html,{url:'https://test.invalid/panel/maquinarias/test/?paso=2',runScripts:'outside-only',virtualConsole});
+const {window}=dom,{document}=window;
+window.HTMLElement.prototype.scrollIntoView=function(){};
+const saves=[];window.fetch=async(url,options)=>{saves.push(JSON.parse(options.body));return {ok:true,status:200,headers:{get:()=> 'application/json'},json:async()=>({revision:2})};};
+window.eval(script);
+(async()=>{
+function field(key){const node=document.querySelector(`[data-field="${key}"]`);assert.ok(node,`expected excavator field ${key}`);return node;}
+assert.equal(document.querySelector('#category').value,'701');
+for(const key of ['variant','machine_family','undercarriage','boom_configuration','stick_configuration','size_class','application','hours_basis','hours_recorded_at','weight','digging_depth','power','capacity','power_type','depth_configuration','location_country','location_region','location_city']) field(key);
+assert.equal(field('hours_recorded_at').type,'date');
+assert.equal(field('power_type').tagName,'SELECT');
+assert.equal(field('power_type').value,'net');
+assert.deepEqual([...field('power_type').options].slice(1).map(option=>option.value),['net','gross','rated','other']);
+assert.equal(field('undercarriage').tagName,'SELECT');
+assert.deepEqual([...field('undercarriage').options].slice(1).map(option=>option.value),['crawler','wheeled','special']);
+assert.match(document.querySelector('#category-photo-guidance').textContent,/orugas o ruedas/i);
+field('power_type').selectedIndex=0;field('power_type').dispatchEvent(new window.Event('change',{bubbles:true}));
+await new Promise(resolve=>setTimeout(resolve,900));
+assert.equal(field('power_type').value,'');
+assert.deepEqual(saves.at(-1).data,{power_type:null},'selecting Sin indicar persists an intentional blank');
+const category=document.querySelector('#category');category.value='702';category.dispatchEvent(new window.Event('change',{bubbles:true}));
+for(const key of ['machine_family','undercarriage','boom_configuration','power_type','location_country','location_region','location_city']) assert.equal(document.querySelector(`[data-field="${key}"]`),null,`${key} must not bleed into another category`);
+assert.equal(document.querySelector('#category-photo-guidance').hidden,true);
+assert.deepEqual(errors,[],'No uncaught browser JS errors');dom.window.close();
+console.log('Excavator profile DOM PASS: specialized controls, power reference options, intentional clear and category cleanup.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

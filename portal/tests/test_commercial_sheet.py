@@ -26,7 +26,7 @@ def commercial_snapshot(*, long=False, reference_count=2):
         "operating_status": "Pendiente de confirmar", "visible_defects": "Rayones visibles en el bastidor.",
         "visible_components": "Mástil, horquillas y neumáticos.", "attachments": "Horquillas de prueba.",
         "applications": "Manipulación de cargas; confirmar capacidad y condiciones del lugar.",
-        "estimate_min": "1000.25", "estimate_max": "2000.75", "estimate_currency": "USD",
+        "estimate_min": "1000.25", "estimate_max": "2000.75", "estimate_suggested_price": "1500.50", "estimate_date": "2026-09-18", "estimate_currency": "USD",
         "estimate_market": "Mercado sintético de prueba", "estimate_basis": "Comparables ficticios para probar el diseño.",
         "estimate_missing_info": "Confirmar horas de uso y estado de funcionamiento.",
         "price": "1500.50", "currency": "USD", "location": "Ubicación de PRUEBA",
@@ -114,10 +114,14 @@ class CommercialSheetTests(TestCase):
             with self.subTest(public=public):
                 html, document, text = self.render(fixture, public=public)
                 for output in (html, " ".join(text.split())):
-                    self.assertIn("Referencia de mercado condicional", output)
-                    self.assertIn("no confirma la condición de esta unidad", output)
-                    self.assertIn("No se completó un precio de anuncio sugerido", output)
-                    self.assertIn("BASE FIRMADA", output)
+                    if not public:
+                        self.assertIn("Referencia de mercado condicional", output)
+                        self.assertIn("no confirma la condición de esta unidad", output)
+                        self.assertIn("No se completó un precio de anuncio sugerido", output)
+                        self.assertIn("BASE FIRMADA", output)
+                    else:
+                        self.assertNotIn("Referencia de mercado condicional", output)
+                        self.assertNotIn("BASE FIRMADA", output)
                     self.assertNotIn("PRECIO SUGERIDO", output)
 
     def test_visual_fields_estimate_and_asking_vs_sold_are_present_in_both_documents(self):
@@ -125,16 +129,28 @@ class CommercialSheetTests(TestCase):
         for public in (False, True):
             with self.subTest(public=public):
                 html, document, text = self.render(fixture, public=public)
-                for key in (*VISUAL_LABELS, *ESTIMATE_LABELS):
+                context_data_keys = set(sheet_context(self.machine, SimpleNamespace(data=fixture), public=public, token="qa-token")["data"])
+                for key in VISUAL_LABELS:
+                    if public and key not in context_data_keys:
+                        continue
                     self.assertIn(fixture["data"][key], html)
                     expected = str(fixture["data"][key]).rstrip(".")
-                    self.assertIn(expected, " ".join(text.split()))
-                self.assertIn(ESTIMATE_LABEL, html)
+                    if not public:
+                        self.assertIn(expected, " ".join(text.split()))
+                if not public:
+                    for key in ESTIMATE_LABELS:
+                        if key != "estimate_date":
+                            self.assertIn(fixture["data"][key], html)
+                if not public:
+                    self.assertIn(ESTIMATE_LABEL, html)
                 self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", html)
                 self.assertNotIn("APLICACION-BORRADOR-PRIVADO", html)
                 self.assertNotIn("99999999", html)
                 pdf_text = " ".join(text.split())
-                self.assertIn(ESTIMATE_LABEL, pdf_text)
+                if not public:
+                    self.assertIn(ESTIMATE_LABEL, pdf_text)
+                else:
+                    self.assertNotIn(ESTIMATE_LABEL, pdf_text)
                 self.assertNotIn("Precio de anuncio", pdf_text)
                 self.assertNotIn("Venta registrada", pdf_text)
                 self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", pdf_text)
@@ -216,16 +232,9 @@ class CommercialSheetTests(TestCase):
                 fixture["data"].update({key: None for key in ESTIMATE_LABELS})
                 fixture["data"].update(estimate_min=minimum, estimate_max=maximum, estimate_currency="USD")
                 html, _, text = self.render(fixture, public=True)
-                self.assertIn('id="sheet-valuation"', html)
-                self.assertIn(ESTIMATE_LABEL, html)
-                self.assertIn(ESTIMATE_LABEL, " ".join(text.split()))
-                if remaining:
-                    self.assertIn(remaining, html)
-                    self.assertIn(remaining, text)
-                else:
-                    self.assertIn("Valor orientativo mínimo: 0 USD", html)
-                    self.assertIn("Valor orientativo máximo: 0 USD", html)
-                    self.assertRegex(text, r"0\s*-\s*0\s+USD")
+                self.assertNotIn('id="sheet-valuation"', html)
+                self.assertNotIn(ESTIMATE_LABEL, html)
+                self.assertNotIn(ESTIMATE_LABEL, " ".join(text.split()))
 
 
     def test_approximate_year_is_separate_from_exact_year_in_snapshot_web_and_pdf(self):
@@ -242,7 +251,8 @@ class CommercialSheetTests(TestCase):
                     self.assertIn("2004–2009", output)
                     self.assertIn("2007", output)
                     self.assertIn("Rango orientativo; no sustituye el año exacto de fabricación.", output)
-                    self.assertIn(fixture["data"]["estimated_year_basis"].rstrip("."), output)
+                    if not public:
+                        self.assertIn(fixture["data"]["estimated_year_basis"].rstrip("."), output)
                     self.assertNotIn("BORRADOR-ACTUAL-NO-AUTORIZADO", output)
                 self.assertIn('id="sheet-age"', html)
                 technical = html.split('id="sheet-technical"', 1)[1].split('</section>', 1)[0]

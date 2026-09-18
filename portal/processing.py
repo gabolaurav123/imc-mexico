@@ -1,5 +1,6 @@
 """Validated private uploads and a database-backed, bounded AI work queue."""
 import base64
+from copy import deepcopy
 import hashlib
 import io
 import json
@@ -35,8 +36,9 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
+from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v32"
+PROMPT_VERSION = "imc-excavators-2026-09-v33"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -61,6 +63,9 @@ AI_KEYS |= set(VISUAL_ASSESSMENT_LABELS)
 AGE_ESTIMATE_LABELS = {"estimated_year_from": "Año aproximado desde", "estimated_year_to": "Año aproximado hasta",
                        "estimated_year_basis": "Base de la estimación visual del año"}
 AI_KEYS |= set(AGE_ESTIMATE_LABELS)
+EXCAVATOR_KEYS = {"variant", "machine_family", "undercarriage", "boom_configuration", "stick_configuration",
+                  "size_class", "application", "depth_configuration", "power_type"}
+AI_KEYS |= EXCAVATOR_KEYS
 SYSTEM_PROMPT = """Eres un asistente de preparación de fichas de maquinaria de IMC México.
 El objeto de la ficha es la MÁQUINA identificada, aunque la única foto sea un primer
 plano de su placa. Una placa de identificación aporta datos del equipo; el anuncio
@@ -337,6 +342,8 @@ class ImageObservation(StrictModel):
     visual_features: list[str] = Field(default_factory=list)
     visual_assessment: VisualAssessment | None = None
     age_estimate: AgeEstimate | None = None
+    machine_count: StrictInt | None = None
+    quality_issue: str | None = None
 
 
 class MachineAnalysis(StrictModel):
@@ -719,10 +726,13 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
         category_names = list(Category.objects.filter(active=True).order_by("name").values_list("name", flat=True)[:80])
+        from .category_profiles import profile_for_category
+        category_profile = profile_for_category(machine.category) if machine.category_id else {}
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
-                    "category_names": category_names, "research": research,
+                    "category_names": category_names, "category": machine.category_id,
+                    "category_profile": category_profile, "research": research,
                     "vision_model": image_model(model) if mode == "analysis" else model}
         research_description_only = mode == "description" and research
         if research_description_only:
@@ -772,13 +782,15 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         result={"attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
                                                 "research_requested": research,
                                                 "vision_model": material["vision_model"],
+                                                "category_profile": category_profile,
+                                                "progress": {"stage": "queued", "completed": 0, "total": len(assets)},
                                                 "research_description_only": research_description_only, "category_names": category_names,
                                                 "input_snapshot": {"title": machine.title,
                                                 "category": machine.category.name if machine.category_id else None,
                                                 "provenance": {k: v for k, v in machine.provenance.items()
-                                                               if k in AI_KEYS | {"title", "description", "category", "condition", "attachments"}},
+                                                               if k in AI_KEYS | {"title", "description", "category", "condition", "attachments", "location_country"}},
                                                 "data": {k: v for k, v in machine.data.items()
-                                                         if k in AI_KEYS | {"description", "condition", "attachments"}}}})
+                                                         if k in AI_KEYS | {"description", "condition", "attachments", "location_country"}}}})
         audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode})
         return job
 
@@ -1282,6 +1294,9 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         key = item["key"]
         if key == "year" and item["source"] == "visual_proposal":
             item["value"], item["review"] = None, "needs_review"
+        if key == "hours" and (item["source"] == "visual_proposal" or re.search(
+                r"estimad|aparien|desgaste|estimated|appearance|wear", item.get("evidence", ""), re.I)):
+            item["value"], item["review"] = None, "needs_review"
         plate = plates.get(item["asset_id"])
         if key == "serial" and not plate_serial_is_clear(item, plate):
             item["value"] = None
@@ -1301,6 +1316,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         seen.add(key)
         result["data"][key] = item["value"]
         result["provenance"][key] = {k: item[k] for k in ("source", "review", "asset_id", "component", "evidence")}
+        result["provenance"][key].update(source_date=timezone.now().isoformat(),
+                                         confidence="high" if item["review"] == "clear" else "low")
     if plate_only or assessed:
         # Describing the support of the label adds no equipment information.
         # Compose from the independently validated fields, never from its OCR
@@ -1421,6 +1438,36 @@ def _provider_model(response):
     return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", value) else ""
 
 
+def _record_progress(job, stage, completed=0, total=0):
+    progress = {"stage": stage, "completed": completed, "total": total}
+    job.result = {**job.result, "progress": progress}
+    AnalysisJob.objects.filter(pk=job.pk, status="running").update(result=job.result)
+
+
+def _photo_cache_keys(job, assets, snapshot):
+    context = {"prompt": job.prompt_version, "model": job.result.get("vision_model", job.model),
+               "category": snapshot.get("category"), "profile": job.result.get("category_profile", {}),
+               "declared": human_declared_data(snapshot)}
+    return {str(asset.pk): hashlib.sha256(json.dumps({**context, "id": str(asset.pk),
+                "sha256": asset.sha256, "purpose": asset.purpose}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            for asset in assets}
+
+
+def _cached_photo_readings(job, keys):
+    wanted, cached = set(keys.values()), {}
+    previous = AnalysisJob.objects.filter(machine_id=job.machine_id, requested_by_id=job.requested_by_id,
+        status="completed", prompt_version=job.prompt_version).exclude(pk=job.pk).order_by('-created_at')[:8]
+    for prior in previous:
+        if prior.result.get('blocking_reason') == 'multiple_machines':
+            continue
+        for entry in prior.result.get('photo_cache', []):
+            if isinstance(entry, dict) and entry.get('key') in wanted and entry['key'] not in cached:
+                reading = entry.get('reading')
+                if isinstance(reading, dict) and reading.get('relevance', {}).get('status') == 'relevant':
+                    cached[entry['key']] = deepcopy(reading)
+    return cached
+
+
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     try:
@@ -1461,6 +1508,8 @@ def process_analysis(job):
         "allowed_field_keys": sorted(AI_KEYS),
         "current_year": timezone.localdate().year,
         "allowed_category_names": job.result.get("category_names", []),
+        "selected_category": snapshot.get("category"),
+        "category_profile": job.result.get("category_profile", {}),
     }
     def context(manifest):
         return {"role": "user", "content": [{"type": "input_text", "text": json.dumps(
@@ -1491,6 +1540,9 @@ def process_analysis(job):
     image_reservation = token_reservation(visual_model, IMAGE_RESERVATION)
     usage = UsageTotals()
     image_readings = []
+    photo_cache = []
+    cache_keys = _photo_cache_keys(job, assets, snapshot)
+    cached_readings = _cached_photo_readings(job, cache_keys) if job.mode == "analysis" else {}
     image_pipeline_interrupted = False
     try:
         research_requested = job.result.get("research_requested") is True
@@ -1522,21 +1574,27 @@ def process_analysis(job):
             categories = job.result.get("category_names", [])
             for binding, request in zip(bindings, image_requests):
                 _check_image_execution(job)
+                _record_progress(job, "images", len(readings), len(bindings))
                 provider_model = ""
                 before = (usage.input_tokens, usage.output_tokens, usage.estimated_tokens)
                 status = "not_run" if image_pipeline_interrupted else "completed"
-                if not image_pipeline_interrupted and not _can_spend_step(job, usage, image_reservation):
+                cached = cached_readings.get(cache_keys[binding['asset_id']])
+                if cached is not None:
+                    reading, status = deepcopy(cached), "reused"
+                elif not image_pipeline_interrupted and not _can_spend_step(job, usage, image_reservation):
                     if not readings:
                         exc = ValidationError("No hay capacidad de análisis disponible hoy. Tus fotografías siguen guardadas.")
                         exc.accounted_usage = usage
                         raise exc
                     status, image_pipeline_interrupted = "budget_unavailable", True
-                if image_pipeline_interrupted:
+                if cached is not None:
+                    pass
+                elif image_pipeline_interrupted:
                     reading = _uncertain_image(binding["asset_id"], categories)
                 else:
                     received = False
                     try:
-                        response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT,
+                        response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT + PROFILE_INSTRUCTIONS,
                             input=request, text_format=MachineAnalysis,
                             max_output_tokens=output_limit(visual_model, MAX_OUTPUT_TOKENS), store=False, **model_options(visual_model))
                         received = True
@@ -1561,6 +1619,8 @@ def process_analysis(job):
                         # Do not repeat paid photographs or send the remainder.
                         image_pipeline_interrupted = True
                 readings.append(reading)
+                if status in {"completed", "reused"}:
+                    photo_cache.append({"key": cache_keys[binding['asset_id']], "reading": deepcopy(reading)})
                 image_readings.append({"asset_id": binding["asset_id"], "status": status,
                     "requested_model": visual_model,
                     **({"provider_model": provider_model} if provider_model else {}),
@@ -1569,6 +1629,7 @@ def process_analysis(job):
                     "input_tokens": usage.input_tokens - before[0], "output_tokens": usage.output_tokens - before[1],
                     "estimated_tokens": usage.estimated_tokens - before[2]})
             result = _merge_image_results(readings, job.asset_ids, categories)
+        result["photo_cache"] = photo_cache
         result["input_image_bindings"] = bindings
         result["image_readings"] = image_readings
         result["image_analysis_status"] = "partial" if image_pipeline_interrupted else "completed"
@@ -1581,6 +1642,12 @@ def process_analysis(job):
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         result["reservation_per_attempt"] = _reserved_attempt_cost(job, platform_settings())
+        if job.mode == "analysis" and check_equipment_consistency(result, snapshot):
+            result["research"] = {**empty_research("not_run"), "reason": result['blocking_reason']}
+            result["valuation"] = {"status": "not_run", "reason": result['blocking_reason']}
+            result["progress"] = {"stage": "needs_information", "completed": len(image_readings), "total": len(bindings)}
+            result["usage"] = usage.as_dict()
+            return result, usage
         if job.mode == "analysis" and result["relevance"]["status"] in {"unrelated", "uncertain"}:
             # The paid image assessment completed normally. Neither previous
             # human identifiers nor generic fallbacks can turn unrelated input
@@ -1592,6 +1659,7 @@ def process_analysis(job):
             result["research"] = {**empty_research("not_run"), "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
             result["warnings"].append("Se conservó la información leída; la investigación externa quedó pendiente.")
         elif research_requested:
+            _record_progress(job, "research", len(image_readings), len(bindings))
             def research_allowed():
                 if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):
                     return False
@@ -1616,7 +1684,7 @@ def process_analysis(job):
                                              'bytes': base64.b64decode(encoded.split(';base64,', 1)[1], validate=True)})
             research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
                                                        allowed_categories=job.result.get("category_names", []),
-                                                       photo_inputs=photo_inputs)
+                                                       photo_inputs=photo_inputs, knowledge_category=job.machine.category)
             usage.add(research_usage)
             usage.estimated_tokens += research_usage.estimated_tokens
             usage.web_search_calls += research_usage.web_search_calls
@@ -1636,6 +1704,7 @@ def process_analysis(job):
         else:
             result["research"] = empty_research()
         if job.mode == "analysis" and research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
+            _record_progress(job, "valuation", len(image_readings), len(bindings))
             def valuation_allowed():
                 try:
                     _check_image_execution(job)
@@ -1654,10 +1723,11 @@ def process_analysis(job):
                 if value not in (None, ""):
                     result["data"][key] = value
                     result["provenance"][key] = {"source": "valuation", "review": "needs_review", "component": "machine"}
+            # The asking price requires the owner's choice. A market proposal
+            # remains in its own field, including when the asking price is blank.
             if valuation.get("status") == "estimated" and valuation.get("suggested_price"):
-                for key, value in (("price", valuation["suggested_price"]), ("currency", valuation["fields"]["estimate_currency"])):
-                    result["data"][key] = value
-                    result["provenance"][key] = {"source": "valuation", "review": "needs_review", "component": "machine"}
+                result["data"]["estimate_suggested_price"] = valuation["suggested_price"]
+                result["provenance"]["estimate_suggested_price"] = {"source": "valuation", "review": "needs_review", "component": "machine"}
         elif job.mode == "analysis" and research_requested:
             result["valuation"] = {"status": "not_run", "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
         if not str(result["data"].get("title", "")).strip() and job.mode == "analysis":
@@ -1669,6 +1739,7 @@ def process_analysis(job):
             result["description"] = result["data"]["description"]
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         result["usage"] = usage.as_dict()
+        result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
         return result, usage
     except Exception as exc:
         if usage.input_tokens or usage.output_tokens:

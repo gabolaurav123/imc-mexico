@@ -93,6 +93,12 @@ analizadas, solicitar explícitamente un nuevo análisis en el flujo de fotos.
 
 ## Antes de migrar
 
+Actualización del recorrido especializado y contrato de salida estructurado:
+[Excavadoras: flujo, biblioteca, filtros y límites de integración](excavators.md).
+El precio sugerido ahora permanece separado del precio solicitado hasta su
+aceptación explícita. Las referencias y valoraciones internas no se exportan
+en el paquete público.
+
 - Confirmar tecnología, autenticación y esquema de la web original y de MySQL.
   Esa base maestra aún no está vinculada; no se declara una migración terminada.
 - Adaptar el esquema aprobado y la exportación, con identificadores estables y

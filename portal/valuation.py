@@ -42,6 +42,12 @@ MAX_DOCUMENTS = 6
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
 CONFIGURATION_KEYS = ('capacity', 'voltage', 'lift_height', 'engine')
+COMPATIBILITY_KEYS = ('variant', 'year', 'hours', 'undercarriage', 'boom_configuration',
+                      'stick_configuration', 'size_class', 'application')
+COMPATIBILITY_LABELS = {'variant': 'variante', 'year': 'año', 'hours': 'horas',
+                        'undercarriage': 'desplazamiento', 'boom_configuration': 'pluma',
+                        'stick_configuration': 'brazo o balancín', 'size_class': 'tamaño',
+                        'application': 'aplicación'}
 
 
 def valuation_reservation(model):
@@ -52,6 +58,8 @@ de subastas de maquinaria del modelo EXACTO indicado, con precios visibles.
 No uses memoria, cifras promedio de páginas de resultados ni modelos parecidos.
 Busca al menos tres unidades distintas y, si es posible, distintos vendedores.
 Respeta la configuración indicada y distingue nueva/usada/reacondicionada/para reparar.
+Usa variante, año, horas y ubicación declarados como pistas de búsqueda cuando existan,
+pero no inventes ajustes de precio ni sustituyas una diferencia no documentada.
 Busca precio de venta publicado o precio final vendido, moneda explícita y país del
 mercado. No conviertas moneda ni unidades y no ajustes precios por estado.
 No uses cuotas mensuales, renta, enganche, depósito, precio desde, ofertas de piezas,
@@ -70,14 +78,23 @@ convertir ni reformatear. El encabezado real de esa misma página puede identifi
 y modelo, pero nunca aportar un precio ausente. Rechaza otras variantes/modelos y anuncios
 de accesorios, piezas, renta o financiación. market usa MX, US, ES, DE, FR, IT, CA o GB
 sólo cuando la ubicación del anuncio lo declara. condition usa new, used, refurbished o
-for_repair sólo si el texto lo afirma. Copia configurations sólo cuando estén expresas en
-la MISMA evidence; no deduzcas capacidad por código de modelo. fields vacíos si no hay
+for_repair sólo si el texto lo afirma. Copia configurations y compatibility sólo cuando estén expresas en
+la MISMA evidence; compatibility puede incluir variante, año, horas o configuración y sirve sólo para
+descartar una discrepancia literal. No deduzcas capacidad por código de modelo. fields vacíos si no hay
 evidencia suficiente. Nunca añadas series o contactos al resultado."""
 
 
 class Configuration(BaseModel):
     model_config = ConfigDict(extra='forbid')
     key: Literal['capacity', 'voltage', 'lift_height', 'engine']
+    value: str
+
+
+class Compatibility(BaseModel):
+    """Optional literal facts used only to reject an explicit mismatch."""
+    model_config = ConfigDict(extra='forbid')
+    key: Literal['variant', 'year', 'hours', 'undercarriage', 'boom_configuration',
+                 'stick_configuration', 'size_class', 'application']
     value: str
 
 
@@ -91,6 +108,7 @@ class ComparableCandidate(BaseModel):
     price_type: Literal['asking', 'sold']
     condition: Literal['new', 'used', 'refurbished', 'for_repair']
     configurations: list[Configuration] = Field(default_factory=list)
+    compatibility: list[Compatibility] = Field(default_factory=list)
     listing_facts: list[str] = Field(default_factory=list)
 
 
@@ -120,6 +138,7 @@ def _identity(result, snapshot):
     declared = human_declared_data(snapshot)
     data, meta = result.get('data', {}), result.get('provenance', {})
     identity = {'brand': None, 'model': None, 'condition': None, 'configurations': {},
+                'compatibility': {}, 'market_hint': None,
                 'condition_basis': 'unconfirmed', 'preservation': None}
     for key in ('brand', 'model', *CONFIGURATION_KEYS):
         value, accepted = declared.get(key), key in declared
@@ -137,6 +156,16 @@ def _identity(result, snapshot):
                 identity[key] = value
             elif value:
                 identity['configurations'][key] = value
+    # Owner-declared compatibility details shape the search. They only reject
+    # an explicitly incompatible listing; missing evidence never becomes a
+    # guessed discount or adjustment.
+    for key in COMPATIBILITY_KEYS:
+        value = declared.get(key)
+        if key in declared and isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            value = _plain(value)[:120]
+            if value and not re.search(r'https?://|www\.|@|\b(?:tel[eé]fono|contacto|contact|phone)\b', value, re.I):
+                identity['compatibility'][key] = value
+    identity['market_hint'] = _market_hint(declared.get('location_country')) if 'location_country' in declared else None
     # Apparent newness is not a declaration that a machine is new. Used is a
     # visible comparison class, never a promise about operation or maintenance.
     conditions = {'nueva': 'new', 'nuevo': 'new', 'new': 'new', 'usada': 'used', 'usado': 'used',
@@ -164,6 +193,17 @@ def _identity(result, snapshot):
     return identity
 
 
+def _market_hint(value):
+    """Map only a deliberate country declaration to an existing market code."""
+    names = {
+        'mexico': 'MX', 'estados unidos': 'US', 'united states': 'US', 'usa': 'US',
+        'espana': 'ES', 'spain': 'ES', 'alemania': 'DE', 'germany': 'DE', 'deutschland': 'DE',
+        'francia': 'FR', 'france': 'FR', 'italia': 'IT', 'italy': 'IT',
+        'canada': 'CA', 'reino unido': 'GB', 'united kingdom': 'GB',
+    }
+    return names.get(_fold(value))
+
+
 def _manifest(value):
     return {key: value.get(key) for key in ('version', 'status', 'label', 'fields', 'suggested_price', 'comparables', 'identity')}
 
@@ -188,7 +228,7 @@ def _empty(identity, message, status='insufficient'):
     if status == 'insufficient' and identity.get('brand') and identity.get('model') and not identity.get('condition'):
         message = CONDITION_MISSING
     return {'version': VALUATION_VERSION, 'status': status, 'label': LABEL, 'identity': identity,
-        'fields': {'estimate_min': None, 'estimate_max': None, 'estimate_currency': None,
+        'fields': {'estimate_min': None, 'estimate_max': None, 'estimate_currency': None, 'estimate_date': None,
                    'estimate_market': None, 'estimate_basis': LABEL, 'estimate_missing_info': message},
         'suggested_price': None, 'comparables': [], 'diagnostics': {}}
 
@@ -530,11 +570,23 @@ def _normalize(parsed, passages, identity):
         if missing_configuration:
             reject('configuration_missing_or_different', candidate_index, passage)
             continue
+        compatibility = {entry.key: entry.value for entry in item.compatibility}
+        if (len(compatibility) != len(item.compatibility)
+                or any(value not in evidence for value in compatibility.values())):
+            reject('compatibility_not_literal', candidate_index, passage)
+            continue
+        mismatched_compatibility = [key for key, value in identity.get('compatibility', {}).items()
+                                    if key != 'hours' and key in compatibility
+                                    and _configuration_key(compatibility[key]) != _configuration_key(value)]
+        if mismatched_compatibility:
+            reject('compatibility_different', candidate_index, passage)
+            continue
         canonical = _retrieved_url_identity(passage['url'])
         comparable = {'url': canonical, 'title': passage['title'], 'price': format(amount, '.2f'),
             'currency': item.currency, 'market': item.market, 'price_type': item.price_type,
             'evidence': evidence, 'brand': identity['brand'], 'model': identity['model'],
             'condition': item.condition, 'retrieved_at': now, 'configurations': configurations,
+            'compatibility': compatibility,
             '_unit_hash': passage.get('_unit_hash', '')}
         if any(existing['url'] == canonical or (comparable['_unit_hash'] and existing['_unit_hash'] == comparable['_unit_hash'])
                or (not comparable['_unit_hash'] and existing['price'] == comparable['price']
@@ -557,7 +609,9 @@ def _normalize(parsed, passages, identity):
                 chosen.append(comp)
                 origins.add(host)
         eligible.append((key, chosen))
-    eligible.sort(key=lambda group: (-len(group[1]), group[0][2] != 'sold', group[0]))
+    market_hint = identity.get('market_hint')
+    eligible.sort(key=lambda group: (market_hint is not None and group[0][1] != market_hint,
+                                     -len(group[1]), group[0][2] != 'sold', group[0]))
     if eligible:
         (currency, market, price_type, condition), comps = eligible[0]
         outcome['comparables'] = comps[:6]
@@ -573,10 +627,22 @@ def _normalize(parsed, passages, identity):
                 outcome.update(status='conditional_reference', suggested_price=None)
             else:
                 outcome.update(status='estimated', suggested_price=format(median, '.2f'))
+            market_label = _MARKET_NAMES[market]
+            if market_hint and market != market_hint:
+                market_label += f' · referencia externa; ubicación declarada: {_MARKET_NAMES[market_hint]}'
+            compatibility_context = identity.get('compatibility', {})
+            compatibility_note = ''
+            if compatibility_context:
+                compatibility_note = (' Datos declarados usados como contexto de compatibilidad: ' +
+                                      ', '.join(f'{COMPATIBILITY_LABELS.get(key, key)}={value}' for key, value in compatibility_context.items()) +
+                                      '. No se aplicaron ajustes por esos datos.')
+                if compatibility_context.get('hours'):
+                    compatibility_note += ' Los comparables pueden tener otras horas: el rango no incluye un ajuste por utilización.'
             outcome['fields'].update(estimate_min=format(min(prices), '.2f'), estimate_max=format(max(prices), '.2f'),
-                estimate_currency=currency, estimate_market=_MARKET_NAMES[market],
+                estimate_currency=currency, estimate_date=timezone.localdate().isoformat(), estimate_market=market_label,
                 estimate_basis=f'{LABEL}. {basis}: {len(prices)} unidades del mismo modelo y clase de uso. Sin conversión de moneda ni ajustes por funcionamiento.',
                 estimate_missing_info='Confirmar funcionamiento, año, horas y configuración real antes de fijar el precio final.')
+            outcome['fields']['estimate_basis'] += compatibility_note
             if conditional:
                 outcome['fields']['estimate_missing_info'] = CONDITION_MISSING + ' También confirma funcionamiento, año y horas antes de fijar el precio final.'
             if identity.get('condition_basis') in {'apparent', 'owner_apparent'}:
@@ -635,9 +701,11 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             max_tool_calls=2, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
             tool_choice='required', include=['web_search_call.action.sources'], instructions=SEARCH_INSTRUCTIONS,
             input=json.dumps({'brand': identity['brand'], 'model': identity['model'], 'condition': identity['condition'],
-                'configuration': identity['configurations'],
+                'configuration': identity['configurations'], 'compatibility': identity.get('compatibility', {}),
+                'market_hint': _MARKET_NAMES.get(identity.get('market_hint')),
                 'query': f'"{identity["brand"]}" "{identity["model"]}" '
                           f'{"used" if identity["condition"] == "used" else "new" if identity["condition"] == "new" else "refurbished" if identity["condition"] == "refurbished" else "for repair" if identity["condition"] == "for_repair" else "used new"} '
+                          f'{_MARKET_NAMES.get(identity.get("market_hint"), "")} '
                           'for sale auction sold price USD MXN EUR'}, ensure_ascii=False))
         received = True
         search_diagnostics = {}

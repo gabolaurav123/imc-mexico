@@ -34,7 +34,7 @@ class ValuationPipelineTests(TestCase):
         return _seal({"version": VALUATION_VERSION, "label": LABEL, "status": "estimated",
             "identity": {"brand": "Caterpillar", "model": "2EC25", "condition": "used", "configurations": {}},
             "fields": {"estimate_min": "10000", "estimate_max": "20000", "estimate_currency": "USD",
-                       "estimate_market": "Estados Unidos", "estimate_basis": "Comparables públicos",
+                       "estimate_market": "Estados Unidos", "estimate_date": "2026-09-18", "estimate_basis": "Comparables públicos",
                        "estimate_missing_info": "Confirmar funcionamiento"},
             "suggested_price": "15000", "comparables": []})
 
@@ -86,9 +86,13 @@ class ValuationPipelineTests(TestCase):
         self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (4300, 900, 0))
         self.assertEqual(job.result["usage"]["estimated_tokens"], 1200)
         self.assertEqual(job.result["usage"]["web_search_calls"], 2)
-        self.assertEqual(self.machine.data["price"], "15000")
-        self.assertEqual(self.machine.data["currency"], "USD")
-        self.assertEqual(self.machine.provenance["price"]["source"], "valuation")
+        self.assertEqual(job.result["data"]["estimate_suggested_price"], "15000")
+        self.assertEqual(job.result["data"]["estimate_date"], "2026-09-18")
+        self.assertNotIn("price", job.result["data"])
+        self.assertNotIn("price", self.machine.data)
+        self.assertNotIn("currency", self.machine.data)
+        self.assertEqual(self.machine.data["estimate_min"], 10000)
+        self.assertEqual(self.machine.provenance["estimate_min"]["source"], "valuation")
 
     def test_ocr_only_and_description_research_do_not_call_valuation(self):
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
@@ -141,9 +145,10 @@ class ValuationPipelineTests(TestCase):
         job.refresh_from_db()
         self.machine.refresh_from_db()
         self.assertEqual(job.status, "completed")
-        self.assertEqual(self.machine.data["price"], "7777")
+        self.assertEqual(self.machine.data["price"], 7777)
         self.assertEqual(self.machine.data["currency"], "MXN")
-        self.assertEqual(self.machine.provenance["price"], {"source": "user", "review": "confirmed"})
+        self.assertEqual(self.machine.provenance["price"]["source"], "user")
+        self.assertEqual(self.machine.provenance["price"]["review"], "confirmed")
 
     def test_conditional_reference_applies_range_without_overwriting_human_price(self):
         self.machine.data.update(condition="Por confirmar", price="7777", currency="MXN")
@@ -158,8 +163,8 @@ class ValuationPipelineTests(TestCase):
         self.machine.refresh_from_db()
         job.refresh_from_db()
         self.assertEqual(job.status, "completed", job.error)
-        self.assertEqual(self.machine.data["estimate_min"], "10000")
-        self.assertEqual(self.machine.data["estimate_max"], "20000")
+        self.assertEqual(self.machine.data["estimate_min"], 10000)
+        self.assertEqual(self.machine.data["estimate_max"], 20000)
         self.assertEqual(self.machine.data["price"], "7777")
         self.assertEqual(self.machine.data["currency"], "MXN")
         self.assertEqual(self.machine.provenance["price"]["source"], "user")

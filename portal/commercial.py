@@ -17,6 +17,7 @@ VISUAL_CHOICES = {
 }
 ESTIMATE_LABELS = {
     "estimate_min": "Valor orientativo mínimo", "estimate_max": "Valor orientativo máximo",
+    "estimate_suggested_price": "Precio de publicación sugerido", "estimate_date": "Fecha de estimación",
     "estimate_currency": "Moneda de referencia", "estimate_market": "Mercado de referencia",
     "estimate_basis": "Base de la estimación", "estimate_missing_info": "Qué ayudaría a estimar el precio",
 }

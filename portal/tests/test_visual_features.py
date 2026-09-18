@@ -116,4 +116,6 @@ class VisualFeatureWorkerTests(TestCase):
             process_next_job()
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.data["description"], "Descripción corregida por el propietario.")
-        self.assertEqual(self.machine.provenance["description"], {"source": "user", "review": "confirmed"})
+        self.assertEqual(self.machine.provenance["description"]["source"], "user")
+        self.assertEqual(self.machine.provenance["description"]["review"], "confirmed")
+        self.assertTrue(self.machine.provenance["description"]["source_date"])

@@ -121,10 +121,10 @@
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
-    const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',year:'Año',serial:'Serie privada',hours:'Horas',category:'Categoría',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
+    const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad del cucharón',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
     const additionalPlateLabels = { digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
   const conditionLabels = { usage_condition:'Uso aparente',preservation_condition:'Conservación aparente',preservation_notes:'Observaciones de conservación',operating_status:'Funcionamiento',visible_defects:'Defectos visibles',visible_components:'Componentes visibles',applications:'Aplicaciones y usos' };
-  const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_currency:'Moneda de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
+  const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_suggested_price:'Precio sugerido',estimate_currency:'Moneda de la estimación',estimate_date:'Fecha de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
   const ageLabels = { estimated_year_from:'Año aproximado desde',estimated_year_to:'Año aproximado hasta',estimated_year_basis:'Indicios para el año aproximado' };
   Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels);
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
@@ -390,6 +390,14 @@
   pdfDownload.addEventListener('click',event => openDocument(event,'pdf'));
   sheetLinks.forEach(link => link.addEventListener('click',event => openDocument(event,'screen')));
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
+  function processingMessage(job) {
+    const progress = job.processing_progress;
+    if (!progress || typeof progress !== 'object') return null;
+    const stages = { identification:'identificando el equipo', plate:'leyendo la placa', visual:'revisando las fotografías', research:'consultando especificaciones pertinentes', valuation:'comparando referencias de mercado', drafting:'preparando la ficha' };
+    const stage = stages[progress.stage || job.processing_stage] || 'preparando la ficha';
+    const completed = Number(progress.completed), total = Number(progress.total);
+    return Number.isFinite(completed) && Number.isFinite(total) && total > 0 ? `Estamos ${stage} (${Math.min(completed,total)} de ${total}). Tus correcciones se conservarán.` : `Estamos ${stage}. Tus correcciones se conservarán.`;
+  }
   function relevanceOf(job) {
     const relevance = job.result?.relevance;
     return relevance && typeof relevance === 'object' && ['relevant','mixed','unrelated','uncertain','unassessed'].includes(relevance.status) ? relevance : null;
@@ -502,7 +510,7 @@
       else if (job.status === 'failed') { jobPending = false; await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
       else {
         jobPending = true;
-        analysisStatus(job.status === 'running' ? 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.' : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
+        analysisStatus(job.status === 'running' ? (processingMessage(job) || 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.') : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
         if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
@@ -612,7 +620,87 @@
     else if (hasEstimate || activePrice) feedback.textContent = 'Estos importes son orientativos. Puedes modificar o borrar cada propuesta; los anuncios no acreditan precios de venta.';
     else feedback.textContent = 'No hay una estimación activa. Puedes continuar sin precio o indicar el tuyo.';
     if (!missing(data.estimate_missing_info)) feedback.textContent += ` ${hasEstimate ? 'Para afinarla' : 'Para obtenerla'}: ${String(data.estimate_missing_info)}`;
+    const suggestedBox = $('#suggested-price'), suggestedValue = $('#suggested-price-value');
+    const suggested = data.estimate_suggested_price ?? valuation?.suggested_price;
+    const suggestedCurrency = data.estimate_currency || valuation?.currency || '';
+    const suggestedDate = data.estimate_date || valuation?.as_of || valuation?.date || '';
+    const usableSuggested = suggested !== undefined && suggested !== null && suggested !== '' && Number(suggested) >= 0 && identityMatches;
+    if (suggestedBox && suggestedValue) {
+      suggestedBox.hidden = !usableSuggested;
+      if (usableSuggested) {
+        const amount = new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(suggested));
+        suggestedValue.textContent = `${suggestedCurrency ? `${suggestedCurrency} ` : ''}${amount}${suggestedDate ? ` · referencia del ${suggestedDate}` : ''}. Aún no es el precio de tu anuncio.`;
+        suggestedBox.dataset.amount = String(suggested); suggestedBox.dataset.currency = suggestedCurrency;
+      }
+    }
     target.replaceChildren();
+  }
+  function renderIntegrityAlerts(job,target) {
+    const result = job.result || {}, integrity = job.integrity || job.processing_integrity || result.integrity || result.processing_integrity || {};
+    const categoryConflict = integrity.category_conflict;
+    const multiple = integrity.multiple_machines;
+    if (!categoryConflict && !multiple) return;
+    const box = el('div','analysis-integrity');
+    if (categoryConflict) {
+      const selected = categoryConflict.selected || categoryConflict.expected || 'el tipo elegido';
+      const detected = categoryConflict.detected || categoryConflict.suggested || 'otro tipo de equipo';
+      box.append(el('p','',`Las fotos podrían mostrar ${detected}, pero elegiste ${selected}. No cambiamos la categoría ni aplicamos datos de otra clase de máquina.`));
+      const change = el('button','link-button','Revisar categoría →'); change.type = 'button'; change.addEventListener('click',() => openInformation('edit-information','category')); box.append(change);
+    }
+    if (multiple) {
+      box.append(el('p','',multiple.message || 'Vemos más de una máquina. Separa las fotos en anuncios distintos para no mezclar sus datos.'));
+      const photos = el('button','link-button','Revisar fotos →'); photos.type = 'button'; photos.addEventListener('click',() => displayStep(1)); box.append(photos);
+    }
+    target.append(box);
+  }
+  function renderConflictBatch(job,target,metadata) {
+    const actionableReasons = new Set(['existing_value','human_correction','not_empty_at_request','conflicting_reading']);
+    const candidateIsReviewable = key => {
+      const meta = job.result?.provenance?.[key] || {};
+      if (meta.source === 'valuation') return true;
+      if (['plate','image'].includes(meta.source)) return meta.review === 'clear';
+      if (['web','web_model','web_serial'].includes(meta.source)) return meta.validated === true || meta.validation === 'validated';
+      return ['visual','visual_proposal'].includes(meta.source) && (meta.validated === true || meta.validation === 'validated');
+    };
+    const keys = Array.isArray(metadata.skipped_fields) ? metadata.skipped_fields.filter(key =>
+      !missing(job.result?.data?.[key]) && actionableReasons.has(metadata.field_reasons?.[key]) && candidateIsReviewable(key)) : [];
+    const currentRevision = Number(state.revision), applicationRevision = Number(metadata.revision_after);
+    const blocked = job.blocking_reason || job.result?.blocking_reason || job.result?.integrity?.blocking_reason;
+    if (!keys.length || metadata.reason === 'draft_changed' || blocked || !Number.isFinite(applicationRevision) || applicationRevision !== currentRevision) return;
+    const box = el('section','proposal-batch'), heading = el('h3','','Revisar propuestas que no se aplicaron');
+    box.append(heading,el('p','small muted','Elige los cambios que quieres usar juntos. Los datos que no tenían conflicto ya se conservaron.'));
+    const list = el('div','proposal-batch-list');
+    for (const key of keys) {
+      const label = el('label','check-card'), input = el('input'); input.type = 'checkbox'; input.value = key; input.checked = true;
+      const value = job.result.data[key], current = fieldValue(state,key); const text = el('span','');
+      text.append(el('b','',keyLabels[key] || key),el('small','',`Guardado: ${missing(current) ? 'sin indicar' : typeof current === 'object' ? JSON.stringify(current) : String(current)} · Propuesta: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`));
+      label.append(input,text); list.append(label);
+    }
+    const apply = el('button','button button-outline button-small','Usar cambios seleccionados'); apply.type = 'button';
+    apply.addEventListener('click',async () => {
+      const fields = $$('input:checked',list).map(input => input.value);
+      if (!fields.length) return toast('Selecciona al menos un cambio.',true);
+      if (pending.size) return problem('Cambiaste la ficha después del análisis. Prepara un análisis nuevo antes de aplicar estas propuestas.');
+      apply.disabled = true;
+      try {
+        const response = await api(`${base}aplicar/`,{job_id:job.id,fields,revision:state.revision});
+        hydrate(response.machine);
+        metadata.skipped_fields = metadata.skipped_fields.filter(key => !fields.includes(key));
+        job.auto_apply = {...(response.auto_apply || metadata), skipped_fields: metadata.skipped_fields};
+        toast('Cambios seleccionados guardados.'); renderResults(job);
+      } catch (error) { problem(error.message); apply.disabled = false; }
+    });
+    box.append(list,apply); target.append(box);
+  }
+  function renderImageQualityIssues(result) {
+    $$('.asset-quality-issue',wizard).forEach(note => note.remove());
+    for (const observation of Array.isArray(result.image_observations) ? result.image_observations : []) {
+      if (!observation?.asset_id || missing(observation.quality_issue)) continue;
+      const card = $(`.asset-card[data-asset-id="${String(observation.asset_id)}"]`,wizard);
+      if (!card) continue;
+      const guidance = el('p','asset-quality-issue',`Esta foto puede ayudar más si ${String(observation.quality_issue)}. Agrega una nueva desde la galería y elimina esta sólo cuando confirmes el reemplazo.`);
+      card.append(guidance);
+    }
   }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
@@ -621,13 +709,17 @@
     valuationFeedback = result.valuation?.status === 'insufficient' ? 'insufficient' : null;
     previewImageKinds.clear();
     for (const image of Array.isArray(result.image_observations) ? result.image_observations : []) if (image && ['machine','plate','document','other','unknown'].includes(image.kind)) previewImageKinds.set(String(image.asset_id),image.kind);
+    renderImageQualityIssues(result);
     // Legacy jobs identify close-up plates without the newer main-object classification.
     for (const plate of Array.isArray(result.plates) ? result.plates : []) if (plate?.asset_id && !previewImageKinds.has(String(plate.asset_id))) previewImageKinds.set(String(plate.asset_id),'plate');
     const wasOpen = target.open; target.replaceChildren(); target.hidden = false; target.open = wasOpen;
     const observations = [...new Set([...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : []),...(Array.isArray(result.research?.warnings) ? result.research.warnings : [])].map(item => typeof item === 'string' ? item : JSON.stringify(item)))];
     target.append(el('summary','',observations.length ? `Detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Detalles de la preparación'),el('p','small muted','Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
+    renderIntegrityAlerts(job,target);
     renderResearch(result.research,target);
     if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
+    if (Array.isArray(metadata.proposals) && metadata.proposals.length) target.append(el('p','small','Las propuestas que contradicen tu ficha quedan aquí para revisarlas juntas; los datos no conflictivos se conservaron sin pedirte confirmar cada uno.'));
+    renderConflictBatch(job,target,metadata);
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }
     const data = result.data || {};
     const provenance = el('dl','analysis-provenance');
@@ -670,6 +762,11 @@
     }
     function addField(target,key,text,label=keyLabels[key] || key) {
       if (missing(text)) return;
+      const control = $(`[data-field="${key}"]`,wizard);
+      if (control?.tagName === 'SELECT') {
+        const option = [...control.options].find(item => item.value === String(text));
+        if (option && option.value) text = option.textContent;
+      }
       const row = el('div'), definition = el('dd',key === 'serial' ? 'preview-private-value' : '',String(text));
       row.dataset.previewField = key;
       const source = previewSource(value.provenance[key]);
@@ -677,7 +774,8 @@
       row.append(el('dt','',label),definition); target.append(row);
     }
     const specs = $('#preview-specs'); specs.replaceChildren();
-    for (const key of ['brand','model','year','serial','hours','condition']) addField(specs,key,data[key]);
+    // Keep the first scan short: identification and the values buyers use most often.
+    for (const key of ['brand','model','variant','year','hours','undercarriage','weight','digging_depth','serial','condition']) addField(specs,key,data[key]);
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
     renderResearchHypotheses(value);
     const ageFrom = data.estimated_year_from, ageTo = data.estimated_year_to;
@@ -687,7 +785,7 @@
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';
     $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
-    for (const key of ['power','weight','capacity','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
+    for (const key of ['machine_family','boom_configuration','stick_configuration','size_class','application','depth_configuration','power_type','power','weight','capacity','digging_depth','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
     const condition = $('#preview-condition-specs'); condition.replaceChildren();
     for (const key of ['preservation_notes','visible_defects','visible_components','attachments','applications']) addField(condition,key,data[key]);
@@ -699,6 +797,7 @@
     }
     renderValuation(value);
     const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
+    for (const key of ['location_country','location_region','location_city']) addField(commercial,key,data[key]);
     addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
     addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');
   }
@@ -749,17 +848,75 @@
     const target = $('#category-fields'), source = $('#category-data'); if (!target || !source) return;
     let categories; try { categories = JSON.parse(source.textContent); } catch { return; }
     const category = categories.find(item => String(item.id) === $('#category').value); target.replaceChildren();
-    const technical = ['power','weight','capacity','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin',...Object.keys(additionalPlateLabels)];
-    const fields = [...(category?.fields || [])];
+    const profile = category?.profile && typeof category.profile === 'object' ? category.profile : {};
+    const technical = ['power','weight','capacity','digging_depth','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin',...Object.keys(additionalPlateLabels)];
+    const profileFields = Array.isArray(profile.fields) ? profile.fields : Array.isArray(profile.field_definitions) ? profile.field_definitions : [];
+    const excavatorFields = profile.key === 'excavator' ? [
+      {key:'hours_recorded_at',type:'date'}, {key:'weight',help:'Escribe número y unidad, por ejemplo: 21 500 kg.'},
+      {key:'digging_depth',help:'Escribe número y unidad, por ejemplo: 6.7 m.'}, {key:'power',help:'Escribe número y unidad, por ejemplo: 110 kW.'},
+      {key:'capacity',help:'Capacidad del cucharón con unidad, por ejemplo: 1.2 m3.'}, {key:'power_type',kind:'choice'},
+      {key:'depth_configuration'}, {key:'location_country'}, {key:'location_region'}, {key:'location_city'}
+    ] : [];
+    const fields = [...profileFields,...excavatorFields,...(category?.fields || [])];
     for (const key of technical) if (!missing(pending.has(key) ? pending.get(key).value : state.data[key]) && !fields.some(item => (typeof item === 'string' ? item : item.key || item.name) === key)) fields.push(key);
     for (const item of fields) {
       const field = typeof item === 'string' ? {key:item,label:keyLabels[item] || item} : item, key = field.key || field.name;
       if (!key || !/^[a-zA-Z0-9_]+$/.test(key) || $$('[data-field]',wizard).some(input => input.dataset.field === key)) continue;
-      const group = el('div','form-field'), label = el('label','',`${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`), input = el('input');
-      label.htmlFor = `extra-${key}`; input.id = label.htmlFor; input.dataset.field = key; input.type = field.type === 'number' ? 'number' : 'text'; input.value = (pending.has(key) ? pending.get(key).value : state.data[key]) ?? ''; input.disabled = !editable || submitting || deleting; input.maxLength = 500; if (input.type === 'number') input.step = 'any'; bindInput(input); group.append(label,input); target.append(group);
+      const group = el('div','form-field'), label = el('label','',`${field.label || keyLabels[key] || key}${field.unit ? ` (${field.unit})` : ''} · opcional`);
+      label.htmlFor = `extra-${key}`;
+      const current = (pending.has(key) ? pending.get(key).value : state.data[key]) ?? '';
+      const directOptions = Array.isArray(field.options) ? field.options : Array.isArray(field.choices) ? field.choices : [];
+      const fallbackOptions = key === 'power_type' ? [{value:'net',label:'Potencia neta'},{value:'gross',label:'Potencia bruta'},{value:'rated',label:'Potencia nominal'},{value:'other',label:'Otra'}] : [];
+      const options = directOptions.length ? directOptions : Array.isArray(profile.classification?.[key]) ? profile.classification[key] : fallbackOptions;
+      let input;
+      if (options.length) {
+        input = el('select'); const emptyOption = el('option','','Sin indicar'); emptyOption.value = ''; input.append(emptyOption);
+        for (const option of options) { const value = typeof option === 'object' ? option.value ?? option.key ?? option.label : option; const optionLabel = typeof option === 'object' ? option.label ?? option.name ?? value : option; if (value === undefined || value === null) continue; const node = el('option','',String(optionLabel)); node.value = String(value); node.selected = String(current) === String(value); input.append(node); }
+      } else if (field.type === 'textarea') { input = el('textarea'); input.rows = 2; input.maxLength = 2000; }
+      else { input = el('input'); input.type = field.type === 'number' ? 'number' : field.type === 'date' || field.kind === 'date' ? 'date' : 'text'; input.maxLength = 500; if (input.type === 'number') { input.step = 'any'; input.inputMode = 'decimal'; } }
+      input.id = label.htmlFor; input.dataset.field = key; input.value = current; input.disabled = !editable || submitting || deleting; bindInput(input); group.append(label,input);
+      if (field.help) group.append(el('span','field-help',String(field.help)));
+      target.append(group);
     }
+    updatePhotoGuidance(category,profile);
+    renderCompletionActions();
+  }
+  function updatePhotoGuidance(category,profile={}) {
+    const target = $('#category-photo-guidance'); if (!target) return;
+    const raw = profile.photo_guidance || profile.photoGuide || profile.photos || null;
+    const lines = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
+    target.replaceChildren(); target.hidden = !lines.length;
+    if (!lines.length) return;
+    target.append(el('strong','',`Fotos útiles para ${category?.name || 'este equipo'}`));
+    const list = el('ul'); lines.forEach(line => list.append(el('li','',typeof line === 'string' ? line : String(line?.label || line?.text || '')))); target.append(list);
+  }
+  function openInformation(targetId, fieldId) {
+    if (targetId === 'photos') { displayStep(1); if (fieldId === 'plate') { const purpose = $('#upload-purpose'); if (purpose) purpose.value = 'plate'; } return; }
+    const section = $(`#${targetId}`); if (section?.tagName === 'DETAILS') section.open = true;
+    section?.scrollIntoView({behavior:'smooth',block:'center'});
+    const field = $(`#${fieldId}`); if (field) setTimeout(() => field.focus(), 200);
+  }
+  function renderCompletionActions() {
+    const target = $('#completion-action-list'); if (!target) return;
+    const value = collect().data, actions = [];
+    if (missing(value.hours)) actions.push(['Añadir horas','technical-details','hours']);
+    if (missing(value.year)) actions.push(['Confirmar año','edit-information','year']);
+    if (missing(value.serial) && !$$('.asset-card[data-purpose=plate]',wizard).length) actions.push(['Añadir placa','photos','plate']);
+    if (missing(value.location_country) && missing(value.location)) actions.push(['Indicar ubicación','commercial-details','location']);
+    target.replaceChildren();
+    for (const [label,section,field] of actions.slice(0,4)) { const button = el('button','link-button',`${label} →`); button.type = 'button'; button.addEventListener('click',() => openInformation(section,field)); target.append(button); }
+    target.closest('.completion-actions').hidden = !actions.length;
   }
   function lockEditing() { $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button,#submit-machine',wizard).forEach(control => { control.disabled = true; }); }
+  $('#add-plate-information')?.addEventListener('click',() => openInformation('photos','plate'));
+  $('#use-suggested-price')?.addEventListener('click',() => {
+    const box = $('#suggested-price'), amount = box?.dataset.amount, currency = box?.dataset.currency;
+    if (!editable || missing(amount)) return;
+    const price = $('#price'), currencyInput = $('#currency');
+    price.value = amount; changed({target:price});
+    if (currency && currencyInput) { currencyInput.value = currency; changed({target:currencyInput}); }
+    toast('Precio sugerido copiado. Revísalo antes de enviar la ficha.');
+  });
   $('#category')?.addEventListener('change',categoryFields); categoryFields();
   if (!editable) lockEditing();
   let initialJob = null;

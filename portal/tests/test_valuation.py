@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
-from portal.valuation import (ComparableCandidate, ComparableCandidates, Configuration,
+from portal.valuation import (ComparableCandidate, ComparableCandidates, Compatibility, Configuration,
     LABEL, PARSE_RESERVATION, SEARCH_RESERVATION, VALUATION_RESERVATION,
     _document_passages, _fetch_listing, _identity, _listing_url, _listing_fact_snippets, _money, _normalize,
     estimate_machine, is_validated_estimate)
@@ -77,6 +77,7 @@ class ValuationGroundingTests(SimpleTestCase):
         self.assertEqual(value['fields']['estimate_max'], '16000.00')
         self.assertEqual(value['fields']['estimate_currency'], 'USD')
         self.assertEqual(value['fields']['estimate_market'], 'Estados Unidos')
+        self.assertRegex(value['fields']['estimate_date'], r'^\d{4}-\d{2}-\d{2}$')
         self.assertIn(LABEL, value['fields']['estimate_basis'])
         self.assertIn('no acreditan una venta', value['fields']['estimate_basis'])
         self.assertTrue(is_validated_estimate(value))
@@ -244,6 +245,42 @@ class ValuationGroundingTests(SimpleTestCase):
         text = quote(extra='Voltage: 36 V')
         self.assertEqual(len(normalize([candidate(text=text, configurations=[Configuration(key='voltage', value='36 V')])],
                                      [passage(text)], identity)['comparables']), 1)
+
+    def test_explicit_country_is_a_market_hint_and_compatibility_never_adjusts_price(self):
+        mexico = quote('MXN 240000', country='Mexico')
+        identity = {**IDENTITY, 'market_hint': 'MX', 'compatibility': {'variant': 'LC', 'year': '2020', 'hours': '5000'}}
+        value = normalize([candidate(text=mexico, price='MXN 240000', currency='MXN', market='MX'),
+                           candidate(1, text=mexico.replace('240000', '260000'), price='MXN 260000', currency='MXN', market='MX')],
+                          [passage(mexico), passage(mexico.replace('240000', '260000'), 1)], identity)
+        self.assertEqual(value['status'], 'estimated')
+        self.assertEqual(value['fields']['estimate_market'], 'México')
+        self.assertIn('variante=LC', value['fields']['estimate_basis'])
+        self.assertIn('No se aplicaron ajustes', value['fields']['estimate_basis'])
+        self.assertEqual(value['suggested_price'], '250000.00')
+
+    def test_literal_compatibility_mismatch_is_rejected_but_missing_listing_detail_is_not_adjusted(self):
+        identity = {**IDENTITY, 'compatibility': {'variant': 'LC'}}
+        text = quote(extra='Variant: STD')
+        value = normalize([candidate(text=text, compatibility=[Compatibility(key='variant', value='STD')])],
+                          [passage(text)], identity)
+        self.assertFalse(value['comparables'])
+        self.assertEqual(value['diagnostics']['rejections'], {'compatibility_different': 1})
+        # The same listing may be considered on its exact model/condition evidence
+        # when it does not publish a variant; no implicit adjustment is added.
+        value = normalize([candidate()], [passage()], identity)
+        self.assertEqual(len(value['comparables']), 1)
+
+    def test_comparable_hours_need_not_be_identical_and_no_adjustment_is_invented(self):
+        first = quote(extra='Hours: 4500')
+        second = quote('USD 16000', extra='Hours: 5500')
+        identity = {**IDENTITY, 'compatibility': {'hours': '5000'}}
+        value = normalize([
+            candidate(text=first, compatibility=[Compatibility(key='hours', value='4500')]),
+            candidate(1, text=second, price='USD 16000', compatibility=[Compatibility(key='hours', value='5500')])],
+            [passage(first), passage(second, 1)], identity)
+        self.assertEqual(value['status'], 'estimated')
+        self.assertEqual(value['suggested_price'], '14000.00')
+        self.assertIn('no incluye un ajuste por utilización', value['fields']['estimate_basis'])
 
     def test_markets_currencies_sale_types_and_conditions_are_not_pooled(self):
         variants = [(quote('MXN 16000', country='Mexico'), dict(price='MXN 16000', currency='MXN', market='MX')),

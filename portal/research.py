@@ -1098,7 +1098,14 @@ def is_validated_web_field(result, key, value, meta):
     if verified != _manifest(research):
         return False
     for field in research.get("fields", []):
-        if field.get("key") == key and field.get("value") == value:
+        same_value = field.get("value") == value
+        # Form submissions deserialize these three signed period values as
+        # integers. The manifest stores their literal source strings. No other
+        # field gets coercion, so units and identifiers remain exact literals.
+        if (not same_value and key in {"year", "estimated_year_from", "estimated_year_to"}
+                and type(value) is int and not isinstance(field.get("value"), bool)):
+            same_value = str(field.get("value")) == str(value)
+        if field.get("key") == key and same_value:
             if key in MODEL_YEAR_KEYS and key not in validated_model_period_fields(research):
                 return False
             if key == "capacity" and not machine_capacity_evidence(value, field.get("evidence")):
@@ -1348,7 +1355,8 @@ def _research_photo_catalog_reference(client, model, result, identity, basis, ph
     return combined, usage
 
 
-def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None):
+def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None,
+                     knowledge_category=None):
     identity, basis = research_identity(result, snapshot, allowed_categories)
     if basis in {"none", "category"}:
         photo_reference = _research_photo_catalog_reference(
@@ -1362,6 +1370,18 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
                 if category_meta.get("source") == "user" or category_meta.get("review") == "confirmed"
                 else result.get("category"))
     category = category if isinstance(category, str) and category in (allowed_categories or [])[:80] else None
+    # The bundled library is a local, reviewed model reference. It is checked
+    # before paid/web retrieval and still passes through the normal signed
+    # manifest validator. ``research_identity`` has already given explicit
+    # user/clear-plate values precedence over any visual suggestion.
+    # Database-backed local references are opt-in. Keeping this separate from
+    # the pure research contract means offline/SimpleTestCase callers retain no
+    # database dependency. The worker passes the actual selected Category.
+    if knowledge_category is not None:
+        from .knowledge import research_from_knowledge
+        local = research_from_knowledge(result, snapshot or {}, knowledge_category, identity)
+        if local is not None:
+            return local, UsageTotals()
     return research_identified_machine(client, model, result, identity, basis, allowed, category)
 
 

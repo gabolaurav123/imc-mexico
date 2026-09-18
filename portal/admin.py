@@ -16,6 +16,7 @@ from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEv
                      Consent, Lead, Machine, MachineVersion, Message, Notification,
                      PlatformSettings, Publication, SiteContent, Submission, User, NotificationTemplate)
 from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, find_possible_duplicates, send_machine_reminder, _validate_payload
+from . import knowledge_admin  # Register the reviewed technical-reference library.
 
 
 admin.site.site_header = "IMC México · Administración"

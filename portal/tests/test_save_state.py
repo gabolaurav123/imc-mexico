@@ -25,7 +25,8 @@ class SaveStateTests(TestCase):
         return response.json()
 
     def test_response_includes_persisted_state_after_identity_invalidates_automatic_price(self):
-        self.assertIn("price", self.machine.data)
+        self.assertIn("estimate_suggested_price", self.machine.data)
+        self.assertNotIn("price", self.machine.data)
         response = self.save({"model": "DIFFERENT MODEL"})
         state = response["machine"]
         self.assertEqual(response["revision"], state["revision"])
@@ -33,17 +34,19 @@ class SaveStateTests(TestCase):
         self.assertEqual(state["provenance"], self.machine.provenance)
         self.assertEqual(state["valuation"], {})
         self.assertEqual(state["data"]["model"], "DIFFERENT MODEL")
-        for key in ("estimate_min", "estimate_max", "estimate_currency", "price"):
+        for key in ("estimate_min", "estimate_max", "estimate_currency", "estimate_suggested_price", "price"):
             self.assertNotIn(key, state["data"])
 
     def test_response_keeps_manual_zero_and_blank_and_stale_request_cannot_replace_them(self):
         response = self.save({"model": "DIFFERENT MODEL", "price": "0", "currency": "EUR",
                               "visible_defects": None})
         state = response["machine"]
-        self.assertEqual(state["data"]["price"], "0")
+        self.assertEqual(state["data"]["price"], 0)
         self.assertEqual(state["data"]["currency"], "EUR")
         self.assertIsNone(state["data"]["visible_defects"])
-        self.assertEqual(state["provenance"]["price"], {"source": "user", "review": "confirmed"})
+        self.assertEqual(state["provenance"]["price"]["source"], "user")
+        self.assertEqual(state["provenance"]["price"]["review"], "confirmed")
+        self.assertTrue(state["provenance"]["price"]["source_date"])
         stale = self.client.post(self.url, {"revision": response["revision"] - 1,
             "data": {"price": "9999", "visible_defects": "stale"}}, content_type="application/json")
         self.assertEqual(stale.status_code, 409)

@@ -228,17 +228,123 @@ class MachineVersion(ImmutableModel):
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, related_name="versions")
     number = models.PositiveIntegerField("número")
     data = models.JSONField("instantánea", default=dict)
+    # These are a materialized, immutable projection of ``data`` at version
+    # creation. They are intentionally not editable listing fields.
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, null=True, blank=True,
+                                 related_name="machine_versions", verbose_name="categoría indexada")
+    brand = models.CharField("marca indexada", max_length=100, blank=True)
+    model = models.CharField("modelo indexado", max_length=100, blank=True)
+    variant = models.CharField("variante indexada", max_length=180, blank=True)
+    undercarriage = models.CharField("rodamiento indexado", max_length=32, blank=True)
+    hours = models.DecimalField("horas indexadas", max_digits=14, decimal_places=2, null=True, blank=True,
+                                validators=[MinValueValidator(0)])
+    year = models.PositiveSmallIntegerField("año exacto indexado", null=True, blank=True,
+                                            validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    estimated_year_from = models.PositiveSmallIntegerField("año estimado desde", null=True, blank=True,
+                                                           validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    estimated_year_to = models.PositiveSmallIntegerField("año estimado hasta", null=True, blank=True,
+                                                         validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    price = models.DecimalField("precio indexado", max_digits=16, decimal_places=2, null=True, blank=True,
+                                validators=[MinValueValidator(0)])
+    currency = models.CharField("moneda indexada", max_length=3, blank=True)
+    weight_kg = models.DecimalField("peso kg indexado", max_digits=14, decimal_places=3, null=True, blank=True,
+                                    validators=[MinValueValidator(0)])
+    digging_depth_m = models.DecimalField("profundidad m indexada", max_digits=12, decimal_places=3, null=True, blank=True,
+                                          validators=[MinValueValidator(0)])
+    location_country = models.CharField("país indexado", max_length=80, blank=True)
+    location_region = models.CharField("estado o provincia indexado", max_length=120, blank=True)
+    location_city = models.CharField("ciudad indexada", max_length=120, blank=True)
+    preservation_condition = models.CharField("conservación indexada", max_length=16, blank=True)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["machine", "number"], name="unique_machine_version")]
+        indexes = [
+            models.Index(fields=["category", "brand", "model", "variant", "undercarriage"], name="version_identity_search"),
+            models.Index(fields=["category", "year", "estimated_year_from", "estimated_year_to"], name="version_year_search"),
+            models.Index(fields=["category", "currency", "price"], name="version_price_search"),
+            models.Index(fields=["category", "location_country", "location_region", "location_city"], name="version_location_search"),
+            models.Index(fields=["category", "weight_kg", "digging_depth_m", "hours"], name="version_specs_search"),
+        ]
         ordering = ["-number"]
         verbose_name = "versión de maquinaria"
         verbose_name_plural = "versiones de maquinaria"
 
     def __str__(self):
         return f"{self.machine.folio} · v{self.number}"
+
+    def clean(self):
+        errors = {}
+        if self.estimated_year_from and self.estimated_year_to and self.estimated_year_from > self.estimated_year_to:
+            errors["estimated_year_to"] = "El final del intervalo no puede ser anterior al inicio."
+        if self.currency and len(self.currency) != 3:
+            errors["currency"] = "La moneda debe usar el código ISO de tres letras."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            from .structured_data import version_search_fields
+            values = version_search_fields(self.data, self.machine.category, self.data.get("provenance") if isinstance(self.data, dict) else None)
+            for name, value in values.items():
+                setattr(self, name, value)
+            self.clean()
+        return super().save(*args, **kwargs)
+
+
+class TechnicalReference(models.Model):
+    """Reviewed manufacturer documentation for a model, never unit evidence."""
+    class Review(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobada"
+        REJECTED = "rejected", "Rechazada"
+
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="technical_references",
+                                 verbose_name="categoría")
+    brand = models.CharField("marca", max_length=100)
+    model = models.CharField("modelo", max_length=100)
+    variant = models.CharField("variante", max_length=180, blank=True)
+    generation = models.CharField("generación", max_length=120, blank=True)
+    market = models.CharField("mercado", max_length=80, blank=True)
+    period_from = models.PositiveSmallIntegerField("periodo desde", null=True, blank=True,
+                                                   validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    period_to = models.PositiveSmallIntegerField("periodo hasta", null=True, blank=True,
+                                                 validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    specs = models.JSONField("especificaciones documentadas", default=dict, blank=True)
+    provenance = models.JSONField("procedencia", default=dict, blank=True)
+    source = models.URLField("fuente primaria", max_length=1000)
+    source_title = models.CharField("título de fuente", max_length=300)
+    source_version = models.CharField("versión de fuente", max_length=100, blank=True)
+    retrieved_at = models.DateField("consultada el")
+    review = models.CharField("revisión", max_length=12, choices=Review.choices, default=Review.PENDING, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name="reviewed_technical_references", verbose_name="revisada por")
+    reviewed_at = models.DateTimeField("revisada el", null=True, blank=True)
+    active = models.BooleanField("activa", default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category__name", "brand", "model", "variant", "market"]
+        verbose_name = "referencia técnica"
+        verbose_name_plural = "referencias técnicas"
+        indexes = [models.Index(fields=["category", "brand", "model", "variant", "market", "active"])]
+
+    def clean(self):
+        errors = {}
+        if self.period_from and self.period_to and self.period_from > self.period_to:
+            errors["period_to"] = "El final del periodo no puede ser anterior al inicio."
+        if self.active and self.review != self.Review.APPROVED:
+            errors["active"] = "Sólo una referencia aprobada puede activarse."
+        if not isinstance(self.specs, dict):
+            errors["specs"] = "Las especificaciones deben ser un objeto estructurado."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        label = " ".join(part for part in (self.brand, self.model, self.variant) if part)
+        return f"{self.category.name} · {label}"
 
 
 def private_asset_path(instance, filename):

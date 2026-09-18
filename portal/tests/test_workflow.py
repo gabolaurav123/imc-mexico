@@ -51,7 +51,7 @@ class WorkflowTests(TestCase):
     def test_missing_unknown_values_are_allowed(self):
         machine = save_draft(self.machine, self.owner, {"data": {"year": "", "serial": None, "hours": "", "no_plate": True}}, 1)
         self.assertEqual(machine.revision, 2)
-        self.assertEqual(machine.data["year"], "")
+        self.assertIsNone(machine.data["year"])
         submission = submit_machine(machine, self.owner, True)
         self.assertEqual(submission.status, "submitted")
         self.assertFalse(Publication.objects.filter(machine=machine, enabled=True).exists())
@@ -81,7 +81,10 @@ class WorkflowTests(TestCase):
 
     def test_browser_cannot_forge_source(self):
         changed = save_draft(self.machine, self.owner, {"data": {"brand": "Declarada"}, "provenance": {"brand": {"source": "plate", "review": "clear", "asset_id": str(self.photo.pk)}}}, 1)
-        self.assertEqual(changed.provenance["brand"], {"source": "user", "review": "confirmed"})
+        self.assertEqual(changed.provenance["brand"]["source"], "user")
+        self.assertEqual(changed.provenance["brand"]["review"], "confirmed")
+        self.assertEqual(changed.provenance["brand"]["confidence"], "owner_declared")
+        self.assertTrue(changed.provenance["brand"]["source_date"])
         with self.assertRaises(ValidationError):
             save_draft(changed, self.owner, {"provenance": {"brand": {"source": "manufacturer"}}}, 2)
 

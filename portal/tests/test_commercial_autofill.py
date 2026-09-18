@@ -30,7 +30,8 @@ class CommercialAutofillTests(TestCase):
 
     def estimate_result(self, minimum="10000", maximum="20000", currency="USD"):
         fields = {"estimate_min": minimum, "estimate_max": maximum, "estimate_currency": currency,
-                  "estimate_market": "Estados Unidos", "estimate_basis": "Anuncios comparables del modelo",
+                  "estimate_market": "Estados Unidos", "estimate_date": "2026-09-18",
+                  "estimate_basis": "Anuncios comparables del modelo",
                   "estimate_missing_info": "Confirmar conservación y funcionamiento"}
         valuation = {"version": VALUATION_VERSION, "status": "estimated", "identity": {"brand": "Caterpillar", "model": "2EC25"},
                      "fields": fields, "suggested_price": "15000", "label": LABEL,
@@ -38,7 +39,8 @@ class CommercialAutofillTests(TestCase):
                         title="Caterpillar 2EC25", price="15000", currency=currency, market="Estados Unidos",
                         condition="Usada", price_type="asking", retrieved_at="2026-09-17")]}
         _seal(valuation)
-        data = {**fields, "price": valuation["suggested_price"], "currency": currency}
+        # A valuation suggests a price for the owner to choose; it cannot publish an asking price.
+        data = {**fields, "estimate_suggested_price": valuation["suggested_price"]}
         return {"data": data, "provenance": {key: {"source": "valuation", "review": "needs_review",
                 "component": "machine", "asset_id": None, "evidence": "Comparables públicos"} for key in data},
                 "valuation": valuation, "fields": [], "plates": [], "warnings": [], "category": None}
@@ -80,7 +82,9 @@ class CommercialAutofillTests(TestCase):
         self.edit(visible_components="")
         self.apply(job)
         self.assertEqual(self.machine.data["visible_components"], "")
-        self.assertEqual(self.machine.provenance["visible_components"], {"source": "user", "review": "confirmed"})
+        self.assertEqual(self.machine.provenance["visible_components"]["source"], "user")
+        self.assertEqual(self.machine.provenance["visible_components"]["review"], "confirmed")
+        self.assertEqual(self.machine.provenance["visible_components"]["confidence"], "owner_declared")
 
     def test_plate_only_does_not_assess_preservation(self):
         asset = str(self.asset.pk)
@@ -116,8 +120,10 @@ class CommercialAutofillTests(TestCase):
             with self.subTest(value=value):
                 self.edit(price=value, currency="USD")
                 self.apply(self.job(self.estimate_result()))
-                self.assertEqual(self.machine.data["price"], value)
-                self.assertEqual(self.machine.provenance["price"], {"source": "user", "review": "confirmed"})
+                self.assertEqual(self.machine.data["price"], 8500 if value else None)
+                self.assertEqual(self.machine.provenance["price"]["source"], "user")
+                self.assertEqual(self.machine.provenance["price"]["review"], "confirmed")
+                self.assertEqual(self.machine.provenance["price"]["confidence"], "owner_declared")
 
     def test_estimate_range_currency_concurrency_cannot_relabel_usd_as_mxn(self):
         job = self.job(self.estimate_result())
@@ -130,8 +136,8 @@ class CommercialAutofillTests(TestCase):
     def test_unchanged_automatic_range_refreshes_both_endpoints(self):
         self.apply(self.job(self.estimate_result()))
         self.apply(self.job(self.estimate_result("25000", "30000")))
-        self.assertEqual(self.machine.data["estimate_min"], "25000")
-        self.assertEqual(self.machine.data["estimate_max"], "30000")
+        self.assertEqual(self.machine.data["estimate_min"], 25000)
+        self.assertEqual(self.machine.data["estimate_max"], 30000)
         self.assertEqual(self.machine.data["estimate_currency"], "USD")
 
     def test_changed_identity_blocks_pending_estimate_and_removes_only_automatic_old_range(self):
@@ -139,7 +145,7 @@ class CommercialAutofillTests(TestCase):
         job = self.job(self.estimate_result())
         self.edit(model="DIFFERENT", price="1234")
         self.apply(job)
-        self.assertEqual(self.machine.data["price"], "1234")
+        self.assertEqual(self.machine.data["price"], 1234)
         self.assertNotIn("estimate_min", self.machine.data)
         self.assertNotIn("estimate_max", self.machine.data)
 
@@ -150,7 +156,7 @@ class CommercialAutofillTests(TestCase):
                 if mutation == "proof":
                     result["valuation"]["proof"] = "forged"
                 else:
-                    result["data"]["price"] = "1"
+                    result["data"]["estimate_suggested_price"] = "1"
                 self.apply(self.job(result))
                 self.assertNotIn("price", self.machine.data)
 
@@ -176,8 +182,8 @@ class CommercialAutofillTests(TestCase):
         self.edit(estimate_min="11000", estimate_max="19000")
         version = snapshot(self.machine, self.user)
         public = public_valuation(version.data)
-        self.assertEqual(public["fields"]["estimate_min"], "11000")
-        self.assertEqual(public["fields"]["estimate_max"], "19000")
+        self.assertEqual(public["fields"]["estimate_min"], 11000)
+        self.assertEqual(public["fields"]["estimate_max"], 19000)
         self.assertTrue(public["edited"])
 
     def test_new_insufficient_estimate_clears_old_ai_range_but_preserves_owner_price(self):
@@ -198,6 +204,6 @@ class CommercialAutofillTests(TestCase):
         self.assertNotIn("estimate_min", self.machine.data)
         self.assertNotIn("estimate_max", self.machine.data)
         self.assertNotIn("estimate_currency", self.machine.data)
-        self.assertEqual(self.machine.data["price"], "19000")
+        self.assertEqual(self.machine.data["price"], 19000)
         self.assertEqual(self.machine.data["currency"], "MXN")
         self.assertEqual(self.machine.data["estimate_missing_info"], "Falta otra unidad verificable.")

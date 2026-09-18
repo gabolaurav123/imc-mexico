@@ -39,7 +39,8 @@ class PdfDesignTests(SimpleTestCase):
                 for value in data.values():
                     self.assertIn(value, text)
                 self.assertIn("País de fabricación", " ".join(text.split()))
-                self.assertIn("Lectura de placa", text)
+                if not public:
+                    self.assertIn("Lectura de placa", text)
                 self.assertNotIn("Lectura clara", text)
                 self.assertNotIn("Confirmado por el anunciante", text)
 
@@ -71,7 +72,7 @@ class PdfDesignTests(SimpleTestCase):
         self.assertEqual(len(document.pages), 1)
         self.assertNotIn("Identificación del equipo", empty)
         self.assertNotIn("Datos adicionales", empty)
-        self.assertIn("Consultar precio", empty)
+        self.assertNotIn("Consultar precio", empty)
         self.assertEqual(_price("1e1000000", "MXN"), "1e1000000 MXN")
 
     def test_long_technical_values_and_untrusted_markup_remain_complete_plain_text(self):

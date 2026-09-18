@@ -116,13 +116,13 @@ class WebAutofillTests(TestCase):
         self.assertEqual(unofficial['research']['fields'],[])
         summary=self.apply(self.job(self.result({'year':'2020'},scope='exact_serial')))
         self.assertIn('year',summary['applied_fields'])
-        self.assertEqual(self.machine.data['year'],'2020')
+        self.assertEqual(self.machine.data['year'],2020)
         self.assertEqual(self.machine.provenance['year']['scope'],'exact_serial')
         submission=submit_machine(self.machine,self.owner,True)
         references=public_web_references(submission.version.data)
         self.assertEqual(len(references),1)
         self.assertEqual(references[0]['field'],'year')
-        self.assertEqual(references[0]['value'],'2020')
+        self.assertEqual(str(references[0]['value']),'2020')
         self.assertEqual(references[0]['scope'],'exact_serial')
         self.assertEqual(references[0]['source_url'],'https://www.cat.com/equipment/420f2.html')
 
@@ -162,7 +162,9 @@ class WebAutofillTests(TestCase):
         self.assertEqual(self.machine.revision,before)
         self.machine=save_draft(self.machine,self.owner,{'data':{'power':'80 kW'},
             'provenance':{'power':result['provenance']['power']}},self.machine.revision)
-        self.assertEqual(self.machine.provenance['power'],{'source':'user','review':'confirmed'})
+        self.assertEqual(self.machine.provenance['power']['source'],'user')
+        self.assertEqual(self.machine.provenance['power']['review'],'confirmed')
+        self.assertTrue(self.machine.provenance['power']['source_date'])
         forged=self.result({'weight':'8000 kg'});forged['research']['proof']='forged'
         with self.assertRaises(ValidationError):
             apply_analysis_suggestions(self.machine,self.owner,self.job(forged),['weight'],self.machine.revision)
@@ -202,7 +204,7 @@ class WebAutofillTests(TestCase):
         self.assertNotContains(response,'CAT-SN1234')
         pdf=build_pdf(self.machine,version.data['data'],[self.asset],True,version)
         reader=PdfReader(BytesIO(pdf));text='\n'.join(page.extract_text() for page in reader.pages)
-        self.assertIn('Referencia del modelo',text)
+        self.assertNotIn('Referencia del modelo',text)
         self.assertNotIn('CAT-SN1234',text)
         links=[str(annotation.get_object().get('/A',{}).get('/URI','')) for page in reader.pages for annotation in page.get('/Annots',[])]
         self.assertNotIn(safe_url,links)
@@ -212,7 +214,7 @@ class WebAutofillTests(TestCase):
         self.assertEqual(response.status_code,200)
         package=zipfile.ZipFile(BytesIO(response.content))
         exported=json.loads(package.read('publicacion.json'))
-        self.assertEqual(exported['web_references'],references)
+        self.assertNotIn('web_references', exported)
         self.assertNotIn('serial',exported['data'])
         self.assertNotIn('CAT-SN1234',json.dumps(exported))
 

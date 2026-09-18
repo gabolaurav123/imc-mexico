@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from portal import views as v, auth_views as a
 from portal.analytics import preferences as analytics_preferences
+from portal import catalog_views
 
 admin.site.site_header='IMC México · Administración'
 admin.site.site_title='IMC México'
@@ -15,7 +16,7 @@ urlpatterns=[
  path('panel/notificaciones/<int:pk>/',v.notification_detail,name='notification_detail'),
  path('panel/notificaciones/<int:pk>/leer/',v.notification_read,name='notification_read'),
  path('preferencias/analitica/',analytics_preferences,name='analytics_preferences'),
- path('',v.home,name='home'),path('salud/',v.health,name='health'),
+ path('',v.home,name='home'),path('salud/',v.health,name='health'),path('maquinaria/',catalog_views.catalogue,name='catalogue'),
  path('publicar/',v.publish_start,name='publish_start'),
  path('como-funciona/',v.public_page,{'slug':'como-funciona'}),path('guia-de-fotos/',v.public_page,{'slug':'guia-de-fotos'}),path('preguntas-frecuentes/',v.public_page,{'slug':'preguntas-frecuentes'}),path('privacidad/',v.public_page,{'slug':'privacidad'}),path('terminos/',v.public_page,{'slug':'terminos'}),path('ejemplo-de-ficha/',v.example,name='example'),path('contacto/',v.contact,name='contact'),
  path('registro/',a.register,name='register'),path('iniciar-sesion/',a.sign_in,name='login'),path('cerrar-sesion/',a.sign_out,name='logout'),path('recuperar-acceso/',a.recover,name='recover'),path('activar/<str:uidb64>/<str:token>/',a.activate,name='activate'),

@@ -131,22 +131,34 @@ def machines(request):
 
 @login_required
 def machine_create(request):
+    from .category_profiles import category_catalog
+    categories = Category.objects.filter(active=True)
     if request.method=='POST':
-        machine=Machine.objects.create(owner=request.user)
+        category_id=request.POST.get('category')
+        category=None
+        if category_id not in (None, '', 'unsure'):
+            try:
+                category=categories.get(pk=category_id)
+            except (Category.DoesNotExist, ValueError, TypeError):
+                return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+                    'error':'Selecciona un tipo disponible o «No estoy seguro».'},status=400)
+        machine=Machine.objects.create(owner=request.user,category=category,
+            provenance={'category':{'source':'user','review':'confirmed'}} if category else {})
         event(request,'draft_started',machine)
         return redirect(f'/panel/maquinarias/{machine.pk}/')
-    return render(request,'portal/start.html')
+    return render(request,'portal/start.html',{'categories_json':category_catalog(categories)})
 
 @login_required
 @ensure_csrf_cookie
 def machine_wizard(request,pk):
+    from .category_profiles import category_catalog
     machine=owned(request,pk)
     try:step=max(1,min(2,int(request.GET.get('paso',request.GET.get('step',1)))))
     except ValueError:step=1
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
     models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
     catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
-    return render(request,'portal/wizard.html',{'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':list(Category.objects.filter(active=True).values('id','name','fields')),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
+    return render(request,'portal/wizard.html',{'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
 
 @login_required
 def requests_list(request):
@@ -176,9 +188,14 @@ def messages_list(request):
 @require_POST
 @api
 def api_create(request):
-    payload(request,allowed=[])
+    body=payload(request,allowed=['category'])
     if not throttle(request,'create',30,3600,str(request.user.pk)):raise ValidationError('Alcanzaste el límite de nuevos borradores por hora.')
-    machine=Machine.objects.create(owner=request.user)
+    category=None
+    if body.get('category') not in (None, '', 'unsure'):
+        try:category=Category.objects.get(pk=body['category'],active=True)
+        except (Category.DoesNotExist,ValueError,TypeError):raise ValidationError('Selecciona una categoría disponible.')
+    machine=Machine.objects.create(owner=request.user,category=category,
+        provenance={'category':{'source':'user','review':'confirmed'}} if category else {})
     event(request,'draft_started',machine)
     return JsonResponse({'id':str(machine.pk),'url':f'/panel/maquinarias/{machine.pk}/'},status=201)
 
@@ -196,16 +213,20 @@ def asset_info(asset):
 
 
 def machine_state(machine):
+    from .analysis_specialization import private_completion_actions
     return {'id':str(machine.pk),'revision':machine.revision,'title':machine.title,'category':machine.category_id,
             'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status,
-            'valuation':services.machine_valuation(machine)}
+            'valuation':services.machine_valuation(machine), 'completion_actions':private_completion_actions(machine.data,machine.category)}
 
 
 def analysis_state(job, machine):
     result=job.result if job.status=='completed' else None
+    if isinstance(result,dict):result={key:value for key,value in result.items() if key!='photo_cache'}
     if isinstance(result,dict) and isinstance(result.get('valuation'),dict):
         result={**result,'valuation':{key:value for key,value in result['valuation'].items() if key!='diagnostics'}}
     return {'id':str(job.pk),'status':job.status,'result':result,
+            'processing_stage':job.result.get('progress',{}).get('stage',job.status),
+            'processing_progress':job.result.get('progress',{'stage':job.status}),
             'error':job.error if job.status=='failed' else '', 'assets':[asset_info(a) for a in machine.assets.all()],
             'machine':machine_state(machine),'auto_apply':services.automatic_application_status(job)}
 
@@ -315,9 +336,12 @@ def api_machine_action(request,pk):
     raise ValidationError('Acción no válida.')
 
 def safe_public_data(snapshot):
-    data=copy.deepcopy(snapshot.get('data',{}))
+    from .public_data import public_projection
+    raw_snapshot=snapshot if isinstance(snapshot,dict) else {}
+    raw_data=raw_snapshot.get('data',{}) if isinstance(raw_snapshot.get('data',{}),dict) else {}
+    identifiers={services._reference_text(raw_data.get(key)) for key in ('serial','vin')} - {''}
+    data=public_projection(snapshot)
     # Keep exclusions from this version before removing its private fields.
-    identifiers={services._reference_text(data.get(key)) for key in ('serial','vin')} - {''}
     technical_keys=set(services.WEB_FIELD_LABELS) | {'hours','kilometers','attachments'} | services.VISUAL_LABELS.keys() | services.ESTIMATE_LABELS.keys()
     for key in technical_keys:
         if key in data and any(identifier in services._reference_text(data[key]) for identifier in identifiers):
@@ -333,6 +357,7 @@ def public_record(token):
 
 def sheet_context(machine,version=None,public=False,token=None):
     from .sheet_details import build_sheet_details
+    from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
     from .commercial import commercial_rows, ESTIMATE_LABEL
     original_data=version.data.get('data',{}) if version else machine.data
     plate_ids=services.detected_plate_asset_ids(machine)
@@ -342,6 +367,9 @@ def sheet_context(machine,version=None,public=False,token=None):
         ids=version.data.get('public_asset_ids' if public else 'asset_ids',[])
         assets=machine.assets.filter(pk__in=ids,processing_status='ready')
         title=version.data.get('title',machine.title)
+        if public:
+            from .public_data import public_json
+            title=public_json(version.data,title=title).get('title') or 'Maquinaria'
     else:data=safe_public_data({'data':original_data}) if public else original_data;assets=machine.assets.filter(processing_status='ready');title=machine.title
     if public:assets=assets.filter(public_authorized=True).exclude(purpose__in=['plate','document']).exclude(pk__in=plate_ids)
     # Render approved title rather than the current draft title.
@@ -363,7 +391,10 @@ def sheet_context(machine,version=None,public=False,token=None):
         return label + (' · por revisar' if meta.get('review') in {'needs_review','not_identifiable'} else '')
     field_origins={key:origin_label(key) for key in data if data.get(key) not in (None,'')}
     labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS}
-    extra_fields=[{'key':key,'label':label,'value':data[key],'source_label':field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
+    labels={**{key:labels[key] for key in ('weight','digging_depth')}, **PROFILE_FIELD_LABELS, **labels}
+    extra_fields=[{'key':key,'label':label,'value':display_field_value(key,data[key]),'source_label':'' if public else field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
+    display_location=data.get('location') or ', '.join(str(data[key]) for key in ('location_city','location_region','location_country') if data.get(key))
+    has_identification=bool(category_name or any(data.get(key) not in (None,'') for key in ('brand','model','year','hours','condition')) or not public)
     # The helper needs private exclusions, but returns only allowlisted reading aids.
     technical_interpretation=build_sheet_details(original_data,field_provenance,category=category_name)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
@@ -378,8 +409,8 @@ def sheet_context(machine,version=None,public=False,token=None):
         if re.fullmatch(r'\+[1-9]\d{7,14}',phone):
             whatsapp_url=f'https://wa.me/{phone[1:]}?'+urlencode({'text':f'Hola IMC México. Quiero información sobre {machine.folio}: {title}.'})
     valuation_snapshot=version.data if version else {'data':machine.data,'provenance':field_provenance,'valuations':services.valuations_for_provenance(field_provenance)}
-    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,
-            'commercial_rows':commercial_rows(data,field_provenance),'valuation':services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL}
+    return {'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':{} if public else field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,'display_location':display_location,'has_identification':has_identification,
+            'commercial_rows':commercial_rows(data,field_provenance),'valuation':{} if public else services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL}
 
 @login_required
 def machine_sheet(request,pk):
@@ -390,7 +421,10 @@ def machine_sheet(request,pk):
 
 def public_sheet(request,token):
     pub=public_record(token)
-    response=render(request,'portal/sheet.html',sheet_context(pub.machine,pub.version,True,token))
+    context=sheet_context(pub.machine,pub.version,True,token)
+    back=request.GET.get('back','')
+    context['catalog_back']=back if back.startswith('/maquinaria/') else '/maquinaria/'
+    response=render(request,'portal/sheet.html',context)
     response['Cache-Control']='no-store';response['X-Robots-Tag']='noindex'
     return response
 
@@ -622,7 +656,11 @@ def export_machine(request,pk):
     version=machine.approved_version
     context=sheet_context(machine,version,True)
     output=BytesIO()
-    exported={'schema_version':'1.1','folio':machine.folio,'machine_id':str(machine.pk),'version':version.number,'title':context['machine'].title,'category':version.data.get('category_name'),'data':context['data'],'web_references':context['web_references'],'availability':machine.availability,'assets':[],'destination_status':'exported','exported_at':timezone.now().isoformat()}
+    from .public_data import public_json
+    exported=public_json(version.data,title=context['machine'].title,
+                         category=version.data.get('category_name'),availability=machine.availability)
+    exported.update({'folio':machine.folio,'machine_id':str(machine.pk),'version':version.number,
+                     'assets':[],'destination_status':'exported','exported_at':timezone.now().isoformat()})
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('ficha.pdf',build_pdf(context['machine'],context['data'],context['assets'],True,version))
         for asset in context['assets']:

@@ -20,6 +20,7 @@ from .services import (PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text
                        public_web_references, web_research_for_provenance)
 from .services import public_valuation, valuations_for_provenance
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, ESTIMATE_LABEL, AGE_LABELS, AGE_LABEL
+from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
 
 NAVY = colors.HexColor("#000033")
 ORANGE = colors.HexColor("#E38C1A")
@@ -35,7 +36,7 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
-    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS, **AGE_LABELS,
+    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS, **AGE_LABELS, **PROFILE_FIELD_LABELS,
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
@@ -101,16 +102,23 @@ class PhotoPanel(Flowable):
 def build_pdf(machine, data, assets, public=False, version=None):
     """Return PDF bytes. Public mode always needs an authorized snapshot."""
     snapshot = version.data if version else {}
-    values = dict(snapshot.get("data", data))
+    if public:
+        from .public_data import public_projection
+        values = public_projection(snapshot if version else {"data": data})
+    else:
+        values = dict(snapshot.get("data", data))
     title = snapshot.get("title", machine.title)
-    provenance = snapshot.get("provenance", getattr(machine, "provenance", {}))
+    if public:
+        from .public_data import public_json
+        title = public_json(snapshot, title=title).get("title") or "Maquinaria"
+    provenance = {} if public else snapshot.get("provenance", getattr(machine, "provenance", {}))
     reference_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                    "web_research": web_research_for_provenance(provenance)}
-    web_references = public_web_references(reference_snapshot, include_private=not public)
+    web_references = [] if public else public_web_references(reference_snapshot, include_private=True)
     reference_by_field = {item["field"]: item for item in web_references}
     valuation_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                   "valuations": valuations_for_provenance(provenance)}
-    valuation = public_valuation(valuation_snapshot)
+    valuation = {} if public else public_valuation(valuation_snapshot)
     plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
                                         else getattr(machine, "_detected_plate_asset_ids", set()))}
 
@@ -210,7 +218,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         rows = [[para(label, "WhiteHeading"), "", ""]]
         for key in entries:
             name = LABELS.get(key, (labels or {}).get(key, key.replace("_", " ").capitalize()))
-            rows.append([para(name, "TableLabel"), para(values[key], "TableValue"), para(origin(key), "Small")])
+            rows.append([para(name, "TableLabel"), para(display_field_value(key, values[key]), "TableValue"), para('' if public else origin(key), "Small")])
         table = LongTable(rows, colWidths=[35 * mm, 101 * mm, 40 * mm], hAlign="LEFT",
                           splitInRow=1, repeatRows=1)
         table.setStyle(TableStyle([
@@ -288,19 +296,23 @@ def build_pdf(machine, data, assets, public=False, version=None):
                                     max_image_width=88 * mm if primary_is_plate else None))
         caption = "PLACA DE IDENTIFICACIÓN  |  Evidencia de uso interno" if primary_is_plate else "VISTA PRINCIPAL  |  Fotografía del equipo"
         story.extend([Spacer(1, 2 * mm), para(caption, "Label")])
-    else:
-        text = "Sin fotografía autorizada en esta versión." if public else "Las fotografías de la maquinaria se incorporarán aquí."
+    elif not public:
+        text = "Las fotografías de la maquinaria se incorporarán aquí."
         story.append(panel([[para("VISTA DEL EQUIPO", "Eyebrow"), para(text)]], [width]))
     if unreadable:
         story.append(para("Una fotografía no estaba disponible al generar este documento.", "Small"))
 
-    price = _price(values.get("price"), values.get("currency"))
+    price = _price(values.get("price"), values.get("currency")) if _present(values.get("price")) else ""
     price_label = ("PRECIO SUGERIDO"
                    if provenance.get("price", {}).get("source") == "valuation"
                    and valuation.get("status") != "conditional_reference" else "PRECIO")
-    commercial = [[para(price_label, "Label"), para(price, "Value")],
-                  [para("DISPONIBILIDAD", "Label"), para(AVAILABILITY.get(machine.availability, machine.availability), "Value")],
-                  [para("UBICACIÓN", "Label"), para(values.get("location") or "Por confirmar")]]
+    commercial = []
+    if price:
+        commercial.append([para(price_label, "Label"), para(price, "Value")])
+    commercial.append([para("DISPONIBILIDAD", "Label"), para(AVAILABILITY.get(machine.availability, machine.availability), "Value")])
+    display_location = values.get("location") or ', '.join(str(values[key]) for key in ('location_city','location_region','location_country') if values.get(key))
+    if _present(display_location):
+        commercial.append([para("UBICACIÓN", "Label"), para(display_location, "Value")])
     story.extend([Spacer(1, 3 * mm), panel(commercial, [width * .34, width * .30, width * .36])])
     highlights = [key for key in ("power", "weight", "capacity", "engine", "transmission", "fuel")
                   if _present(values.get(key)) and len(str(values[key])) <= 65 and "\n" not in str(values[key])][:3]
@@ -331,7 +343,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
                                                                        "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
                                                                        "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length")
                                                         if key not in highlights])
-    specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "condition")
+    specification_table("Uso y configuración", [key for key in ("hours", "kilometers", "condition", *PROFILE_FIELD_LABELS)
                                                    if key not in displayed_identity])
     specification_table("Estado aparente, componentes y aplicaciones", list(VISUAL_LABELS))
     if any(_present(values.get(key)) for key in ESTIMATE_LABELS):
