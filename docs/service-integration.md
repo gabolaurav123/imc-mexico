@@ -54,6 +54,27 @@ No crear nuevas llamadas a IA al abrir páginas, consultar resultados o descarga
 PDF. Luna es el modelo activo; Astra está bloqueado. La prueba de integración
 automática debe simular el proveedor para evitar costes.
 
+### Investigación y ficha unificada (v28)
+
+- La ficha editable reúne identificación, año aproximado, conservación, datos
+  comerciales y estimación en un único documento. Los cambios manuales conservan
+  prioridad al repetir el análisis.
+- Una foto general incluye hasta cuatro acercamientos de sus mismos píxeles en
+  la misma llamada de Luna. No son fotos de unidades diferentes ni nuevas llamadas.
+- Con marca legible y sin modelo, la búsqueda devuelve `research.hypotheses`:
+  modelos documentados, evidencia, fuentes y periodo de producción cuando existe.
+  Son referencias para identificar el equipo; no se copian a `data.model`, al año
+  de la unidad ni a su precio. La firma incluye estas hipótesis.
+- Un rango visual de edad puede abarcar desde dos años, siempre con indicios de
+  generación y sin superar el año actual. Nunca se presenta como fecha exacta.
+- Con modelo identificado, la valoración permite hasta dos acciones web y seis
+  páginas de anuncios dentro del presupuesto y plazo existentes. Para calcular
+  precio necesita comparables verificables e independientes del mismo modelo,
+  condición, mercado, moneda y tipo de precio. Anuncios y ventas no se mezclan.
+
+Reabrir una ficha anterior no repite llamadas de pago. Para usar v28 con fotos ya
+analizadas, solicitar explícitamente un nuevo análisis en el flujo de fotos.
+
 ## Antes de migrar
 
 - Confirmar tecnología, autenticación y esquema de la web original y de MySQL.

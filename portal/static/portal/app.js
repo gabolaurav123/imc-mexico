@@ -117,6 +117,7 @@
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
   let analysisOutcome = null, valuationFeedback = null;
   let valuationIdentity = valuationIdentityOf(state);
+  let researchHypotheses = [], researchHypothesisIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
@@ -538,6 +539,49 @@
     link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
     return link;
   }
+  function researchHypothesesOf(research) {
+    return Array.isArray(research?.hypotheses) ? research.hypotheses.filter(item => item && typeof item === 'object') : [];
+  }
+  function renderResearchHypotheses(value) {
+    const target = $('#preview-research-hypotheses');
+    if (!target) return;
+    target.replaceChildren(); target.hidden = true;
+    const identity = valuationIdentityOf(value);
+    if (identity !== researchHypothesisIdentity) {
+      researchHypotheses = [];
+      researchHypothesisIdentity = identity;
+    }
+    if (!researchHypotheses.length || !missing(value.data?.model)) return;
+    const items = [];
+    for (const hypothesis of researchHypotheses) {
+      const model = typeof hypothesis.model === 'string' ? hypothesis.model.trim() : '';
+      if (!model) continue;
+      const item = el('li'), title = el('strong','',model);
+      item.append(title);
+      const evidence = typeof hypothesis.evidence === 'string' ? hypothesis.evidence.trim() : '';
+      const period = hypothesis.production_period && typeof hypothesis.production_period === 'object' ? hypothesis.production_period : {};
+      const from = period.from, to = period.to;
+      const periodText = from !== undefined && from !== null && from !== '' && to !== undefined && to !== null && to !== ''
+        ? `Periodo documentado: ${from}–${to}. No indica la edad de esta unidad.`
+        : from !== undefined && from !== null && from !== ''
+          ? `Periodo documentado: desde ${from}. No indica la edad de esta unidad.`
+          : to !== undefined && to !== null && to !== ''
+            ? `Periodo documentado: hasta ${to}. No indica la edad de esta unidad.` : '';
+      const support = Number(hypothesis.support_count);
+      const details = [];
+      if (evidence) details.push(evidence);
+      if (periodText) details.push(periodText);
+      if (Number.isFinite(support) && support >= 0) details.push(`Fuentes que lo respaldan: ${Math.floor(support)}.`);
+      if (details.length) item.append(el('p','',details.join('\n')));
+      const source = researchSource(hypothesis);
+      if (source) item.append(source);
+      items.push(item);
+    }
+    if (!items.length) return;
+    const list = el('ul','research-hypothesis-list'); items.forEach(item => list.append(item));
+    target.append(el('h3','', 'Modelos de referencia encontrados · por identificar'),el('p','', 'Son modelos documentados en las fuentes consultadas; no confirman la unidad fotografiada ni su configuración. El periodo de producción indicado tampoco determina la edad de esta unidad.'),list);
+    target.hidden = false;
+  }
   function renderResearch(research,target) {
     if (!research || typeof research !== 'object') return;
     const fields = Array.isArray(research.fields) ? research.fields : [];
@@ -610,6 +654,8 @@
   }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
+    researchHypotheses = researchHypothesesOf(result.research);
+    researchHypothesisIdentity = valuationIdentityOf(job.machine || state);
     valuationFeedback = result.valuation?.status === 'insufficient' ? 'insufficient' : null;
     previewImageKinds.clear();
     for (const image of Array.isArray(result.image_observations) ? result.image_observations : []) if (image && ['machine','plate','document','other','unknown'].includes(image.kind)) previewImageKinds.set(String(image.asset_id),image.kind);
@@ -671,6 +717,7 @@
     const specs = $('#preview-specs'); specs.replaceChildren();
     for (const key of ['brand','model','year','serial','hours','condition']) addField(specs,key,data[key]);
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
+    renderResearchHypotheses(value);
     const ageFrom = data.estimated_year_from, ageTo = data.estimated_year_to;
     const hasAgeRange = !missing(ageFrom) || !missing(ageTo);
     $('#preview-age-range').textContent = !missing(ageFrom) && !missing(ageTo) ? `${ageFrom}–${ageTo}` : !missing(ageFrom) ? `Desde ${ageFrom}` : !missing(ageTo) ? `Hasta ${ageTo}` : '';
@@ -683,17 +730,15 @@
     const condition = $('#preview-condition-specs'); condition.replaceChildren();
     for (const key of ['preservation_notes','visible_defects','visible_components','attachments','applications']) addField(condition,key,data[key]);
     const estimate = $('#preview-valuation-specs'); estimate.replaceChildren();
-    for (const key of ['estimate_market','estimate_basis','estimate_missing_info']) addField(estimate,key,data[key]);
+    const hasEstimateRange = !missing(data.estimate_min) || !missing(data.estimate_max);
+    for (const key of ['estimate_market','estimate_basis','estimate_missing_info']) {
+      if (key === 'estimate_basis' && !hasEstimateRange) continue;
+      addField(estimate,key,data[key]);
+    }
     renderValuation(value);
     const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
     addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
     addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');
-    let price = 'Consultar precio';
-    if (!missing(data.price)) {
-      const amount = Number(data.price), formatted = Number.isFinite(amount) ? new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(amount) : String(data.price);
-      price = `${formatted} ${data.currency || 'MXN'}`;
-    }
-    addField(commercial,'price',price);
   }
   $('#submit-machine').addEventListener('click',async () => {
     if (!editable || submitting || downloading || deleting) return;

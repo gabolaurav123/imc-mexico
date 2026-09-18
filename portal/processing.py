@@ -36,7 +36,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v27"
+PROMPT_VERSION = "imc-vision-research-2026-09-v28"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -171,8 +171,13 @@ si se ve el equipo (aunque contenga una placa pequeña), plate si sólo se aprec
 la placa identificativa o su primer plano, document, other o unknown si corresponde.
 Usa el asset_id exacto; el propósito declarado de la carga puede estar equivocado.
 Esta solicitud contiene UNA SOLA fotografía, identificada por image_001 entre
-INICIO FOTO y FIN FOTO. Analízala de manera independiente: no hay otras fotos en
-esta solicitud. Copia image_001 en fields, plates e image_observations. No uses
+INICIO FOTO y FIN FOTO. Puede acompañarse de RECORTES de esa misma fotografía:
+son acercamientos de sus píxeles, no otras máquinas ni otras vistas. Examina
+rotulación pequeña de modelo en carrocería, contrapeso, brazo y cabina antes de
+dejar model vacío. Copia todos los caracteres legibles, incluidos sufijos; no
+completes letras por parecido con un catálogo. Un rótulo parcial queda pendiente.
+Analízala de manera independiente: no hay otras fotos en esta solicitud.
+Copia image_001 en fields, plates e image_observations. No uses
 UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una
 placa de maquinaria, extrae sus renglones legibles y su transcripción completa;
 clasificarla como related no sustituye la lectura de sus datos.
@@ -206,6 +211,11 @@ Aparentemente nueva requiere indicios de presentación reciente y ausencia de hu
 de uso en las superficies de trabajo que sí se ven; una foto limpia por sí sola
 no basta. Nunca infieras reacondicionada, historial, mantenimiento realizado,
 propiedad ni condición interna.
+Una imagen de catálogo, render o recorte de producto sobre fondo uniforme no
+demuestra el uso de una unidad real: sin huellas inequívocas usa Por confirmar.
+No inventes desgaste superficial para justificar Usada o Bueno. Describe por
+separado los componentes visibles: tren de rodaje, pluma/brazo, cilindros y líneas
+hidráulicas, herramienta, cabina, contrapeso o protecciones cuando se vean.
 preservation_condition valora SÓLO superficies y partes visibles: Excelente cuando
 esas partes conservan un acabado uniforme y apenas muestran desgaste; Bueno cuando
 se ven conservadas con desgaste ligero; Aceptable cuando el desgaste, abrasión,
@@ -240,7 +250,8 @@ por diseño de cabina/carrocería, configuración de mandos o componentes identi
 No uses desgaste, pintura, óxido, suciedad, limpieza ni conservación para fecharla:
 una máquina antigua puede estar conservada y una reciente puede estar deteriorada.
 age_estimate contiene start_year y end_year enteros, desde mil novecientos hasta
-el año actual, con una diferencia de AL MENOS cinco años. Nunca un año puntual.
+el año actual, con una diferencia de AL MENOS dos años. Para generaciones recientes
+puede ser una franja corta; no la extiendas artificialmente. Nunca un año puntual.
 basis explica los rasgos de diseño visibles que sustentan esa franja, hasta
 cuatrocientos caracteres; sin cifras, fechas, series, marca/modelo, enlaces o contactos.
 Si sólo identificas el tipo de equipo y no su generación, usa age_estimate null;
@@ -861,6 +872,47 @@ def _image_input(asset):
             "image_url": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")}
 
 
+def _image_detail_inputs(full_image, purpose):
+    """Bounded, pixel-only views of the same photo for small exterior labels.
+
+    Keep one provider call and one asset identity. Never fetch a URL, change the
+    stored file, sharpen/generate letters, or infer detail absent from the photo.
+    The already sanitized image contains no original metadata.
+    """
+    if purpose != 'general':
+        return []
+    url = full_image.get('image_url', '')
+    if not isinstance(url, str) or not url.startswith(('data:image/png;base64,', 'data:image/jpeg;base64,')):
+        return []
+    try:
+        raw = base64.b64decode(url.split(',', 1)[1], validate=True)
+        if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
+            return []
+        with Image.open(io.BytesIO(raw)) as original:
+            if min(original.size) < 600 or original.width * original.height > MAX_PIXELS:
+                return []
+            width, height = original.size
+            boxes = [(0, 0, width * 3 // 5, height * 3 // 5),
+                     (width * 2 // 5, 0, width, height * 3 // 5),
+                     (0, height * 2 // 5, width * 3 // 5, height),
+                     (width * 2 // 5, height * 2 // 5, width, height)]
+            details, total = [], 0
+            for index, box in enumerate(boxes, start=1):
+                detail = original.crop(box).convert('RGB')
+                detail.thumbnail((768, 768))
+                output = io.BytesIO()
+                detail.save(output, format='PNG')
+                payload = output.getvalue()
+                total += len(payload)
+                if total > 4 * 1024 * 1024:
+                    return []
+                details.extend([{'type': 'input_text', 'text': f'RECORTE {index} de la MISMA FOTO image_001. No es otra unidad. Lee rótulos si son legibles.'},
+                    {'type': 'input_image', 'detail': 'high', 'image_url': 'data:image/png;base64,' + base64.b64encode(payload).decode('ascii')}])
+            return details
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        return []
+
+
 def plate_serial_is_clear(field, plate):
     """Validate an existing clear serial independently of other plate lines.
 
@@ -1046,7 +1098,7 @@ def _clean_age_estimate(estimate, private_identifiers=(), excluded_values=()):
         return None
     start, end = estimate.get("start_year"), estimate.get("end_year")
     if (type(start) is not int or type(end) is not int
-            or not 1900 <= start <= end <= timezone.localdate().year or end - start < 5):
+            or not 1900 <= start <= end <= timezone.localdate().year or end - start < 2):
         return None
     basis = estimate.get("basis")
     if not isinstance(basis, str) or len(basis) > 400:
@@ -1405,6 +1457,7 @@ def process_analysis(job):
         # with their actual provenance; they do not claim a new plate reading.
         "recorded_data": snapshot if job.mode == "description" else None,
         "allowed_field_keys": sorted(AI_KEYS),
+        "current_year": timezone.localdate().year,
         "allowed_category_names": job.result.get("category_names", []),
     }
     def context(manifest):
@@ -1414,10 +1467,12 @@ def process_analysis(job):
     image_requests = []
     for binding, asset in zip(bindings, assets):
         alias = binding["alias"]
+        full_image = _image_input(asset)
         image_requests.append([context([{"asset_id": alias, "message_index": 1, "declared_purpose": asset.purpose}]),
             {"role": "user", "content": [
             {"type": "input_text", "text": f"INICIO FOTO {alias}. asset_id={alias}. Esta imagen pertenece únicamente a este alias."},
-            _image_input(asset),
+            full_image,
+            *_image_detail_inputs(full_image, asset.purpose),
             {"type": "input_text", "text": f"FIN FOTO {alias}. Toda lectura de la imagen anterior debe usar asset_id={alias}; no otro alias."},
         ]}])
     if sum(len(item.get("image_url", "")) for request in image_requests for message in request

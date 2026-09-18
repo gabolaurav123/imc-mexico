@@ -9,7 +9,7 @@ from django.test import SimpleTestCase
 
 from portal.valuation import (ComparableCandidate, ComparableCandidates, Configuration,
     LABEL, PARSE_RESERVATION, SEARCH_RESERVATION, VALUATION_RESERVATION,
-    _document_passages, _fetch_listing, _identity, _listing_url, _money, _normalize,
+    _document_passages, _fetch_listing, _identity, _listing_url, _listing_fact_snippets, _money, _normalize,
     estimate_machine, is_validated_estimate)
 from portal.research_fetch import CatalogFetchError
 
@@ -295,6 +295,17 @@ class ValuationIdentityAndDocumentsTests(SimpleTestCase):
             with self.subTest(heading=heading):
                 self.assertEqual(_document_passages(html(heading=heading), URLS[0], IDENTITY, []), [])
 
+    def test_listing_facts_keep_same_page_condition_and_market_when_far_from_price(self):
+        text = ('Location: United States.\nCondition: Used.\n' + ('details ' * 220) +
+                '\nAsking price: USD 12,000.')
+        facts = _listing_fact_snippets(text)
+        self.assertIn('Location: United States.', facts)
+        self.assertIn('Condition: Used.', facts)
+        pages = [passage(text='Caterpillar 2EC25. Asking price: USD 12,000.', _listing_facts=facts)]
+        value = normalize([candidate(text=pages[0]['text'])], pages)
+        self.assertEqual(value['comparables'][0]['market'], 'US')
+        self.assertEqual(value['comparables'][0]['condition'], 'used')
+
     def test_other_units_serial_is_hashed_for_dedup_and_current_private_serial_is_never_sent(self):
         first = _document_passages(html(quote(extra='Serial number: OTHERUNIT777')), URLS[0], IDENTITY, ['OWNER123'])
         second = _document_passages(html(quote(extra='Serial number: OTHERUNIT777')), URLS[1], IDENTITY, ['OWNER123'])
@@ -350,7 +361,7 @@ class ValuationPipelineTests(SimpleTestCase):
         self.assertEqual(client.responses.parse.call_count, 1)
         request = client.responses.create.call_args.kwargs
         self.assertFalse(request['store'])
-        self.assertEqual(request['max_tool_calls'], 1)
+        self.assertEqual(request['max_tool_calls'], 2)
         self.assertEqual(request['tool_choice'], 'required')
         payload = client.responses.parse.call_args.kwargs['input']
         self.assertNotIn('invented', payload)

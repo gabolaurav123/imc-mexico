@@ -84,13 +84,13 @@ class VisualAgeNormalizationTests(SimpleTestCase):
 
     def test_invalid_bounds_and_narrow_ranges_are_rejected_without_clamping(self):
         current = timezone.localdate().year
-        for start, end in ((1899, 1905), (2005, 1995), (2000, 2000), (2000, 2004),
+        for start, end in ((1899, 1905), (2005, 1995), (2000, 2000), (2000, 2001),
                            (current - 5, current + 1)):
             with self.subTest(start=start, end=end):
                 result = normalize(reading(estimate=age(start, end)))
                 self.assertNotIn("estimated_year_from", result["data"])
                 self.assertIsNone(result["image_observations"][0]["age_estimate"])
-        for start, end in ((1900, 1905), (current - 5, current)):
+        for start, end in ((1900, 1905), (current - 5, current), (current - 2, current), (2000, 2004)):
             with self.subTest(valid=(start, end)):
                 result = normalize(reading(estimate=age(start, end)))
                 self.assertEqual((result["data"]["estimated_year_from"], result["data"]["estimated_year_to"]), (start, end))

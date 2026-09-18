@@ -21,17 +21,30 @@ from portal.processing import process_next_job
 
 
 class IntakeHTML(HTMLParser):
+    void_tags={'area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'}
+
     def __init__(self):
-        super().__init__();self.panels=[];self.step_targets=set();self.inputs={};self.checkboxes=[];self.details={};self.scripts=[]
+        super().__init__();self.panels=[];self.step_targets=set();self.inputs={};self.checkboxes=[];self.details={};self.scripts=[];self.stack=[];self.preview_article_for={}
 
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
+        for ancestor_tag,ancestor_attrs in reversed(self.stack):
+            if ancestor_tag=='article' and 'professional-preview' in ancestor_attrs.get('class','').split():
+                if attrs.get('id'):self.preview_article_for[attrs['id']]=ancestor_attrs.get('aria-label','')
+                break
         if 'data-step-panel' in attrs:self.panels.append(attrs['data-step-panel'])
         if 'data-step-to' in attrs:self.step_targets.add(attrs['data-step-to'])
         if tag=='input' and attrs.get('id'):self.inputs[attrs['id']]=attrs
         if tag=='input' and attrs.get('type')=='checkbox':self.checkboxes.append(attrs)
         if tag=='details' and attrs.get('id'):self.details[attrs['id']]=attrs
         if tag=='script' and attrs.get('src'):self.scripts.append(attrs['src'])
+        if tag not in self.void_tags:self.stack.append((tag,attrs))
+
+    def handle_endtag(self,tag):
+        for index in range(len(self.stack)-1,-1,-1):
+            if self.stack[index][0]==tag:
+                del self.stack[index:]
+                break
 
 
 @override_settings(OPENAI_API_KEY='test-not-a-real-key',OPENAI_MODEL='gpt-4.1-mini',
@@ -88,6 +101,15 @@ class QuickIntakeTests(TestCase):
         self.assertNotContains(response,'id="analysis-assets"')
         self.assertFalse(AnalysisJob.objects.exists())
         self.assertFalse(Submission.objects.exists())
+
+    def test_editable_commercial_estimator_stays_inside_the_single_preview_sheet(self):
+        response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')
+        self.assertEqual(response.status_code,200)
+        dom=IntakeHTML();dom.feed(response.content.decode())
+        self.assertEqual(dom.preview_article_for.get('preview-commercial-specs'),'Ficha técnica y comercial de la maquinaria')
+        self.assertEqual(dom.preview_article_for.get('auto-valuation-section'),'Ficha técnica y comercial de la maquinaria')
+        self.assertEqual(dom.preview_article_for.get('preview-valuation-specs'),'Ficha técnica y comercial de la maquinaria')
+        self.assertEqual(response.content.decode().count('id="auto-valuation-section"'),1)
 
     def test_preparing_and_polling_autofill_keeps_everything_private(self):
         asset=self.upload()

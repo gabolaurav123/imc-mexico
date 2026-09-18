@@ -193,7 +193,7 @@ class WebSearchStatusTests(SimpleTestCase):
         self.assertEqual(usage.estimated_tokens, 16000)
         self.assertEqual(value['diagnostics']['phases'][0]['completed_search_calls'], 1)
         self.assertEqual(value['diagnostics']['phases'][0]['web_call_status_counts'], {'completed': 1, 'failed': 1})
-        self.assertEqual(client.responses.create.call_args.kwargs['max_tool_calls'], 1)
+        self.assertEqual(client.responses.create.call_args.kwargs['max_tool_calls'], 2)
 
     def test_no_completed_search_never_buys_normalization_or_fetches_listings(self):
         client = provider()

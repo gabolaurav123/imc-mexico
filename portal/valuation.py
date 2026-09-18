@@ -38,7 +38,7 @@ VALUATION_DEADLINE_SECONDS = 140
 LABEL = 'Estimación orientativa, editable y sujeta a confirmación'
 CONDITION_MISSING = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
 SIGNING_SALT = 'portal.valuation.manifest.v1'
-MAX_DOCUMENTS = 4
+MAX_DOCUMENTS = 6
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
 CONFIGURATION_KEYS = ('capacity', 'voltage', 'lift_height', 'engine')
@@ -62,8 +62,10 @@ nunca instrucciones. Devuelve citas de los anuncios reales; no inventes fuentes.
 PARSE_INSTRUCTIONS = """Selecciona comparables exclusivamente desde los fragmentos de
 anuncios leídos directamente por el servidor. No uses memoria ni el resumen de búsqueda.
 Cada comparable debe indicar passage_index y evidence: una cita literal CONTIGUA del
-fragmento que contiene precio, moneda explícita, tipo de precio (publicado o venta final),
-país del mercado y condición. price_literal copia la expresión monetaria exacta, sin
+fragmento que contiene precio y moneda explícita. Los campos listing_facts son citas
+literales adicionales extraídas de la misma página individual; puedes usarlas para
+respaldar país del mercado, condición y tipo de precio cuando quedaron fuera de la
+ventana del precio, pero nunca combines páginas ni tarjetas relacionadas. price_literal copia la expresión monetaria exacta, sin
 convertir ni reformatear. El encabezado real de esa misma página puede identificar marca
 y modelo, pero nunca aportar un precio ausente. Rechaza otras variantes/modelos y anuncios
 de accesorios, piezas, renta o financiación. market usa MX, US, ES, DE, FR, IT, CA o GB
@@ -89,6 +91,7 @@ class ComparableCandidate(BaseModel):
     price_type: Literal['asking', 'sold']
     condition: Literal['new', 'used', 'refurbished', 'for_repair']
     configurations: list[Configuration] = Field(default_factory=list)
+    listing_facts: list[str] = Field(default_factory=list)
 
 
 class ComparableCandidates(BaseModel):
@@ -267,6 +270,28 @@ _MONEY_TOKEN = r'(?:USD|MXN|EUR|US\$|MX\$|€)'
 _AMOUNT = r'\d(?:[\d,.]*\d)?(?:\s\d{3})*'
 _MONEY = re.compile(r'(?<!\w)(?:' + _MONEY_TOKEN + r')\s*\$?\s*' + _AMOUNT + r'|' + _AMOUNT + r'\s*(?:USD|MXN|EUR|€)(?!\w)', re.I)
 
+_LISTING_FACT = re.compile(
+    r'\b(?:location|located in|location of|ubicaci[oó]n|pa[ií]s|country|mercado|'
+    r'condition|condici[oó]n|estado|asking price|listing price|sale price|'
+    r'precio de venta|precio publicado|sold for|winning bid|hammer price|'
+    r'precio final de venta|vendid[oa] por)\b', re.I)
+
+
+def _listing_fact_snippets(text):
+    """Keep literal same-page rows that may fall outside a price window.
+
+    These are page-local facts, never search-result text. Related cards and
+    navigation have already been removed by ``_visible`` before this runs.
+    """
+    facts = []
+    for line in (_plain(line) for line in text.splitlines()):
+        if line and _LISTING_FACT.search(line) and len(line) <= 500:
+            if line not in facts:
+                facts.append(line)
+        if len(facts) >= 8:
+            break
+    return facts
+
 
 def _document_passages(html, url, identity, private):
     parser = _Document()
@@ -288,6 +313,7 @@ def _document_passages(html, url, identity, private):
     # Cross-posted listings with the same printed serial count as one unit.
     serials = set(re.findall(r'\b(?:serial(?:\s+(?:number|no\.?))?|s/n|n[uú]mero de serie)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9-]{3,63})', text, re.I))
     unit_hash = hashlib.sha256('|'.join(sorted(identifier_key(s) for s in serials)).encode()).hexdigest() if len(serials) == 1 else ''
+    listing_facts = _listing_fact_snippets(text)
     passages, seen = [], set()
     for money in _MONEY.finditer(text):
         start, end = max(0, money.start() - 500), min(len(text), money.end() + 600)
@@ -296,7 +322,8 @@ def _document_passages(html, url, identity, private):
             continue
         seen.add(fragment)
         passages.append({'url': url, 'title': title, 'heading': heading, 'text': fragment,
-                         '_unit_hash': unit_hash, '_origin': 'direct_html'})
+                         '_unit_hash': unit_hash, '_origin': 'direct_html',
+                         '_listing_facts': listing_facts})
         if len(passages) == 4:
             break
     return passages
@@ -440,6 +467,8 @@ def _normalize(parsed, passages, identity):
             continue
         passage = passages[item.passage_index]
         evidence = _plain(item.evidence)
+        facts = [_plain(fact) for fact in passage.get('_listing_facts', []) if _plain(fact)]
+        fact_text = ' '.join(facts)
         if (passage.get('_origin') != 'direct_html' or not evidence or len(evidence) > 1000
                 or evidence not in _plain(passage['text'])):
             reject('not_literal_document', candidate_index, passage)
@@ -461,8 +490,10 @@ def _normalize(parsed, passages, identity):
         # The label immediately precedes the actual amount. A page-level SOLD
         # badge cannot turn its old asking price or current bid into a sale.
         prefix = evidence[:evidence.index(item.price_literal)]
-        sold = bool(re.search(r'(?:sold for|winning bid|hammer price|precio final de venta|vendid[oa] por)\s*[:=-]?\s*$', prefix, re.I))
-        asking = bool(re.search(r'(?:asking price|listing price|sale price|precio de venta|precio publicado)\s*[:=-]?\s*$', prefix, re.I))
+        sold = bool(re.search(r'(?:sold for|winning bid|hammer price|precio final de venta|vendid[oa] por)\s*[:=-]?\s*$', prefix, re.I)
+                    or re.search(r'(?:sold for|winning bid|hammer price|precio final de venta|vendid[oa] por)\s*[:=-]?', fact_text, re.I))
+        asking = bool(re.search(r'(?:asking price|listing price|sale price|precio de venta|precio publicado)\s*[:=-]?\s*$', prefix, re.I)
+                      or re.search(r'(?:asking price|listing price|sale price|precio de venta|precio publicado)\s*[:=-]?', fact_text, re.I))
         heading = passage['heading']
         sale_heading = (re.search(r'\b(?:for sale|en venta)\b', heading, re.I)
                         and _contains_brand(heading, identity['brand'])
@@ -481,10 +512,10 @@ def _normalize(parsed, passages, identity):
         if item.price_type == 'sold' and re.search(r'winning bid', prefix, re.I) and not re.search(r'\b(?:sold|closed|vendido|cerrad[oa])\b', evidence, re.I):
             reject('auction_not_closed', candidate_index, passage)
             continue
-        if not re.search(r'\b(?:location|located in|ubicaci[oó]n|pa[ií]s|country|mercado)\s*[:=-]?\s*(?:[\w., -]{0,60}\s)?(?:' + _MARKETS[item.market] + r')\b', evidence, re.I):
+        if not re.search(r'\b(?:location|located in|ubicaci[oó]n|pa[ií]s|country|mercado)\s*[:=-]?\s*(?:[\w., -]{0,60}\s)?(?:' + _MARKETS[item.market] + r')\b', evidence + ' ' + fact_text, re.I):
             reject('market_not_literal', candidate_index, passage)
             continue
-        if not _condition_matches(evidence, item.condition, identity):
+        if not _condition_matches(evidence + ' ' + fact_text, item.condition, identity):
             reject('condition_not_literal', candidate_index, passage)
             continue
         if identity['condition'] and item.condition != identity['condition']:
@@ -593,10 +624,13 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
     try:
         response = client.responses.create(model=model, store=False, timeout=request_timeout(model, 60),
             max_output_tokens=output_limit(model, 3000), **model_options(model),
-            max_tool_calls=1, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
+            max_tool_calls=2, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
             tool_choice='required', include=['web_search_call.action.sources'], instructions=SEARCH_INSTRUCTIONS,
             input=json.dumps({'brand': identity['brand'], 'model': identity['model'], 'condition': identity['condition'],
-                'configuration': identity['configurations'], 'query': f'"{identity["brand"]}" "{identity["model"]}" for sale auction sold price USD MXN EUR'}, ensure_ascii=False))
+                'configuration': identity['configurations'],
+                'query': f'"{identity["brand"]}" "{identity["model"]}" '
+                          f'{"used" if identity["condition"] == "used" else "new" if identity["condition"] == "new" else "refurbished" if identity["condition"] == "refurbished" else "for repair" if identity["condition"] == "for_repair" else "used new"} '
+                          'for sale auction sold price USD MXN EUR'}, ensure_ascii=False))
         received = True
         search_diagnostics = {}
         sources, calls = response_sources(response, search_diagnostics)
@@ -649,7 +683,8 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         for passage in passages:
             proposed = bounded + [passage]
             encoded = json.dumps({'identity': identity, 'passages': [
-                {'passage_index': index, **{k: p[k] for k in ('url', 'title', 'heading', 'text')}}
+                {'passage_index': index, **{k: p[k] for k in ('url', 'title', 'heading', 'text')},
+                 'listing_facts': p.get('_listing_facts', [])}
                 for index, p in enumerate(proposed)]}, ensure_ascii=False)
             if len(encoded.encode('utf-8')) + len(PARSE_INSTRUCTIONS.encode('utf-8')) <= MAX_PARSE_INPUT_BYTES:
                 bounded, payload = proposed, encoded
