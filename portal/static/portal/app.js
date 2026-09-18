@@ -524,21 +524,6 @@
     } catch (error) { analysisOutcome = 'failed'; renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
     finally { preparing = false; prepareLabel(); }
   });
-  function safeSourceUrl(value) {
-    if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) return null;
-    try {
-      const url = new URL(value);
-      if (!['https:','http:'].includes(url.protocol) || !url.hostname || url.username || url.password) return null;
-      return url.href;
-    } catch { return null; }
-  }
-  function researchSource(source) {
-    const href = safeSourceUrl(source?.url || source?.source_url);
-    if (!href) return null;
-    const link = el('a','text-link small',source.title || source.source_title || new URL(href).hostname);
-    link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
-    return link;
-  }
   function researchHypothesesOf(research) {
     return Array.isArray(research?.hypotheses) ? research.hypotheses.filter(item => item && typeof item === 'object') : [];
   }
@@ -567,19 +552,15 @@
           ? `Periodo documentado: desde ${from}. No indica la edad de esta unidad.`
           : to !== undefined && to !== null && to !== ''
             ? `Periodo documentado: hasta ${to}. No indica la edad de esta unidad.` : '';
-      const support = Number(hypothesis.support_count);
       const details = [];
       if (evidence) details.push(evidence);
       if (periodText) details.push(periodText);
-      if (Number.isFinite(support) && support >= 0) details.push(`Fuentes que lo respaldan: ${Math.floor(support)}.`);
       if (details.length) item.append(el('p','',details.join('\n')));
-      const source = researchSource(hypothesis);
-      if (source) item.append(source);
       items.push(item);
     }
     if (!items.length) return;
     const list = el('ul','research-hypothesis-list'); items.forEach(item => list.append(item));
-    target.append(el('h3','', 'Modelos de referencia encontrados · por identificar'),el('p','', 'Son modelos documentados en las fuentes consultadas; no confirman la unidad fotografiada ni su configuración. El periodo de producción indicado tampoco determina la edad de esta unidad.'),list);
+    target.append(el('h3','', 'Modelos de referencia encontrados · por identificar'),el('p','', 'Estos modelos no confirman la unidad fotografiada ni su configuración. El periodo de producción indicado tampoco determina la edad de esta unidad.'),list);
     target.hidden = false;
   }
   function renderResearch(research,target) {
@@ -607,16 +588,9 @@
       if (!field || typeof field !== 'object' || missing(field.value)) continue;
       const row = el('div'), value = typeof field.value === 'object' ? JSON.stringify(field.value) : String(field.value), definition = el('dd');
       definition.append(el('strong','',value),el('span','research-scope',scopeLabels[field.scope] || 'Referencia por revisar'));
-      const source = researchSource(field); if (source) definition.append(source);
       row.append(el('dt','',keyLabels[field.key] || field.key || 'Especificación'),definition); list.append(row);
     }
     if (list.children.length) target.append(list);
-    const sources = el('ul','research-source-list'), seen = new Set();
-    for (const source of Array.isArray(research.sources) ? research.sources : []) {
-      const link = researchSource(source); if (!link || seen.has(link.href)) continue;
-      seen.add(link.href); const item = el('li'); item.append(link); sources.append(item);
-    }
-    if (sources.children.length) target.append(el('h3','','Fuentes consultadas'),sources);
   }
   function valuationIdentityOf(snapshot) {
     return JSON.stringify([snapshot.category,...['brand','model','serial'].map(key => snapshot.data?.[key])].map(value => String(value ?? '').trim()));
@@ -639,22 +613,6 @@
     else feedback.textContent = 'No hay una estimación activa. Puedes continuar sin precio o indicar el tuyo.';
     if (!missing(data.estimate_missing_info)) feedback.textContent += ` ${hasEstimate ? 'Para afinarla' : 'Para obtenerla'}: ${String(data.estimate_missing_info)}`;
     target.replaceChildren();
-    if (!valuation || !Array.isArray(valuation.comparables)) return;
-    const list = el('ul','valuation-reference-list'), seen = new Set();
-    for (const comparable of valuation.comparables.slice(0,12)) {
-      if (!comparable || typeof comparable !== 'object') continue;
-      const link = researchSource(comparable); if (!link) continue;
-      const kind = comparable.price_type === 'sold' ? 'Venta reportada en la fuente' : comparable.price_type === 'asking' ? 'Precio anunciado · no es una venta confirmada' : 'Tipo de precio no indicado';
-      const signature = JSON.stringify([link.href,comparable.price,comparable.currency,comparable.price_type]);
-      if (seen.has(signature)) continue; seen.add(signature);
-      const item = el('li'), number = Number(comparable.price);
-      item.append(link,el('p','valuation-reference-kind',kind));
-      if (!missing(comparable.price) && Number.isFinite(number) && number >= 0 && ['MXN','USD','EUR'].includes(comparable.currency)) item.append(el('p','',`${new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(number)} ${comparable.currency}`));
-      if (typeof comparable.market === 'string' && comparable.market) item.append(el('p','small muted',comparable.market));
-      if (typeof comparable.evidence === 'string' && comparable.evidence) item.append(el('p','small muted',comparable.evidence.slice(0,1200)));
-      list.append(item);
-    }
-    if (list.children.length) target.append(el('h4','','Referencias de precio'),list);
   }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
@@ -667,7 +625,7 @@
     for (const plate of Array.isArray(result.plates) ? result.plates : []) if (plate?.asset_id && !previewImageKinds.has(String(plate.asset_id))) previewImageKinds.set(String(plate.asset_id),'plate');
     const wasOpen = target.open; target.replaceChildren(); target.hidden = false; target.open = wasOpen;
     const observations = [...new Set([...(Array.isArray(result.warnings) ? result.warnings : []),...(Array.isArray(result.questions) ? result.questions : []),...(Array.isArray(result.research?.warnings) ? result.research.warnings : [])].map(item => typeof item === 'string' ? item : JSON.stringify(item)))];
-    target.append(el('summary','',observations.length ? `Fuentes y detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Fuentes y detalles de la preparación'),el('p','small muted','La lectura de las fotos y las referencias web se conservan con su procedencia. Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
+    target.append(el('summary','',observations.length ? `Detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Detalles de la preparación'),el('p','small muted','Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
     renderResearch(result.research,target);
     if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }

@@ -1,4 +1,4 @@
-"""Internal source links stay useful without weakening public publication gates."""
+"""Source records stay internal while sheets omit citation links."""
 from copy import deepcopy
 from io import BytesIO
 
@@ -44,7 +44,7 @@ class InternalWebReferenceTests(TestCase):
         self.assertEqual(version.data, original)
         self.assertEqual(public_web_references(version.data, include_private='true'), public)
 
-    def test_internal_sheet_and_pdf_have_source_link_while_public_versions_never_do(self):
+    def test_internal_and_public_sheets_omit_source_links(self):
         version = self.cited_version()
         for public in (False, True):
             with self.subTest(public=public):
@@ -55,15 +55,15 @@ class InternalWebReferenceTests(TestCase):
                 pdf_text = '\n'.join(page.extract_text() for page in document.pages)
                 links = [str(item.get_object().get('/A', {}).get('/URI', ''))
                          for page in document.pages for item in page.get('/Annots', [])]
+                self.assertNotIn(self.private_url, html)
+                self.assertNotIn(self.private_url, links)
+                self.assertNotIn('sheet-sources', html)
+                self.assertNotIn('Fuentes de referencia', pdf_text)
+                self.assertIn('70 kW', html)
+                self.assertIn('70 kW', pdf_text)
                 if public:
                     self.assertNotIn('CAT-SN1234', html)
                     self.assertNotIn('CAT-SN1234', pdf_text)
-                    self.assertNotIn(self.private_url, links)
-                else:
-                    self.assertIn(self.private_url, html)
-                    self.assertIn(self.private_url, links)
-                    self.assertIn('Caterpillar 420F2 CAT-SN1234', html)
-                    self.assertNotIn('420F2&lt;br&gt;', html)
 
     def test_internal_option_still_requires_signature_identity_and_safe_url(self):
         version = self.cited_version()

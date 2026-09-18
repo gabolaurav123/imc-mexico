@@ -14,9 +14,10 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (CondPageBreak, Flowable, KeepTogether, LongTable, Paragraph,
+from reportlab.platypus import (CondPageBreak, Flowable, LongTable, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
-from .services import PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text, public_web_references, web_research_for_provenance
+from .services import (PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
+                       public_web_references, web_research_for_provenance)
 from .services import public_valuation, valuations_for_provenance
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, ESTIMATE_LABEL, AGE_LABELS, AGE_LABEL
 
@@ -106,10 +107,10 @@ def build_pdf(machine, data, assets, public=False, version=None):
     reference_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                    "web_research": web_research_for_provenance(provenance)}
     web_references = public_web_references(reference_snapshot, include_private=not public)
+    reference_by_field = {item["field"]: item for item in web_references}
     valuation_snapshot = snapshot if version else {"data": values, "provenance": provenance,
                                                   "valuations": valuations_for_provenance(provenance)}
     valuation = public_valuation(valuation_snapshot)
-    reference_by_field = {item["field"]: item for item in web_references}
     plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
                                         else getattr(machine, "_detected_plate_asset_ids", set()))}
 
@@ -266,7 +267,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
             identity = [para("EL EQUIPO", "Eyebrow")]
             for key in summary_keys:
                 identity.extend([para(LABELS[key].upper(), "Label"), para(values[key], "Value")])
-                if key in reference_by_field or isinstance(provenance.get(key), dict) and provenance[key].get("source"):
+                if isinstance(provenance.get(key), dict) and provenance[key].get("source"):
                     identity.append(para(origin(key), "Small"))
                 identity.append(Spacer(1, 1 * mm))
             hero = Table([[PhotoPanel(primary[1], 117 * mm, 58 * mm if primary_is_plate else 60 * mm,
@@ -348,13 +349,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
             if values.get(key):
                 items.append(para(f"{ESTIMATE_LABELS[key]}: {values[key]}"))
         if valuation.get("edited"):
-            items.append(para("Estimación modificada en la ficha. Las fuentes conservan los precios originales consultados.", "Small"))
-        for item in valuation.get("comparables", []):
-            kind = "Precio de anuncio" if item.get("price_type") == "asking" else "Venta registrada" if item.get("price_type") == "sold" else "Referencia de precio"
-            items.append(para(f"{kind}: {item.get('price', '')} {item.get('currency', '')} · {item.get('market', '')}", "Small"))
-            url = escape(item["url"], {'"': "&quot;", "'": "&#39;"})
-            title = escape(item.get("title") or "Consultar comparable")
-            items.append(Paragraph(f'<link href="{url}" color="#0074A5">{title}</link>', styles["Small"]))
+            items.append(para("Estimación modificada en la ficha.", "Small"))
         section("Referencia de valor y precio", items)
     custom_keys = [f.get("key") if isinstance(f, dict) else f for f in category_fields]
     custom_keys = list(dict.fromkeys(key for key in custom_keys if key and key not in LABELS
@@ -395,22 +390,6 @@ def build_pdf(machine, data, assets, public=False, version=None):
         label = "Contacto autorizado" if snapshot.get("contact_authorized") else "Contacto indicado · uso interno"
         section(label, [panel([[para(contact)]], [width])])
 
-    if web_references:
-        reference_items = [para("Las referencias del modelo no confirman la configuración de esta unidad.", "Small")]
-        for index, reference in enumerate(web_references, 1):
-            label = para(f"{index:02d}  {reference['label']} · {reference['scope_label']}. {reference['review_label']}.", "Small")
-            for source_index, source in enumerate(reference.get("sources") or [reference]):
-                source_items = [label] if source_index == 0 else []
-                if source.get("period"):
-                    source_items.append(para(f"Periodo documentado en esta fuente: {source['period']}", "Small"))
-                if source["source_url"]:
-                    url = escape(source["source_url"], {'"': "&quot;", "'": "&#39;"})
-                    link_title = escape(source["source_title"] or "Consultar fuente")
-                    link = Paragraph(f'<link href="{url}" color="#0074A5">{link_title}</link>', styles["Small"])
-                else:
-                    link = para("Fuente privada; el enlace se conserva en la revisión interna.", "Small")
-                reference_items.append(KeepTogether([*source_items, link, Spacer(1, 1.5 * mm)]))
-        section("Fuentes de referencia", reference_items)
     if not public:
         gallery(plate_pictures, "Documentación de placa / uso interno", plates=True)
         if values.get("plate_transcription"):

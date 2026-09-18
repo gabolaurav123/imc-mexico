@@ -127,15 +127,20 @@ class CommercialSheetTests(TestCase):
                 html, document, text = self.render(fixture, public=public)
                 for key in (*VISUAL_LABELS, *ESTIMATE_LABELS):
                     self.assertIn(fixture["data"][key], html)
-                    self.assertIn(fixture["data"][key], " ".join(text.split()))
-                for output in (html, " ".join(text.split())):
-                    self.assertIn(ESTIMATE_LABEL, output)
-                    self.assertIn("Precio de anuncio", output)
-                    self.assertIn("Venta registrada", output)
-                    self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", output)
-                    self.assertNotIn("APLICACION-BORRADOR-PRIVADO", output)
-                    self.assertNotIn("99999999", output)
-                self.assertEqual(pdf_links(document), ["https://catalog.example/qa/1", "https://catalog.example/qa/2"])
+                    expected = str(fixture["data"][key]).rstrip(".")
+                    self.assertIn(expected, " ".join(text.split()))
+                self.assertIn(ESTIMATE_LABEL, html)
+                self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", html)
+                self.assertNotIn("APLICACION-BORRADOR-PRIVADO", html)
+                self.assertNotIn("99999999", html)
+                pdf_text = " ".join(text.split())
+                self.assertIn(ESTIMATE_LABEL, pdf_text)
+                self.assertNotIn("Precio de anuncio", pdf_text)
+                self.assertNotIn("Venta registrada", pdf_text)
+                self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", pdf_text)
+                self.assertNotIn("APLICACION-BORRADOR-PRIVADO", pdf_text)
+                self.assertNotIn("99999999", pdf_text)
+                self.assertEqual(pdf_links(document), [])
 
     def test_public_snapshot_filters_serial_from_new_fields_and_comparable_titles_and_urls(self):
         fixture = commercial_snapshot()
@@ -170,7 +175,7 @@ class CommercialSheetTests(TestCase):
         self.assertNotIn('<img src=x', html)
         self.assertNotIn('<script>alert(1)</script>', html)
         self.assertIn('<img src=x onerror=alert(1)> PRUEBA', text)
-        self.assertEqual(pdf_links(document), ["https://catalog.example/qa/1", "https://catalog.example/qa/2"])
+        self.assertEqual(pdf_links(document), [])
         self.assertNotIn("URL INSEGURA", html)
         for mismatch in ("signature", "identity"):
             with self.subTest(mismatch=mismatch):
@@ -191,7 +196,7 @@ class CommercialSheetTests(TestCase):
             self.assertIn("FIN-" + key, html)
             self.assertIn("FIN-" + key, text)
         self.assertIn("BASE-FIN", text)
-        self.assertEqual(len(pdf_links(document)), 12)
+        self.assertEqual(pdf_links(document), [])
         for page in document.pages:
             for annotation in page.get("/Annots", []):
                 link = annotation.get_object()
@@ -237,7 +242,7 @@ class CommercialSheetTests(TestCase):
                     self.assertIn("2004–2009", output)
                     self.assertIn("2007", output)
                     self.assertIn("Rango orientativo; no sustituye el año exacto de fabricación.", output)
-                    self.assertIn(fixture["data"]["estimated_year_basis"], output)
+                    self.assertIn(fixture["data"]["estimated_year_basis"].rstrip("."), output)
                     self.assertNotIn("BORRADOR-ACTUAL-NO-AUTORIZADO", output)
                 self.assertIn('id="sheet-age"', html)
                 technical = html.split('id="sheet-technical"', 1)[1].split('</section>', 1)[0]
@@ -294,16 +299,11 @@ class CommercialSheetTests(TestCase):
                 self.assertEqual([source["period"] for source in refs[0]["sources"]], ["1996–2002", "2003–2007"])
                 html, document, text = self.render(fixture, public=public)
                 for output in (html, " ".join(text.split())):
-                    for expected in ("1996–2007", "1996–2002", "2003–2007", "el rango reúne estas fuentes", "no confirma el año de esta unidad"):
+                    for expected in ("1996–2007", "no sustituye el año exacto de fabricación"):
                         self.assertIn(expected, output)
-                self.assertEqual(pdf_links(document), [s["url"] for s in sources])
+                self.assertEqual(pdf_links(document), [])
                 for source in sources:
-                    self.assertIn(source["url"], html)
-                for page in document.pages:
-                    for annotation in page.get("/Annots", []):
-                        link = annotation.get_object()
-                        if link.get("/A", {}).get("/URI"):
-                            self.assertGreaterEqual(float(link["/Rect"][1]), 59)
+                    self.assertNotIn(source["url"], html)
         self.assertEqual(fixture, original)
 
     def test_grouped_period_sources_require_signed_records_current_identity_and_active_bounds(self):
@@ -345,7 +345,7 @@ class CommercialSheetTests(TestCase):
         public_html, document, text = self.render(fixture, public=True)
         for output in (public_html, text, " ".join(pdf_links(document))):
             self.assertNotIn("1005586", output)
-        self.assertEqual(pdf_links(document), [sources[0]["url"]])
+        self.assertEqual(pdf_links(document), [])
         internal_html, document, _ = self.render(fixture)
-        self.assertIn(sources[1]["url"], internal_html)
-        self.assertEqual(pdf_links(document), [s["url"] for s in sources])
+        self.assertNotIn(sources[1]["url"], internal_html)
+        self.assertEqual(pdf_links(document), [])

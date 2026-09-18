@@ -174,7 +174,7 @@ class WebAutofillTests(TestCase):
         submission=submit_machine(self.machine,self.owner,True)
         self.assertEqual(submission.version.data['data']['description'],'')
 
-    def test_public_web_pdf_zip_keep_safe_citations_and_private_serial_sources_hidden(self):
+    def test_sheets_omit_citations_while_export_preserves_safe_references(self):
         safe_url='https://www.cat.com/equipment/420f2.html'
         result=self.result({'power':'70 kW','weight':'8000 kg','capacity':'1.2 m3'},
             urls={'weight':'https://www.cat.com/equipment/CAT%2DSN1234','capacity':'https://www.cat.com/search?serial=OTHER-SERIAL'},
@@ -197,15 +197,15 @@ class WebAutofillTests(TestCase):
         self.assertNotIn('OTHER-SERIAL',encoded)
         self.assertNotIn('proof',encoded)
         response=self.client.get(f'/ficha/{publication.token}/')
-        self.assertContains(response,safe_url)
-        self.assertContains(response,'Referencia del modelo')
+        self.assertNotContains(response,safe_url)
+        self.assertContains(response,'70 kW')
         self.assertNotContains(response,'CAT-SN1234')
         pdf=build_pdf(self.machine,version.data['data'],[self.asset],True,version)
         reader=PdfReader(BytesIO(pdf));text='\n'.join(page.extract_text() for page in reader.pages)
         self.assertIn('Referencia del modelo',text)
         self.assertNotIn('CAT-SN1234',text)
         links=[str(annotation.get_object().get('/A',{}).get('/URI','')) for page in reader.pages for annotation in page.get('/Annots',[])]
-        self.assertIn(safe_url,links)
+        self.assertNotIn(safe_url,links)
         self.assertNotIn('CAT', ''.join(link for link in links if link!=safe_url))
         self.client.force_login(self.admin)
         response=self.client.post(f'/operaciones/maquinarias/{self.machine.pk}/exportar/')

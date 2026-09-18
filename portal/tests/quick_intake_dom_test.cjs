@@ -98,15 +98,15 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
  let researched;
  researched=setup(async()=>{await pause(1);const job=completed(researched.state,{description:'Descripción preparada con datos disponibles.'});job.result.research=sourceMeta;return response(200,job);},{job:{id:'job',status:'completed'}});
  await pause(40);const details=researched.doc.querySelector('#analysis-results');assert.equal(details.open,false);assert.equal(details.hidden,false);assert.match(researched.doc.querySelector('#research-brief').textContent,/referencias del modelo/);assert.match(details.textContent,/Referencia del modelo; confirmar en este equipo/);assert.match(details.textContent,/Referencia de la unidad; pendiente de revisión/);
- assert.equal(details.querySelectorAll('img,script,iframe').length,0);assert.equal(details.querySelectorAll('a').length,2);for(const link of details.querySelectorAll('a')){assert.equal(link.href,'https://manufacturer.example/specification.pdf');assert.equal(link.rel,'noopener noreferrer');assert.equal(link.target,'_blank');}
- assert.match(details.textContent,/<script>alert\(1\)<\/script>/);assert.doesNotMatch(details.textContent,/999999|not displayed/);assert.equal(researched.doc.querySelector('#preview-description').textContent,'Descripción preparada con datos disponibles.');researched.close();pass('web sources render safely as text, block unsafe URLs, deduplicate and distinguish model from unit');
+ assert.equal(details.querySelectorAll('img,script,iframe').length,0);assert.equal(details.querySelectorAll('a').length,0);assert.doesNotMatch(details.textContent,/Fuentes consultadas|Manual del fabricante|Ficha técnica/);
+ assert.match(details.textContent,/<script>alert\(1\)<\/script>/);assert.doesNotMatch(details.textContent,/999999|not displayed/);assert.equal(researched.doc.querySelector('#preview-description').textContent,'Descripción preparada con datos disponibles.');researched.close();pass('research details retain values and review scope without rendering sources or links');
 
  let hypothesisLead;
  hypothesisLead=setup(async()=>{await pause(1);const job=completed(hypothesisLead.state,{});job.result.research={status:'completed',match:'none',fields:[],sources:[],warnings:[],hypotheses:[
    {model:'MODELO <img src=x onerror=alert(1)>',source_url:'javascript:alert(1)',source_title:'<script>unsafe</script>',evidence:'Evidencia <svg onload=alert(1)>',support_count:2,production_period:{from:2008,to:2014}},
    {model:'Modelo documentado seguro',source_url:'https://catalog.example/modelo',source_title:'Catálogo seguro',evidence:'Ficha de referencia',support_count:1}
  ]};return response(200,job);},{job:{id:'job',status:'completed'},data:{model:''}});
- await pause(40);const hypotheses=hypothesisLead.doc.querySelector('#preview-research-hypotheses');assert.equal(hypotheses.hidden,false);assert.match(hypotheses.textContent,/Modelos de referencia encontrados · por identificar/);assert.match(hypotheses.textContent,/no confirman la unidad fotografiada/);assert.match(hypotheses.textContent,/No indica la edad de esta unidad/);assert.ok(hypotheses.textContent.includes('Evidencia <svg onload=alert(1)>'));assert.equal(hypotheses.querySelectorAll('img,script,iframe,svg').length,0);assert.equal(hypotheses.querySelectorAll('a').length,1);assert.equal(hypotheses.querySelector('a').href,'https://catalog.example/modelo');assert.equal(hypothesisLead.doc.querySelector('#model').value,'');assert.equal(hypothesisLead.doc.querySelector('#price').value,'');
+ await pause(40);const hypotheses=hypothesisLead.doc.querySelector('#preview-research-hypotheses');assert.equal(hypotheses.hidden,false);assert.match(hypotheses.textContent,/Modelos de referencia encontrados · por identificar/);assert.match(hypotheses.textContent,/no confirman la unidad fotografiada/);assert.match(hypotheses.textContent,/No indica la edad de esta unidad/);assert.ok(hypotheses.textContent.includes('Evidencia <svg onload=alert(1)>'));assert.equal(hypotheses.querySelectorAll('img,script,iframe,svg').length,0);assert.equal(hypotheses.querySelectorAll('a').length,0);assert.doesNotMatch(hypotheses.textContent,/Fuentes que lo respaldan|Catálogo seguro/);assert.equal(hypothesisLead.doc.querySelector('#model').value,'');assert.equal(hypothesisLead.doc.querySelector('#price').value,'');
  input(hypothesisLead,'model','MODELO ACTUAL');assert.equal(hypothesisLead.doc.querySelector('#preview-research-hypotheses').hidden,true);assert.equal(hypothesisLead.doc.querySelector('#preview-research-hypotheses').textContent,'');hypothesisLead.close();pass('model hypotheses render as safe non-authoritative leads and clear when a human model is entered');
 
  for(const status of ['no_results','insufficient_identifiers','degraded']){
@@ -131,7 +131,7 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
 
  let categoryContext;
  categoryContext=setup(async()=>{await pause(1);const job=completed(categoryContext.state,{description:'Se observa maquinaria en la fotografía.'});job.result.research={status:'general_context',basis:'category',match:'category',fields:[],context:{category:'Excavadora',label:'Referencias generales; no identifican esta unidad'},sources:[{url:'https://manufacturer.example/equipment/excavators',title:'Información general de excavadoras'}],warnings:[]};return response(200,job);},{job:{id:'job',status:'completed'}});
- await pause(40);assert.match(categoryContext.doc.querySelector('#research-brief').textContent,/Referencias generales.*no identifican esta unidad/);assert.match(categoryContext.doc.querySelector('#analysis-results').textContent,/Tipo consultado: Excavadora/);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-field-list').length,0);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-source-list a').length,1);assert.equal(categoryContext.doc.querySelector('#submit-machine').disabled,false);categoryContext.close();pass('category research is labeled general context with sources, never unit specifications');
+ await pause(40);assert.match(categoryContext.doc.querySelector('#research-brief').textContent,/Referencias generales.*no identifican esta unidad/);assert.match(categoryContext.doc.querySelector('#analysis-results').textContent,/Tipo consultado: Excavadora/);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-field-list').length,0);assert.equal(categoryContext.doc.querySelectorAll('#analysis-results .research-source-list a').length,0);assert.equal(categoryContext.doc.querySelector('#submit-machine').disabled,false);categoryContext.close();pass('category research retains general context without sources or unit specifications');
 
 
  let pdfSaves=[],pdfRelease;const pdfDownloads=[];
@@ -383,13 +383,13 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.match(editableProposal.doc.querySelector('#preview-condition-specs').textContent,/Desgaste visible|Horquillas/);
  assert.equal(editableProposal.doc.querySelector('#preview-condition-specs img'),null);
  const refs=editableProposal.doc.querySelector('#valuation-comparables');
- assert.equal(refs.querySelectorAll('a').length,3);assert.equal(refs.querySelector('img,script'),null);
- assert.match(refs.textContent,/Precio anunciado · no es una venta confirmada/);assert.match(refs.textContent,/Venta reportada en la fuente/);assert.match(refs.textContent,/Tipo de precio no indicado/);
+ assert.equal(refs.children.length,0);assert.equal(refs.querySelector('img,script'),null);
+ assert.equal(refs.textContent,'');
  assert.doesNotMatch(editableProposal.doc.querySelector('#auto-valuation-section').textContent,/PRIVATE-PROOF-NOT-FOR-UI/);
  for(const a of refs.querySelectorAll('a')){assert.equal(a.target,'_blank');assert.equal(a.rel,'noopener noreferrer');}
  assert.equal(editableProposal.doc.querySelector('#price').value,'1200.50','valuation suggested_price never replaces saved asking price');
  input(editableProposal,'model','Otra identificación');assert.equal(refs.children.length,0);assert.match(editableProposal.doc.querySelector('#valuation-status').textContent,/identificación cambió/);
- editableProposal.close();pass('visual and price proposals are directly editable, source prices distinguish asking versus sold, and unsafe or stale identity links stay hidden');
+ editableProposal.close();pass('visual and price proposals stay editable while comparable sources stay out of the sheet');
 
  let evolving,releaseInitial,server,evolvingSaves=[];
  evolving=setup(async(url,o)=>{
