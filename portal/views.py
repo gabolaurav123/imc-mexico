@@ -55,6 +55,14 @@ def home(request):
     content=SiteContent.objects.filter(key='home-hero',active=True).first()
     return render(request,'portal/home.html',{'home_content':content})
 
+@require_GET
+def publish_start(request):
+    # A stable service entry point for the original IMC website. GET never
+    # creates a draft, sends email or starts a paid analysis.
+    if request.user.is_authenticated:
+        return redirect('machine_create')
+    return redirect('/registro/?' + urlencode({'next': '/panel/maquinarias/nueva/'}))
+
 PAGES={
  'como-funciona':('Tus fotos son el punto de partida','De tus fotos a una ficha, en dos pasos.', [('01 · Sube tus fotos','Agrega fotos o una captura. Puedes escribir la serie sin una foto de la placa, pero es opcional: también puedes continuar sólo con fotos. Pulsa Preparar mi ficha para buscar referencias y redactar la descripción con lo disponible. Sin identificadores fiables, las referencias por tipo de equipo son contexto general; no identifican esa unidad ni confirman sus especificaciones.'),('02 · Envía tu ficha','La ficha se completa con los datos disponibles. Puedes enviarla sin llenar más campos; ubicación, precio y correcciones son opcionales. IMC México revisará tu solicitud.')]),
  'guia-de-fotos':('Una buena foto ayuda mucho','No necesitas equipo profesional: basta con tu celular y buena luz.', [('Vista general','Fotografía la máquina completa de costado. Evita personas y documentos ajenos en el encuadre.'),('Detalles que importan','Incluye accesorios, puntos de desgaste y defectos visibles, sin ocultarlos ni alterar las imágenes.'),('Placa, si la tienes','Acércate hasta que se lean los caracteres, evita reflejos y toma la imagen de frente. Indica si pertenece al motor, a la máquina o a otro componente.'),('Sin placa también puedes empezar','Puedes escribir la serie sin fotografiar la placa o continuar sólo con una fotografía útil. No inventes series, año u horas si los desconoces.'),('Video opcional','Un recorrido breve puede complementar las fotografías. El análisis de video mediante IA está desactivado.')]),

@@ -172,7 +172,7 @@ class TransactionalEmailTests(TestCase):
                 self.assertNotIn("/activar/", notice.error)
 
     def test_registration_verification_remains_valid_after_initial_login(self):
-        response = self.client.post("/registro/", {"first_name": "Registro de prueba", "email": "new@example.invalid",
+        response = self.client.post("/registro/", {"first_name": "Registro de prueba", "last_name": "Cuenta", "email": "new@example.invalid",
             "phone": "+525512345678", "contact_preference": "email", "password1": "New-test-password-481!",
             "password2": "New-test-password-481!", "terms": "on"})
         self.assertEqual(response.status_code, 302)

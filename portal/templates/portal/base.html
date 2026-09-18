@@ -12,7 +12,7 @@
 <a href="/iniciar-sesion/" class="nav-account">Acceso general</a><a href="/contacto/">Ayuda</a>
 {% else %}
 <a href="/como-funciona/">Cómo funciona</a><a href="/guia-de-fotos/">Guía de fotos</a>
-{% if user.is_authenticated %}<a href="/panel/" class="nav-account">Mi panel</a><button class="button button-red button-small" data-create>Agregar maquinaria <span aria-hidden="true">＋</span></button>{% else %}<a href="/iniciar-sesion/" class="nav-account">Iniciar sesión</a><a class="button button-red button-small" href="/registro/">Anunciar mi maquinaria <span aria-hidden="true">↗</span></a>{% endif %}
+{% if user.is_authenticated %}<a href="/panel/" class="nav-account">Mi panel</a><a class="button button-red button-small" href="/publicar/">Publicar maquinaria <span aria-hidden="true">＋</span></a>{% else %}<a href="/iniciar-sesion/" class="nav-account">Iniciar sesión</a><a class="button button-red button-small" href="/publicar/">Publicar maquinaria <span aria-hidden="true">↗</span></a>{% endif %}
 {% endif %}</nav></div></header>
 {% if user.is_authenticated %}{% include 'portal/notification_alerts.html' %}{% endif %}
 {% if messages %}<div class="wrap flash-stack" aria-live="polite">{% for message in messages %}<div class="notice {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}

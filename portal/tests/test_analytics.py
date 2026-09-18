@@ -245,7 +245,7 @@ class AnalyticsPrivacyTests(TestCase):
         self.preference(True)
         self.client.get("/registro/")
         self.assertEqual(AnalyticsEvent.objects.filter(event="register_started").count(),1)
-        response=self.client.post("/registro/",{"first_name":"Ensayo","email":"new-account@example.com","phone":"+525512345678","contact_preference":"email","password1":"A-strong-test-password-937!","password2":"A-strong-test-password-937!","terms":"on"})
+        response=self.client.post("/registro/",{"first_name":"Ensayo","last_name":"Prueba","email":"new-account@example.com","phone":"+525512345678","contact_preference":"email","password1":"A-strong-test-password-937!","password2":"A-strong-test-password-937!","terms":"on"})
         self.assertEqual(response.status_code,302)
         user=User.objects.get(email="new-account@example.com")
         self.assertTrue(Consent.objects.filter(user=user,kind="analytics",granted=True).exists())

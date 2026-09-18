@@ -153,7 +153,7 @@ class WebSecurityTests(TestCase):
         configuration=PlatformSettings.objects.create()
         self.assertFalse(configuration.legal_validated)
         self.assertContains(self.client.get("/registro/"),"Crear mi cuenta")
-        response=self.client.post("/registro/",{"first_name":"Prueba","email":"New@Example.com","phone":"+52 55 1234 5678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on","is_superuser":"on","is_staff":"on","advertiser_status":"approved","email_verified":"on"})
+        response=self.client.post("/registro/",{"first_name":"Prueba","last_name":"Cuenta","email":"New@Example.com","phone":"+52 55 1234 5678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on","is_superuser":"on","is_staff":"on","advertiser_status":"approved","email_verified":"on"})
         self.assertRedirects(response,"/panel/")
         user=User.objects.get(email="new@example.com")
         self.assertEqual(str(user.pk),self.client.session["_auth_user_id"])
@@ -175,7 +175,7 @@ class WebSecurityTests(TestCase):
 
     def test_registration_can_be_paused_without_blocking_existing_accounts(self):
         configuration=PlatformSettings.objects.create(registration_open=False)
-        payload={"first_name":"Prueba","email":"closed@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        payload={"first_name":"Prueba","last_name":"Cuenta","email":"closed@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
         for legal_value in (False,True):
             with self.subTest(legal_validated=legal_value):
                 configuration.legal_validated=legal_value;configuration.save()
@@ -191,7 +191,7 @@ class WebSecurityTests(TestCase):
         response=client.get("/registro/")
         self.assertContains(response,'name="password1"')
         self.assertContains(response,'name="terms"')
-        payload={"first_name":"Prueba","email":"unseeded@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        payload={"first_name":"Prueba","last_name":"Cuenta","email":"unseeded@example.com","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
         self.assertEqual(client.post("/registro/",payload).status_code,403)
         self.assertFalse(User.objects.filter(email=payload["email"]).exists())
         payload["csrfmiddlewaretoken"]=client.cookies["csrftoken"].value
@@ -200,7 +200,7 @@ class WebSecurityTests(TestCase):
         self.assertTrue(User.objects.filter(email=payload["email"]).exists())
 
     def test_registration_rejects_duplicate_email_and_missing_consent(self):
-        payload={"first_name":"Prueba","email":"OWNER@EXAMPLE.COM","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
+        payload={"first_name":"Prueba","last_name":"Cuenta","email":"OWNER@EXAMPLE.COM","phone":"+525512345678","contact_preference":"email","password1":"New-password-long123!","password2":"New-password-long123!","terms":"on"}
         count=User.objects.count()
         response=self.client.post("/registro/",payload)
         self.assertContains(response,"Ya existe una cuenta con este correo")

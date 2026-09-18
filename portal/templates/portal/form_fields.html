@@ -1,6 +1,7 @@
 {% if form.non_field_errors %}<div class="notice error" role="alert">{{ form.non_field_errors }}</div>{% endif %}
 {% for field in form %}
   {% if field.is_hidden %}{{ field }}{% else %}
+    {% if field.name == 'phone_prefix' %}<div class="phone-fields" role="group" aria-label="Celular con prefijo internacional">{% endif %}
     <div class="form-field {% if field.field.widget.input_type == 'checkbox' %}form-check{% endif %}{% if field.errors %} invalid{% endif %}">
       {% if field.field.widget.input_type == 'checkbox' %}
         {{ field }}<label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required"> *</span>{% endif %}</label>
@@ -11,5 +12,6 @@
       {% if field.help_text %}<div class="field-help" id="{{ field.id_for_label }}_helptext">{{ field.help_text|safe }}</div>{% endif %}
       {% if field.errors %}<div class="field-error" role="alert">{{ field.errors }}</div>{% endif %}
     </div>
+    {% if field.name == 'phone_national' %}</div>{% endif %}
   {% endif %}
 {% endfor %}

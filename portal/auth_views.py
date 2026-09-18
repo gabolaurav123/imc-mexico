@@ -25,7 +25,8 @@ from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
 def auth_render(request,form,title,submit_label,**extra):
-    return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,**extra})
+    publication_flow=(request.POST.get('next') or request.GET.get('next'))=='/panel/maquinarias/nueva/'
+    return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,'publication_flow':publication_flow,**extra})
 
 def activation_email(user,kind='activation'):
     uid=urlsafe_base64_encode(force_bytes(user.pk))
@@ -40,7 +41,9 @@ def activation_email(user,kind='activation'):
     return Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
 
 def register(request):
-    if request.user.is_authenticated:return redirect('/panel/')
+    publication_flow=(request.POST.get('next') or request.GET.get('next'))=='/panel/maquinarias/nueva/'
+    destination='/panel/maquinarias/nueva/' if publication_flow else '/panel/'
+    if request.user.is_authenticated:return redirect(destination)
     configuration=PlatformSettings.load()
     if not configuration.registration_open:
         return auth_render(request,None,'Próximamente podrás anunciar tu maquinaria','',intro='El registro de nuevos anunciantes todavía no está abierto. Puedes consultar cómo funciona el portal o comunicarte con el equipo desde Contacto.')
@@ -59,8 +62,8 @@ def register(request):
             attach_consent_to_account(request,user)
             record_event(request,'register_completed',page='register')
             messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')
-            return redirect('/panel/')
-    return auth_render(request,form,'Empieza con tu maquinaria','Crear mi cuenta')
+            return redirect(destination)
+    return auth_render(request,form,'Crea tu cuenta para publicar maquinaria','Crear mi cuenta y continuar' if publication_flow else 'Crear mi cuenta')
 
 def sign_in(request,management_only=False):
     if request.user.is_authenticated and request.method=='GET' and (not management_only or is_management_user(request.user)):
@@ -75,7 +78,7 @@ def sign_in(request,management_only=False):
             else:
                 login(request,form.get_user())
                 audit(request.user,'account.login',request.user)
-                return redirect(login_destination(request,None if management_only else request.GET.get('next')))
+                return redirect(login_destination(request,None if management_only else (request.POST.get('next') or request.GET.get('next'))))
     if management_only:
         intro='Ingresa con el correo de tu cuenta administrativa. Después verificarás tu acceso en dos pasos.'
         if request.user.is_authenticated and not is_management_user(request.user):

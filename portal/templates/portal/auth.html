@@ -5,6 +5,8 @@
   <div class="auth-aside">
     {% if admin_access %}
       <p class="eyebrow">ADMINISTRACIÓN IMC MÉXICO</p><h1>El control <br>de tu <br><em>plataforma.</em></h1><p>Acceso para el equipo autorizado de IMC México. Gestiona solicitudes, anunciantes y consultas según los permisos de tu cuenta.</p><div class="auth-points"><span>01 <b>Entra con tu correo y contraseña</b></span><span>02 <b>Verifica tu acceso para abrir la administración</b></span></div>
+    {% elif 'registro' in request.path %}
+      <p class="eyebrow">PUBLICAR MAQUINARIA</p><h1>Crea tu cuenta.<br>Prepara tu<br><em>publicación.</em></h1><p>Necesitamos tus datos de contacto para guardar tus fichas y dar seguimiento a tu solicitud.</p><div class="auth-points"><span>01 <b>Registra tus datos de contacto</b></span><span>02 <b>Sube fotos y obtén una ficha editable</b></span><span>03 <b>Envía a revisión y recibe observaciones</b></span></div>
     {% elif 'iniciar-sesion' in request.path %}
       <p class="eyebrow">ACCESO A IMC MÉXICO</p><h1>Tu cuenta. <br>Tu espacio <br><em>de trabajo.</em></h1><p>Entra para consultar tus maquinarias o administrar la plataforma, según los permisos de tu cuenta.</p><div class="auth-points"><span>ANUNCIANTES <b>Tus fichas, solicitudes y mensajes</b></span><span>ADMINISTRACIÓN <b>Gestión de la plataforma con verificación de seguridad</b></span></div>
     {% else %}
@@ -14,14 +16,15 @@
   <div class="auth-form">
     <p class="eyebrow">{% if admin_access %}ADMINISTRACIÓN IMC MÉXICO{% elif 'iniciar-sesion' in request.path %}ACCESO A IMC MÉXICO{% else %}PORTAL DE ANUNCIANTES{% endif %}</p><h2>{{ title }}</h2>
     {% if intro %}<p>{{ intro }}</p>{% endif %}
-    {% if form %}<form method="post" novalidate>{% csrf_token %}{% include 'portal/form_fields.html' %}<button class="button button-red full-width" type="submit">{{ submit_label|default:'Continuar' }} <span aria-hidden="true">→</span></button></form>{% endif %}
+    {% if form and 'registro' in request.path %}<p class="small muted">Los campos con * son obligatorios. Selecciona o escribe el prefijo de tu país antes del número. Puedes mostrar cada contraseña con el botón del ojo.</p>{% endif %}
+    {% if form %}<form method="post" novalidate>{% csrf_token %}{% if publication_flow %}<input type="hidden" name="next" value="/panel/maquinarias/nueva/">{% endif %}{% include 'portal/form_fields.html' %}<button class="button button-red full-width" type="submit">{{ submit_label|default:'Continuar' }} <span aria-hidden="true">→</span></button></form>{% endif %}
     <div class="auth-links">
       {% if admin_access %}
         <p class="small">Al entrar, te pediremos el código de tu aplicación de autenticación antes de mostrar la gestión.</p><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Vas a anunciar maquinaria? <a href="/iniciar-sesion/">Ir al acceso general</a>.</p>
       {% elif 'registro' in request.path %}
-        <p>¿Ya tienes una cuenta? <a href="/iniciar-sesion/">Inicia sesión</a>.</p><p class="small">Tener una cuenta te permite preparar y enviar solicitudes. El permiso de anunciante y cada publicación se revisan por separado.</p>
+        <p>¿Ya tienes una cuenta? <a href="/iniciar-sesion/{% if publication_flow %}?next=/panel/maquinarias/nueva/{% endif %}">Inicia sesión</a>.</p><p class="small">Tener una cuenta te permite preparar y enviar solicitudes. El permiso de anunciante y cada publicación se revisan por separado.</p>
       {% elif 'iniciar-sesion' in request.path %}
-        <p class="small">Este acceso sirve para anunciantes y para el equipo de IMC. Las cuentas administrativas entran a gestión tras verificar su acceso.</p><a href="/administracion/" class="text-link">Acceso administrativo →</a><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Es tu primera vez? <a href="/registro/">Crear mi cuenta</a>.</p>
+        <p class="small">Este acceso sirve para anunciantes y para el equipo de IMC. Las cuentas administrativas entran a gestión tras verificar su acceso.</p><a href="/administracion/" class="text-link">Acceso administrativo →</a><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Es tu primera vez? <a href="/registro/{% if publication_flow %}?next=/panel/maquinarias/nueva/{% endif %}">Crear mi cuenta</a>.</p>
       {% else %}<a href="/iniciar-sesion/">Volver a iniciar sesión →</a>{% endif %}
     </div>
   </div>
