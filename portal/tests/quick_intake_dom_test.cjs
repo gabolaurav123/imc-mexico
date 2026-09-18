@@ -429,6 +429,10 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  for(const key of ['estimate_min','estimate_max','estimate_currency','estimate_market','estimate_basis','estimate_missing_info','price'])input(clearedEstimate,key,'');
  assert.equal(clearedEstimate.doc.querySelector('#valuation-comparables').children.length,0);assert.match(clearedEstimate.doc.querySelector('#valuation-status').textContent,/No hay una estimación activa/);clearedEstimate.close();
  pass('insufficient valuation gives concrete missing information without inventing a price or blocking submission, and clearing proposals hides their references');
+ const onlyReason=setup(async()=>{throw Error('No request expected');},{data:{estimate_basis:'Estimación orientativa',estimate_missing_info:'Falta identificar modelo'}});
+ assert.match(onlyReason.doc.querySelector('#valuation-status').textContent,/No hay una estimación activa.*Falta identificar modelo/);
+ assert.doesNotMatch(onlyReason.doc.querySelector('#valuation-status').textContent,/Estos importes/);
+ onlyReason.close();pass('a missing-data explanation alone is never displayed as an existing monetary estimate');
  let invalidatedSave,invalidatedCalls=[];
  invalidatedSave=setup(async(url,o)=>{
    assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);invalidatedCalls.push(body);

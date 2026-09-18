@@ -16,6 +16,7 @@ class ResearchSourceCatalogTests(SimpleTestCase):
             'volvo construction equipment': 'Volvo Construction Equipment',
             'JOHN-DEERE': 'John Deere', 'Deere': 'John Deere',
             'JLG Industries': 'JLG', 'Bobcat Company': 'Bobcat',
+            'develon ce': 'DEVELON',
         }
         for alias, expected in aliases.items():
             with self.subTest(alias=alias):
@@ -32,14 +33,15 @@ class ResearchSourceCatalogTests(SimpleTestCase):
         self.assertEqual(lookup_brand('Bobcat').manufacturer_domains, ('bobcat.com',))
 
     def test_catalog_is_immutable_and_contains_only_public_https_starting_points(self):
-        self.assertEqual(len(MANUFACTURERS), 6)
+        self.assertEqual(len(MANUFACTURERS), 7)
         self.assertEqual(len(TECHNICAL_CATALOGS), 2)
         with self.assertRaises(FrozenInstanceError):
             MANUFACTURERS[0].brand = 'changed'
         with self.assertRaises(TypeError):
             MANUFACTURERS[0].manufacturer_domains[0] = 'changed'
         for profile in (*MANUFACTURERS, *TECHNICAL_CATALOGS):
-            self.assertEqual(profile.verified_on, VERIFIED_ON)
+            expected_date = '2026-09-18' if getattr(profile, 'brand', None) == 'DEVELON' else VERIFIED_ON
+            self.assertEqual(profile.verified_on, expected_date)
             self.assertTrue(profile.access_note)
             for url in profile.documentation_urls:
                 with self.subTest(url=url):
@@ -50,6 +52,8 @@ class ResearchSourceCatalogTests(SimpleTestCase):
                     self.assertFalse(parsed.query)
                     self.assertFalse(parsed.fragment)
                     self.assertEqual(source_kind(url), profile.source_kind)
+
+        self.assertEqual(lookup_brand('DEVELON').verified_on, '2026-09-18')
 
     def test_manufacturer_classification_is_scoped_to_the_requested_brand(self):
         self.assertEqual(source_kind('https://parts.cat.com/manual.pdf', 'CAT'), 'manufacturer')

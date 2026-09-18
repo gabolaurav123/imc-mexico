@@ -616,7 +616,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         identity = {'brand': None, 'model': None, 'condition': None, 'configurations': {}}
     missing = [name for key, name in (('brand', 'marca'), ('model', 'modelo')) if not identity[key]]
     if missing:
-        return finish(_empty(identity, 'Falta ' + ' y '.join(missing) + ' legible o confirmada para buscar comparables.', 'not_run'))
+        return finish(_empty(identity, 'Falta identificar ' + ' y '.join(missing) + '. Un acercamiento del rótulo del equipo o la placa ayudaría a buscar comparables de esta máquina.', 'not_run'))
     if allowed is not None and not allowed():
         return finish(_empty(identity, 'La autorización de estimación no está vigente.', 'not_run'))
     received = False

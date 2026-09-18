@@ -624,7 +624,7 @@
   function renderValuation(value) {
     const data = value.data, feedback = $('#valuation-status'), target = $('#valuation-comparables');
     const identityMatches = valuationIdentityOf(value) === valuationIdentity;
-    const hasEstimate = Object.keys(estimateLabels).some(key => !missing(data[key]));
+    const hasEstimate = ['estimate_min','estimate_max'].some(key => !missing(data[key]));
     const activePrice = !missing(data.price) && value.provenance.price?.source === 'valuation';
     const activeEstimate = Object.keys(estimateLabels).some(key => !missing(data[key]) && value.provenance[key]?.source === 'valuation');
     const valuation = identityMatches && (activeEstimate || activePrice) && state.valuation && typeof state.valuation === 'object' ? state.valuation : null;
@@ -633,7 +633,7 @@
     else if (status === 'insufficient') feedback.textContent = 'No se encontraron referencias de precio suficientes para una estimación fiable. Puedes continuar sin precio o indicar el tuyo.';
     else if (hasEstimate || activePrice) feedback.textContent = 'Estos importes son orientativos. Puedes modificar o borrar cada propuesta; los anuncios no acreditan precios de venta.';
     else feedback.textContent = 'No hay una estimación activa. Puedes continuar sin precio o indicar el tuyo.';
-    if (!missing(data.estimate_missing_info)) feedback.textContent += ` Para afinarla: ${String(data.estimate_missing_info)}`;
+    if (!missing(data.estimate_missing_info)) feedback.textContent += ` ${hasEstimate ? 'Para afinarla' : 'Para obtenerla'}: ${String(data.estimate_missing_info)}`;
     target.replaceChildren();
     if (!valuation || !Array.isArray(valuation.comparables)) return;
     const list = el('ul','valuation-reference-list'), seen = new Set();

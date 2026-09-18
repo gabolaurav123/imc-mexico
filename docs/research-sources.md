@@ -1,6 +1,17 @@
 # Fuentes públicas para investigación de maquinaria
 
-Verificación documental: **16 de septiembre de 2026**. El catálogo de `portal/research_sources.py` contiene **seis perfiles generales de fabricantes, un perfil de Cat Lift Trucks y catálogos técnicos por familia**. Son puntos de partida reales para búsquedas; no conexiones a registros privados, APIs contratadas ni garantía de que exista información de una máquina concreta.
+Verificación documental: **16 de septiembre de 2026**. El catálogo de `portal/research_sources.py` contiene **siete perfiles generales de fabricantes, un perfil de Cat Lift Trucks y catálogos técnicos por familia**. Son puntos de partida reales para búsquedas; no conexiones a registros privados, APIs contratadas ni garantía de que exista información de una máquina concreta.
+
+## DEVELON: selección de la fuente de maquinaria
+
+Verificación adicional: **18 de septiembre de 2026**. El [catálogo europeo de excavadoras](https://eu.develon-ce.com/en/products/crawler-excavators)
+y la [ficha norteamericana DX350LC-7](https://na.develon-ce.com/fr/construction-equipment/crawler-excavators/dx350lc-7)
+son fuentes públicas del fabricante de maquinaria. Se registra `develon-ce.com`, incluidos
+sus subdominios regionales. La web de otra empresa homónima, `develon.com`, no identifica
+al fabricante de la excavadora y queda fuera de esta búsqueda.
+
+Con marca visible y sin modelo, estas páginas orientan la búsqueda de candidatos;
+no prueban que la foto corresponda a DX350LC-7 ni autorizan copiar sus cifras.
 
 ## Fabricantes verificados
 

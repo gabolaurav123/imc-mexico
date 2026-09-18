@@ -13,7 +13,7 @@ from portal.research import (
 BRAND = "DEVELON"
 CATEGORY = "Excavadoras"
 URL_A = "https://www.develon-ce.com/en/products/dx140lcr-5"
-URL_B = "https://www.lectura-specs.com/en/model/dx140lcr-5-1234"
+URL_B = "https://na.develon-ce.com/fr/construction-equipment/crawler-excavators/dx140lcr-5"
 
 
 def visual_result():
@@ -44,6 +44,66 @@ def search_response(passages):
 
 
 class PhotoModelHypothesisTests(SimpleTestCase):
+    def test_same_source_title_can_supply_brand_when_cited_model_passage_omits_it(self):
+        client = Mock()
+        client.responses.create.return_value = search_response([
+            (URL_A, "DEVELON DX140LCR-5 crawler excavator", "DX140LCR-5 crawler excavator."),
+        ])
+        client.responses.parse.return_value = SimpleNamespace(
+            status="completed",
+            output_parsed=ResearchHypothesisCandidates(hypotheses=[
+                ResearchHypothesisCandidate(model="DX140LCR-5", matched_brand=BRAND, passage_index=0),
+            ]),
+            usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+        )
+        research, _ = research_machine(client, "gpt-5.6-luna", visual_result(),
+                                       allowed_categories=[CATEGORY])
+        self.assertEqual(research["hypotheses"][0]["model"], "DX140LCR-5")
+        self.assertTrue(is_validated_general_context({"research": research}))
+
+    def test_same_source_wrong_brand_title_does_not_supply_brand_context(self):
+        client = Mock()
+        client.responses.create.return_value = search_response([
+            (URL_A, "KOMATSU DX140LCR-5 crawler excavator", "DX140LCR-5 crawler excavator."),
+        ])
+        client.responses.parse.return_value = SimpleNamespace(
+            status="completed",
+            output_parsed=ResearchHypothesisCandidates(hypotheses=[
+                ResearchHypothesisCandidate(model="DX140LCR-5", matched_brand=BRAND, passage_index=0),
+            ]),
+            usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+        )
+        research, _ = research_machine(client, "gpt-5.6-luna", visual_result(),
+                                       allowed_categories=[CATEGORY])
+        self.assertEqual(research["hypotheses"], [])
+
+    def test_verified_develon_hosts_filter_homonym_and_luna_gets_tool_domain_filter(self):
+        client = Mock()
+        corporate = "https://www.develon.com/en/the-group/"
+        client.responses.create.return_value = search_response([
+            (corporate, "DEVELON Group", "DEVELON Group corporate information."),
+            (URL_A, "DEVELON DX140LCR-5", "DEVELON DX140LCR-5 crawler excavator."),
+        ])
+        client.responses.parse.return_value = SimpleNamespace(
+            status="completed",
+            output_parsed=ResearchHypothesisCandidates(hypotheses=[
+                # Citation indexes are rebuilt after the corporate host is
+                # filtered, so the official passage is index zero.
+                ResearchHypothesisCandidate(model="DX140LCR-5", matched_brand=BRAND, passage_index=0),
+            ]),
+            usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+        )
+        research, _ = research_machine(client, "gpt-5.6-luna", visual_result(),
+                                       allowed_categories=[CATEGORY])
+        tool = client.responses.create.call_args.kwargs["tools"][0]
+        query = json.loads(client.responses.create.call_args.kwargs["input"])["query"]
+        self.assertEqual(tool["filters"], {"allowed_domains": ["develon-ce.com"]})
+        self.assertIn("site:develon-ce.com", query)
+        self.assertIn("excavator", query)
+        self.assertEqual([source["url"] for source in research["sources"]], [URL_A])
+        self.assertEqual(research["hypotheses"][0]["model"], "DX140LCR-5")
+        self.assertNotIn("develon.com", json.dumps(research))
+
     def test_withdrawal_after_search_prevents_the_next_provider_call(self):
         client = Mock()
         client.responses.create.return_value = search_response([

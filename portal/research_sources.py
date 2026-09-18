@@ -78,6 +78,15 @@ MANUFACTURERS = (
         documentation_urls=('https://www.bobcat.com/na/en/parts-service/service/manuals',),
         access_note='Página pública de manuales; el catálogo enlaza documentación ofrecida en tienda.',
     ),
+    BrandProfile(
+        brand='DEVELON', aliases=('Develon CE',), manufacturer_domains=('develon-ce.com',),
+        documentation_urls=(
+            'https://eu.develon-ce.com/en/products/crawler-excavators',
+            'https://na.develon-ce.com/fr/construction-equipment/crawler-excavators/dx350lc-7',
+        ),
+        access_note='Sitios regionales oficiales de equipos DEVELON; las fichas de producto identifican modelos, no unidades fotografiadas.',
+        verified_on='2026-09-18',
+    ),
 )
 
 
