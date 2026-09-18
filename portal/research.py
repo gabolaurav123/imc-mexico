@@ -253,12 +253,47 @@ def _retrieved_url_identity(url):
     return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
 
 
+def web_search_diagnostics(response):
+    """Fixed state/action counts, never provider prose, queries or identifiers."""
+    statuses, actions = {}, {}
+    completed = 0
+    for item in _get(response, 'output', []) or []:
+        if _get(item, 'type') != 'web_search_call':
+            continue
+        status = _get(item, 'status')
+        status = status if isinstance(status, str) and status in {'completed', 'failed', 'incomplete', 'in_progress', 'searching'} else 'unknown'
+        action = _get(_get(item, 'action', {}), 'type')
+        action = action if isinstance(action, str) and action in {'search', 'open_page', 'find_in_page'} else 'unknown'
+        statuses[status] = statuses.get(status, 0) + 1
+        actions[action] = actions.get(action, 0) + 1
+        completed += int(status == 'completed' and action == 'search')
+    status = _get(response, 'status')
+    status = status if isinstance(status, str) and status in {'completed', 'failed', 'incomplete', 'in_progress', 'cancelled', 'queued'} else 'unknown'
+    reason = _get(_get(response, 'incomplete_details', {}) or {}, 'reason')
+    reason = reason if isinstance(reason, str) and reason in {'max_output_tokens', 'content_filter'} else ('unknown' if reason is not None else None)
+    return {'web_call_status_counts': statuses, 'web_call_action_counts': actions,
+            'reported_web_calls': sum(statuses.values()), 'completed_search_calls': completed,
+            'response_status': status, 'incomplete_reason': reason}
+
+
+def web_search_completed(response):
+    diagnostics = web_search_diagnostics(response)
+    return diagnostics['response_status'] == 'completed' and diagnostics['completed_search_calls'] >= 1
+
+
 def response_sources(response, diagnostics=None, context_titles=None):
-    """Only actual web_search_call sources authorize a URL; prose never does."""
+    """Only completed search inventories authorize URLs; count all reported calls.
+
+    Reasoning output may also contain page-open/find actions or unsuccessful
+    attempts. Those still count conservatively for usage, but cannot introduce
+    sources. Missing legacy status/action is deliberately not treated as success.
+    """
     sources, titles, retrieved_titles, calls = {}, {}, {}, 0
     for item in _get(response, "output", []) or []:
         if _get(item, "type") == "web_search_call":
             calls += 1
+            if _get(item, 'status') != 'completed' or _get(_get(item, 'action', {}), 'type') != 'search':
+                continue
             for source in _get(_get(item, "action", {}), "sources", []) or []:
                 url = safe_public_url(_get(source, "url"))
                 if url and len(sources) < 60:
@@ -293,6 +328,7 @@ def response_sources(response, diagnostics=None, context_titles=None):
     cited_count = len(selected)
     selected.extend(source for url, source in sources.items() if _retrieved_url_identity(url) not in selected_identities)
     if diagnostics is not None:
+        diagnostics.update(web_search_diagnostics(response))
         diagnostics.update(tool_source_count=len(sources),
                            cited_source_count=cited_count,
                            selected_source_count=min(len(selected), 12))
@@ -1017,13 +1053,13 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
         # Count separately as a conservative estimate, even if a future API
         # starts including that block in reported usage (never understate quota).
         if _get(response, 'usage') is None:
-            usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION) + 8000 * max(0, calls - 1))
         else:
             usage.add(_get(response, 'usage'))
             usage.estimate(8000 * calls)
         outcome["sources"] = sources
         outcome["diagnostics"] = diagnostics
-        if _get(response, "status") != "completed" or calls != 1:
+        if not web_search_completed(response):
             raise ValueError("Incomplete web search")
         search_text = str(_get(response, "output_text", "") or "")[:7000]
         passages = citation_passages(response)

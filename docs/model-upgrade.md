@@ -42,3 +42,24 @@ La validación de despliegue debe registrar el modelo del trabajo y el devuelto 
 la lectura real, la extracción de una placa, una fotografía general, los campos
 guardados, la ficha web/PDF y la conservación de ediciones. Los tests simulados
 comprueban compatibilidad y contabilidad; no demuestran calidad visual por sí solos.
+
+## Compatibilidad de los resultados de búsqueda
+
+La prueba inicial de Astra identificó correctamente la serie y los renglones
+técnicos de la placa, y la máquina de la fotografía general. También detectó que
+el proveedor devolvía más de un elemento `web_search_call` por respuesta pese al
+límite solicitado. El código anterior descartaba toda la investigación si el
+conteo era distinto de uno. Esos ensayos se conservaron como fallidos.
+
+La integración exige una respuesta completada y una búsqueda completada para
+aceptar fuentes. Los intentos fallidos y las acciones de abrir o buscar dentro
+de una página no autorizan por sí solos una URL como fuente recuperada. El límite
+solicitado continúa siendo `max_tool_calls=1`, y todos los elementos recibidos se
+contabilizan de forma conservadora. Los diagnósticos registran conteos por estado
+y acción, sin consultas ni respuestas privadas completas.
+
+Antes de continuar con otra etapa opcional, la investigación reserva espacio para
+normalizar la evidencia ya encontrada. Así evita gastar toda la reserva buscando
+y quedarse sin capacidad para trasladar los datos verificados a la ficha.
+El cálculo de la siguiente búsqueda tiene en cuenta el mayor consumo observado
+en las búsquedas previas de ese trabajo, sin aumentar su reserva ni la cuota diaria.

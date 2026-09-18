@@ -24,7 +24,8 @@ import urllib3
 
 from .research import (UsageTotals, _contains_brand, _contains_identifier,
     _conflicting_explicit_model_reason, _get, _identifier, _retrieved_url_identity,
-    human_declared_data, identifier_key, is_validated_web_field, response_sources, safe_public_url)
+    human_declared_data, identifier_key, is_validated_web_field, response_sources, safe_public_url,
+    web_search_completed)
 from .research_catalogs import _Document, _Node
 from .research_fetch import CatalogFetchError, _read_html, _resolve_public_ip
 from .ai_model import model_options, output_limit, request_timeout, token_reservation
@@ -597,15 +598,17 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             input=json.dumps({'brand': identity['brand'], 'model': identity['model'], 'condition': identity['condition'],
                 'configuration': identity['configurations'], 'query': f'"{identity["brand"]}" "{identity["model"]}" for sale auction sold price USD MXN EUR'}, ensure_ascii=False))
         received = True
-        sources, calls = response_sources(response)
+        search_diagnostics = {}
+        sources, calls = response_sources(response, search_diagnostics)
         if _get(response, 'usage') is None:
-            usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION) + 8000 * max(0, calls - 1))
         else:
             usage.add(_get(response, 'usage'))
             usage.estimate(8000 * calls)
         usage.web_search_calls += calls
-        record_phase('search', 'completed' if _get(response, 'status') == 'completed' and calls == 1 else 'incomplete')
-        if _get(response, 'status') != 'completed' or calls != 1:
+        record_phase('search', 'completed' if web_search_completed(response) else 'incomplete')
+        phases[-1].update(search_diagnostics)
+        if not web_search_completed(response):
             raise ValueError('Incomplete valuation search')
         phase = 'documents'
         deadline = time.monotonic() + 24

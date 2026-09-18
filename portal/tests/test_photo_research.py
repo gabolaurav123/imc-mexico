@@ -23,7 +23,7 @@ VISUAL = "Equipo amarillo con cabina cerrada, cargador frontal y cucharón trase
 def search_response(text="Retroexcavadoras: equipo con cargador frontal y brazo excavador."):
     full = text + f" [Fuente]({URL})"
     return SimpleNamespace(status="completed", output_text=full, usage=SimpleNamespace(input_tokens=100, output_tokens=50),
-        output=[{"type": "web_search_call", "action": {"sources": [{"url": URL}]}},
+        output=[{"type": "web_search_call", "status": "completed", "action": {"type": "search", "sources": [{"url": URL}]}},
                 {"type": "message", "content": [{"text": full, "annotations": [{"type": "url_citation", "url": URL,
                     "title": "Backhoe loaders", "start_index": len(text) + 1, "end_index": len(full)}]}]}])
 

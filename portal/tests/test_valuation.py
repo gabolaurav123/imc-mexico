@@ -60,7 +60,7 @@ def provider(urls=None, parsed=None, search_usage=True):
     client = Mock()
     client.responses.create.return_value = SimpleNamespace(status='completed', output_text='An invented asking price USD 1.',
         usage=SimpleNamespace(input_tokens=200, output_tokens=100) if search_usage else None,
-        output=[{'type': 'web_search_call', 'action': {'sources': [{'url': url, 'title': 'Caterpillar 2EC25'} for url in urls]}}])
+        output=[{'type': 'web_search_call', 'status': 'completed', 'action': {'type': 'search', 'sources': [{'url': url, 'title': 'Caterpillar 2EC25'} for url in urls]}}])
     client.responses.parse.return_value = SimpleNamespace(status='completed',
         usage=SimpleNamespace(input_tokens=700, output_tokens=200),
         output_parsed=parsed or ComparableCandidates(fields=[candidate(), candidate(1, price='USD 16,000')]))

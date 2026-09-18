@@ -60,7 +60,7 @@ def web_response(text=TEXT, sources=None, status="completed", input_tokens=120, 
     cited = text + f" [Cat]({URL})"
     return SimpleNamespace(status=status, output_text=cited,
         usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens),
-        output=[{"type": "web_search_call", "action": {"sources": sources if sources is not None else [{"url": URL}]}},
+        output=[{"type": "web_search_call", "status": "completed", "action": {"type": "search", "sources": sources if sources is not None else [{"url": URL}]}},
                 {"type": "message", "content": [{"text": cited, "annotations": [{"type": "url_citation", "url": URL,
                     "title": "Caterpillar 420F2", "start_index": len(text) + 1, "end_index": len(cited)}]}]}])
 
@@ -113,7 +113,9 @@ class ResearchValidationTests(SimpleTestCase):
         sources, calls = response_sources(response, diagnostics)
         self.assertEqual(len(sources), 12)
         self.assertEqual(sources[0]["url"], URL)
-        self.assertEqual(diagnostics, {"tool_source_count": 26, "cited_source_count": 1, "selected_source_count": 12})
+        self.assertEqual(diagnostics, {"tool_source_count": 26, "cited_source_count": 1, "selected_source_count": 12,
+            "web_call_status_counts": {"completed": 1}, "web_call_action_counts": {"search": 1},
+            "reported_web_calls": 1, "completed_search_calls": 1, "response_status": "completed", "incomplete_reason": None})
 
     def test_only_openai_tracking_tags_may_differ_and_real_cited_url_is_preserved(self):
         response = web_response(sources=[{"url": URL + "?utm_source=openai"}])

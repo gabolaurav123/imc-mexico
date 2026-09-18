@@ -32,7 +32,7 @@ def provider_response(body=BODY, title=TITLE):
     text = body + f" [Fuente]({URL})"
     return SimpleNamespace(status="completed", output_text=text,
         usage=SimpleNamespace(input_tokens=100, output_tokens=50),
-        output=[{"type": "web_search_call", "action": {"sources": [{"url": URL}]}},
+        output=[{"type": "web_search_call", "status": "completed", "action": {"type": "search", "sources": [{"url": URL}]}},
                 {"type": "message", "content": [{"text": text, "annotations": [{"type": "url_citation",
                     "url": URL, "title": title, "start_index": len(body) + 1, "end_index": len(text)}]}]}])
 

@@ -10,7 +10,7 @@ from .research import (
     SEARCH_RESERVATION, SIGNING_SALT, ResearchCandidates, UsageTotals, WEB_KEYS,
     _contains_identifier, _get, _identifier, _manifest, _retrieved_url_identity,
     _source_title_context, citation_passages, empty_research, normalize_candidates,
-    response_sources, identifier_key, normalize_direct_fields, research_reservation,
+    response_sources, identifier_key, normalize_direct_fields, research_reservation, web_search_completed,
 )
 
 
@@ -183,8 +183,10 @@ class ResearchBudgetExhausted(ValueError):
     """No request was started; preserve verified local evidence without spending."""
 
 
-def _can_allocate(model, usage, legacy_allocation):
-    return usage.input_tokens + usage.output_tokens + token_reservation(model, legacy_allocation) <= research_reservation(model)
+def _can_allocate(model, usage, legacy_allocation, *, reserve_final=False, observed_cost=0):
+    headroom = token_reservation(model, NORMALIZE_RESERVATION) if reserve_final else 0
+    allocation = max(token_reservation(model, legacy_allocation), observed_cost)
+    return usage.input_tokens + usage.output_tokens + allocation + headroom <= research_reservation(model)
 
 
 def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None, direct_fields=()):
@@ -239,12 +241,17 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     retrieved, direct_fields, document_attempts = [], [], []
     discovery = None
     interrupted = False
+    observed_search_cost = 0
     stages = ["serial", "manufacturer", "catalogs"] if identity.get("serial") else ["manufacturer", "catalogs", "manuals"]
     for stage in stages:
         if allowed is not None and not allowed():
             interrupted = True
             break
-        if not _can_allocate(model, usage, SEARCH_RESERVATION):
+        # Once evidence exists, another optional search must leave enough room
+        # to validate it. Otherwise use the retained evidence now, rather than
+        # buying further summaries that the final extractor cannot process.
+        if not _can_allocate(model, usage, SEARCH_RESERVATION, reserve_final=bool(passages),
+                             observed_cost=observed_search_cost):
             attempts.append({'stage': stage, 'status': 'budget_unavailable'})
             break
         payload, domains = _stage_request(identity, stage, result, category)
@@ -264,6 +271,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                    "domain_control": "site_query_and_source_check" if domains and "filters" not in tool else "tool_filter_and_source_check" if domains else "open_search"}
         attempts.append(attempt)
         received = False
+        before_search = usage.input_tokens + usage.output_tokens
         try:
             response = client.responses.create(
                 model=model, store=False, timeout=request_timeout(model, 65),
@@ -273,19 +281,18 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             )
             received = True
             # Account real calls even when a response is incomplete.
-            _, calls = response_sources(response)
+            inventory, calls = response_sources(response, attempt)
             usage.web_search_calls += calls
             if _get(response, 'usage') is None:
-                usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+                usage.estimate(token_reservation(model, SEARCH_RESERVATION) + 8000 * max(0, calls - 1))
             else:
                 usage.add(_get(response, 'usage'))
                 usage.estimate(8000 * calls)
-            if _get(response, "status") != "completed" or calls != 1:
+            if not web_search_completed(response):
                 raise ValueError("Incomplete web search")
             metrics, _ = _collect(response, identity, sources, passages, titles, domains)
             # Keep retrieved URLs even when the generated summary omits table
             # citations. Only registered public document readers may fetch them.
-            inventory, _ = response_sources(response)
             for source in inventory:
                 host = urlsplit(source["url"]).hostname or ""
                 if domains and not any(host == d or host.endswith("." + d) for d in domains):
@@ -304,6 +311,11 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             if getattr(exc, "status_code", None) in {401, 403, 429}:
                 break
             continue
+        finally:
+            # A larger observed response, including conservative tool charges,
+            # becomes the floor for admitting the next optional search.
+            observed_search_cost = max(observed_search_cost,
+                usage.input_tokens + usage.output_tokens - before_search)
         if stage == "serial" and (not identity.get("brand") or not identity.get("model")) and any(
                 _contains_identifier(p["text"], identity.get("serial")) for p in passages):
             if allowed is not None and not allowed():

@@ -41,7 +41,7 @@ class ResearchDescriptionTests(TestCase):
         client.responses.create.return_value = SimpleNamespace(
             status="completed", output_text=cited,
             usage=SimpleNamespace(input_tokens=120, output_tokens=80),
-            output=[{"type": "web_search_call", "action": {"sources": [{"url": URL}]}},
+            output=[{"type": "web_search_call", "status": "completed", "action": {"type": "search", "sources": [{"url": URL}]}},
                     {"type": "message", "content": [{"text": cited, "annotations": [{
                         "type": "url_citation", "url": URL, "title": "Caterpillar 420F2",
                         "start_index": len(TEXT) + 1, "end_index": len(cited),
