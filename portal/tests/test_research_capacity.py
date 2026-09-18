@@ -21,9 +21,31 @@ def normalized(body, value):
 
 
 class ResearchCapacityTests(SimpleTestCase):
+    def assert_catalogue_fields(self, result, *, capacity=None):
+        fields = {item["key"]: item for item in result["fields"]}
+        period_keys = {"estimated_year_from", "estimated_year_to", "estimated_year_basis"}
+        self.assertEqual(set(fields), period_keys | ({"capacity"} if capacity is not None else set()))
+        self.assertEqual(len(result["fields"]), len(fields))
+        self.assertEqual(fields["estimated_year_from"]["value"], "2003")
+        self.assertEqual(fields["estimated_year_to"]["value"], "2007")
+        self.assertIn("año de esta unidad por confirmar", fields["estimated_year_basis"]["value"])
+        for key in period_keys:
+            item = fields[key]
+            self.assertEqual(item["period_origin"], "lectura_catalogue_metadata_v1")
+            self.assertEqual(item["period_records"], [{"source_url": URL, "source_title": TITLE,
+                "start_year": "2003", "end_year": "2007"}])
+            self.assertEqual(item["scope"], "model")
+            meta = {name: item[name] for name in ("scope", "source_url", "source_title", "source_date", "evidence",
+                                                "period_origin", "period_records")}
+            meta.update(source="web", review="needs_review", component="machine")
+            self.assertTrue(is_validated_web_field({"research": result}, key, item["value"], meta))
+        if capacity is not None:
+            self.assertEqual(fields["capacity"]["value"], capacity)
+        return fields
+
     def test_real_receipt_displacement_is_rejected_before_signing(self):
         result = normalized("- **Cilindrada**: 5.2 litros.", "5.2 litros")
-        self.assertEqual(result["fields"], [])
+        self.assert_catalogue_fields(result)
         self.assertEqual(result["diagnostics"]["field_rejection_counts"]["capacity"],
                          {"capacity_not_machine_capacity": 1})
         merged = merge_research({"data": {}, "provenance": {}, "fields": [], "warnings": []}, result)
@@ -45,7 +67,12 @@ class ResearchCapacityTests(SimpleTestCase):
         ]
         for body, value in examples:
             with self.subTest(body=body):
-                self.assertEqual(normalized(body, value)["fields"], [])
+                result = normalized(body, value)
+                self.assert_catalogue_fields(result)
+                self.assertEqual(result["diagnostics"]["field_rejection_counts"]["capacity"],
+                                 {"capacity_not_machine_capacity": 1})
+                merged = merge_research({"data": {}, "provenance": {}, "fields": [], "warnings": []}, result)
+                self.assertNotIn("capacity", merged["data"])
 
     def test_explicit_load_bucket_hopper_and_production_capacities_remain_valid(self):
         examples = [
@@ -61,7 +88,7 @@ class ResearchCapacityTests(SimpleTestCase):
         for body, value in examples:
             with self.subTest(body=body):
                 result = normalized(body, value)
-                self.assertEqual([item["value"] for item in result["fields"]], [value])
+                self.assert_catalogue_fields(result, capacity=value)
                 merged = merge_research({"data": {}, "provenance": {}, "fields": [], "warnings": []}, result)
                 self.assertTrue(is_validated_web_field(merged, "capacity", value, merged["provenance"]["capacity"]))
 
@@ -74,15 +101,19 @@ class ResearchCapacityTests(SimpleTestCase):
 
     def test_previously_signed_displacement_is_rejected_without_changing_manifest(self):
         research = normalized("Bucket capacity: 5.2 litros.", "5.2 litros")
+        self.assert_catalogue_fields(research, capacity="5.2 litros")
         old = deepcopy(research)
-        old["fields"][0]["evidence"] = f"Título de la fuente citada: {TITLE}\nFragmento citado: - **Cilindrada**: 5.2 litros."
+        field = next(item for item in old["fields"] if item["key"] == "capacity")
+        field["evidence"] = f"Título de la fuente citada: {TITLE}\nFragmento citado: - **Cilindrada**: 5.2 litros."
         # Represents a genuine legacy manifest issued before semantic checking,
         # not a forged/tampered signature. The new guard must still reject it.
         old["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(old), compress=True)
-        field = old["fields"][0]
         meta = {key: field[key] for key in ("scope", "source_url", "source_title", "source_date", "evidence")}
         meta.update(source="web", review="needs_review", component="machine")
         self.assertFalse(is_validated_web_field({"research": old}, "capacity", "5.2 litros", meta))
         meta["review"] = "confirmed"
         self.assertFalse(is_validated_web_field({"research": old}, "capacity", "5.2 litros", meta))
-        self.assertEqual(old["fields"][0]["value"], "5.2 litros")
+        self.assertEqual(field["value"], "5.2 litros")
+        merged = merge_research({"data": {}, "provenance": {}, "fields": [], "warnings": []}, old)
+        self.assertNotIn("capacity", merged["data"])
+        self.assertEqual((merged["data"]["estimated_year_from"], merged["data"]["estimated_year_to"]), ("2003", "2007"))

@@ -609,6 +609,9 @@ def validated_model_period_fields(research):
     fields = [field for field in research.get('fields', []) if field.get('key') in MODEL_YEAR_KEYS]
     if len(fields) != 3 or {field.get('key') for field in fields} != MODEL_YEAR_KEYS:
         return {}
+    if any('period_origin' in field or 'period_records' in field for field in fields):
+        from .research_model_periods import validated_catalogue_period_fields
+        return validated_catalogue_period_fields(research)
     by_key = {field['key']: field for field in fields}
     origin = fields[0]
     if origin.get('scope') != 'model' or not safe_public_url(origin.get('source_url')):
@@ -629,6 +632,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
     result["sources"] = deepcopy(sources[:MAX_RESEARCH_SOURCES])
     by_url = {source["url"]: source for source in sources}
     accepted, accepted_direct, conflicts, model_periods = {}, {}, set(), {}
+    model_period_evidence = []
     direct_fields = list(direct_fields)
     if any(not isinstance(field, ResearchField) for field in direct_fields[:MAX_DIRECT_FIELDS]):
         raise TypeError("Direct research fields must be ResearchField objects")
@@ -811,6 +815,7 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             # Both endpoints occur in this explicit range. Never join years
             # from separate documents. Conflicting periods veto the whole trio.
             model_periods.setdefault(period, field)
+            model_period_evidence.append((period, field))
             continue
         if item.key in accepted and accepted[item.key]["scope"] != scope:
             # A configuration tied to this exact serial takes precedence over
@@ -834,7 +839,24 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
             # An identical value can retain the exact document-row evidence.
             accepted[item.key], accepted_direct[item.key] = field, True
     result["fields"] = [field for key, field in accepted.items() if key not in conflicts]
-    if len(model_periods) == 1:
+    from .research_model_periods import lectura_catalogue_period_fields
+    catalogue_fields = lectura_catalogue_period_fields(identity, result['sources'], source_titles)
+    catalogue_conflict = False
+    if catalogue_fields and model_period_evidence:
+        # Metadata may combine adjacent records from this same catalogue. It
+        # cannot override a contradictory documentary range from another page.
+        records = catalogue_fields[0]['period_records']
+        catalogue_periods = {(_retrieved_url_identity(record['source_url']),
+                             (record['start_year'], record['end_year'])) for record in records}
+        catalogue_conflict = any((_retrieved_url_identity(field['source_url']), period)
+                                 not in catalogue_periods for period, field in model_period_evidence)
+    if catalogue_fields and not catalogue_conflict:
+        result['fields'].extend(catalogue_fields)
+        diagnostics['catalogue_period_record_count'] = len(catalogue_fields[0]['period_records'])
+    elif catalogue_conflict:
+        diagnostics['rejection_counts']['conflicting_model_periods'] = len(model_periods) + 1
+        result['warnings'].append('Las fuentes discrepan sobre el periodo del modelo; el intervalo se omitió.')
+    elif len(model_periods) == 1:
         (start, end), field = next(iter(model_periods.items()))
         for key, value in (('estimated_year_from', start), ('estimated_year_to', end),
                            ('estimated_year_basis', _model_period_basis(start, end, field['source_url']))):
@@ -853,6 +875,8 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if any(f["scope"] == "model" for f in result["fields"]):
             result["warnings"].append("Las especificaciones del modelo requieren comprobación en esta unidad.")
     used_urls = {field["source_url"] for field in result["fields"]}
+    used_urls.update(record['source_url'] for field in result['fields']
+                     for record in field.get('period_records', []))
     relevant_urls = {source["url"] for source in _identity_sources(sources, identity, citations, source_titles)}
     result["sources"] = [source for source in result["sources"] if source["url"] in used_urls | relevant_urls]
     result["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(result), compress=True)
@@ -1062,6 +1086,8 @@ def merge_research(result, research, snapshot=None):
                     basis=research["basis"], match=field["scope"], matched_serial=field.get("matched_serial") or "")
         if not is_validated_web_field(result, key, field["value"], meta):
             continue
+        if field.get('period_origin') and key in MODEL_YEAR_KEYS:
+            meta.update(period_origin=field['period_origin'], period_records=deepcopy(field['period_records']))
         result["data"][key] = field["value"]
         result["provenance"][key] = meta
         result.setdefault("fields", []).append(dict(key=key, label=LABELS[key], value=field["value"], **meta))

@@ -24,6 +24,14 @@ Se incluyeron Caterpillar, Komatsu, JLG y Bobcat porque también figuran en el c
 
 Ambos conservan `source_kind='technical_catalog'`, incluso cuando una página contiene años o una URL menciona series. Sirven como referencias de modelo pendientes de comprobación; **no son autoridades de año por número de serie**.
 
+### Periodos del modelo en metadatos de LECTURA
+
+Verificación adicional: **17 de septiembre de 2026**. Los registros públicos de [Caterpillar 14H de 1996–2002](https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-13775) y [Caterpillar 14H de 2003–2007](https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-1005586), leídos mediante la herramienta de búsqueda, muestran la etiqueta `Years of manufacture` y los mismos intervalos de su título estándar `Specifications & Technical Data`. Corresponden a registros distintos del modelo y contienen configuraciones diferentes.
+
+Un adaptador específico reconoce únicamente ese formato de metadatos en rutas de modelo inglesas de `www.lectura-specs.com`, con marca y modelo exactos. Usa los títulos y URLs realmente recuperados por la herramienta; no convierte títulos reconstruidos por la IA, fechas genéricas, anuncios ni copyright en años de fabricación. No requiere descargar la página ni eludir el bloqueo HTTP 403 del lector directo.
+
+El resultado es una **referencia temporal orientativa del modelo**, nunca el año confirmado de la unidad. Si los registros del mismo modelo presentan periodos contiguos o superpuestos, puede mostrar su cobertura amplia, conservando cada intervalo y enlace en la procedencia firmada. No rellena huecos ni mezcla motores, medidas u otras especificaciones de generaciones diferentes. Los intervalos, su regla de combinación y sus fuentes se vuelven a validar antes de aplicar el trío de campos aproximados. El formulario, la ficha virtual y el PDF mantienen la indicación de que el año de esta unidad está por confirmar.
+
 ## Montacargas Cat: documentación de manutención
 
 Cuando la categoría confirmada es `Montacargas`, `lookup_brand('CAT', 'Montacargas')` dirige la investigación a **Cat Lift Trucks**, mediante [Logisnext y sus marcas](https://www.logisnextamericas.com/en/logisnext/our-brands), [servicio de Logisnext](https://www.logisnextamericas.com/en/logisnext/support/service) y [la historia de Cat Lift Trucks](https://www.catlifttruck.com/catr-lift-trucks-story-success). Las búsquedas pueden consultar documentación histórica MCFA; el perfil no asigna automáticamente fabricante, país ni configuración a una unidad. Una sede en Houston no demuestra origen estadounidense.

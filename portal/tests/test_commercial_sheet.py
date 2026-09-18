@@ -53,6 +53,30 @@ def commercial_snapshot(*, long=False, reference_count=2):
         "asset_ids": [], "public_asset_ids": [], "contact_authorized": False}
 
 
+def catalogue_period_snapshot():
+    """Offline retrieved-title fixture: two real catalogue URLs, no fetches."""
+    from portal.research import ResearchExtraction, normalize_research
+    sources = [
+        {"url": "https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-13775",
+         "title": "Caterpillar 14H Specifications & Technical Data (1996-2002) | LECTURA Specs"},
+        {"url": "https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-1005586",
+         "title": "Caterpillar 14H Specifications & Technical Data (2003-2007) | LECTURA Specs"},
+    ]
+    research = normalize_research(ResearchExtraction(fields=[]),
+        {"brand": "Caterpillar", "model": "14H", "serial": None}, "model", sources, "",
+        citations={}, source_titles={source["url"]: source["title"] for source in sources})
+    analysis_id = str(uuid4())
+    data = {"brand": "Caterpillar", "model": "14H", "serial": "SERIE-PRIVADA-QA-7788"}
+    provenance = {}
+    for item in research["fields"]:
+        data[item["key"]] = item["value"]
+        provenance[item["key"]] = {"source": "web", "review": "needs_review", "analysis_id": analysis_id,
+            **{key: item[key] for key in ("scope", "source_url", "source_title", "source_date", "evidence")}}
+    return {"title": "PRUEBA NO INVENTARIO - Periodos del modelo", "data": data,
+        "provenance": provenance, "web_research": {analysis_id: research}, "asset_ids": [],
+        "public_asset_ids": [], "category_name": "Motoniveladoras", "contact_authorized": False}, sources
+
+
 def pdf_links(document):
     return [str(annotation.get_object().get("/A", {}).get("/URI", ""))
             for page in document.pages for annotation in page.get("/Annots", [])
@@ -232,3 +256,78 @@ class CommercialSheetTests(TestCase):
         for output in (html, text):
             self.assertNotIn(fixture["data"]["serial"], output)
             self.assertIn("2000–2005", output)
+
+
+    def test_signed_catalogue_periods_show_both_sources_as_a_group_in_virtual_sheet_and_pdf(self):
+        from portal.services import public_web_references
+        fixture, sources = catalogue_period_snapshot()
+        self.assertEqual(fixture["data"].get("estimated_year_from"), "1996")
+        self.assertEqual(fixture["data"].get("estimated_year_to"), "2007")
+        self.assertNotIn("year", fixture["data"])
+        original = deepcopy(fixture)
+        for public in (False, True):
+            with self.subTest(public=public):
+                refs = public_web_references(fixture, include_private=not public)
+                self.assertEqual(len(refs), 1)
+                self.assertEqual(refs[0]["display_value"], "1996–2007")
+                self.assertEqual(refs[0]["value"], fixture["data"][refs[0]["field"]])
+                self.assertEqual(refs[0]["source_url"], "", "The combined range has no single primary citation")
+                self.assertEqual([source["source_url"] for source in refs[0]["sources"]], [s["url"] for s in sources])
+                self.assertEqual([source["period"] for source in refs[0]["sources"]], ["1996–2002", "2003–2007"])
+                html, document, text = self.render(fixture, public=public)
+                for output in (html, " ".join(text.split())):
+                    for expected in ("1996–2007", "1996–2002", "2003–2007", "el rango reúne estas fuentes", "no confirma el año de esta unidad"):
+                        self.assertIn(expected, output)
+                self.assertEqual(pdf_links(document), [s["url"] for s in sources])
+                for source in sources:
+                    self.assertIn(source["url"], html)
+                for page in document.pages:
+                    for annotation in page.get("/Annots", []):
+                        link = annotation.get_object()
+                        if link.get("/A", {}).get("/URI"):
+                            self.assertGreaterEqual(float(link["/Rect"][1]), 59)
+        self.assertEqual(fixture, original)
+
+    def test_grouped_period_sources_require_signed_records_current_identity_and_active_bounds(self):
+        from portal.services import public_web_references
+        fixture, sources = catalogue_period_snapshot()
+        self.assertEqual(len(public_web_references(fixture)), 1)
+        # Unsigned client metadata cannot replace the source list inside the manifest.
+        for meta in fixture["provenance"].values():
+            meta["period_records"] = [{"source_url": "javascript:alert(1)", "source_title": "CLIENT INJECTION"}]
+        self.assertEqual([s["source_url"] for s in public_web_references(fixture)[0]["sources"]], [s["url"] for s in sources])
+        for mutation in ("proof", "record", "identity"):
+            changed = deepcopy(fixture)
+            research = next(iter(changed["web_research"].values()))
+            if mutation == "proof": research["proof"] = "invalid"
+            elif mutation == "record": research["fields"][0]["period_records"][1]["source_url"] = "javascript:alert(1)"
+            else: changed["data"]["model"] = "OTRO MODELO"
+            with self.subTest(mutation=mutation):
+                self.assertEqual(public_web_references(changed, include_private=True), [])
+        fixture["data"]["estimated_year_from"] = "2000"
+        fixture["provenance"]["estimated_year_from"] = {"source": "user", "review": "confirmed"}
+        refs = public_web_references(fixture)
+        self.assertEqual(refs[0]["display_value"], "Hasta 2007")
+        self.assertEqual(refs[0]["field"], "estimated_year_to")
+        fixture["data"]["estimated_year_to"] = "2005"
+        fixture["provenance"]["estimated_year_to"] = {"source": "user", "review": "confirmed"}
+        self.assertEqual(public_web_references(fixture), [], "A human range must not be attributed to earlier references")
+        fixture["data"].update(estimated_year_from=None, estimated_year_to=None)
+        self.assertEqual(public_web_references(fixture), [])
+
+    def test_grouped_period_sources_filter_each_private_link_without_hiding_safe_sibling(self):
+        from portal.services import public_web_references
+        fixture, sources = catalogue_period_snapshot()
+        # This synthetic private identifier appears only in the second catalogue URL.
+        fixture["data"]["serial"] = "1005586"
+        refs = public_web_references(fixture)
+        self.assertEqual(refs[0]["sources"][0]["source_url"], sources[0]["url"])
+        self.assertEqual(refs[0]["sources"][1]["source_url"], "")
+        self.assertEqual(refs[0]["sources"][1]["source_title"], "Fuente privada")
+        public_html, document, text = self.render(fixture, public=True)
+        for output in (public_html, text, " ".join(pdf_links(document))):
+            self.assertNotIn("1005586", output)
+        self.assertEqual(pdf_links(document), [sources[0]["url"]])
+        internal_html, document, _ = self.render(fixture)
+        self.assertIn(sources[1]["url"], internal_html)
+        self.assertEqual(pdf_links(document), [s["url"] for s in sources])

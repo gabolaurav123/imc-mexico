@@ -124,6 +124,19 @@ def public_web_references(snapshot, *, include_private=False):
         return []
     serials = {_reference_text(data.get(key)) for key in ("serial", "vin") if data.get(key)} - {""}
     references = []
+    grouped_periods = set()
+
+    def citation_source(source, private_serials, scope):
+        title = re.sub(r"[\x00-\x1f\x7f]", " ", str(source.get("source_title") or "Fuente de referencia"))[:500]
+        title = " ".join(re.sub(r"<br\s*/?>", " ", title, flags=re.I).split())
+        public_url = _public_reference_url(source.get("source_url"), private_serials)
+        url = _public_reference_url(source.get("source_url"), private_serials, include_private=include_private)
+        private_source = not public_url or any(serial in _reference_text(title) for serial in private_serials) or (scope == "exact_serial" and not private_serials)
+        hidden_source = not url or (private_source and not include_private)
+        return {"source_url": "" if hidden_source else url,
+                "source_title": "Fuente privada" if hidden_source else title,
+                "private_source": private_source}
+
     for key, label in WEB_FIELD_LABELS.items():
         if key in AGE_LABELS and all(data.get(bound) in (None, "") for bound in ("estimated_year_from", "estimated_year_to")):
             continue
@@ -144,17 +157,41 @@ def public_web_references(snapshot, *, include_private=False):
         if not _reference_identity_matches(data, provenance, identity, meta["scope"]):
             continue
         private_serials = serials | {_reference_text(identity.get("serial")), _reference_text(meta.get("matched_serial"))} - {""}
-        title = re.sub(r"[\x00-\x1f\x7f]", " ", str(meta.get("source_title") or "Fuente de referencia"))[:500]
-        title = " ".join(re.sub(r"<br\s*/?>", " ", title, flags=re.I).split())
-        public_url = _public_reference_url(meta.get("source_url"), private_serials)
-        url = _public_reference_url(meta.get("source_url"), private_serials, include_private=include_private)
-        private_source = not public_url or any(serial in _reference_text(title) for serial in private_serials) or (meta["scope"] == "exact_serial" and not private_serials)
-        hidden_source = not url or (private_source and not include_private)
+        signed_field = next((item for item in manifest.get("fields", [])
+                             if item.get("key") == key and item.get("value") == value), {})
+        if key in AGE_LABELS and signed_field.get("period_origin") == "lectura_catalogue_metadata_v1":
+            analysis_id = meta.get("analysis_id")
+            if analysis_id in grouped_periods:
+                continue
+            # Read only records covered by the manifest signature. The editable
+            # provenance must never add URLs or attribute a human range to them.
+            records = signed_field.get("period_records", [])
+            bounds = {}
+            for bound in ("estimated_year_from", "estimated_year_to"):
+                bound_meta = provenance.get(bound, {})
+                if (isinstance(bound_meta, dict) and bound_meta.get("analysis_id") == analysis_id
+                        and data.get(bound) not in (None, "")
+                        and is_validated_web_field({"research": manifest}, bound, data[bound],
+                                                  {**bound_meta, "review": "needs_review"})):
+                    bounds[bound] = data[bound]
+            if not bounds or not isinstance(records, list) or not records:
+                continue
+            start, end = bounds.get("estimated_year_from"), bounds.get("estimated_year_to")
+            range_value = f"{start}–{end}" if start is not None and end is not None else f"Desde {start}" if start is not None else f"Hasta {end}"
+            sources = [{**citation_source(record, private_serials, "model"),
+                        "period": f"{record['start_year']}–{record['end_year']}"} for record in records]
+            bound_key = next(iter(bounds))
+            references.append({"field": bound_key, "label": "Año aproximado · por confirmar",
+                "value": bounds[bound_key], "display_value": range_value, "scope": "model",
+                "scope_label": "Periodos documentados del modelo; el rango reúne estas fuentes y no confirma el año de esta unidad",
+                "source_url": "", "source_title": "Referencias del periodo", "sources": sources,
+                "private_source": any(source["private_source"] for source in sources),
+                "review_label": "Pendiente de confirmación"})
+            grouped_periods.add(analysis_id)
+            continue
         references.append({"field": key, "label": label, "value": value, "scope": meta["scope"],
             "scope_label": "Referencia del modelo; confirmar en este equipo" if meta["scope"] == "model" else "Referencia de la unidad; sujeta a revisión",
-            "source_url": "" if hidden_source else url,
-            "source_title": "Fuente privada" if hidden_source else title,
-            "private_source": private_source,
+            **citation_source(meta, private_serials, meta["scope"]),
             "review_label": "Confirmado por el anunciante" if meta.get("review") == "confirmed" else "Pendiente de revisión"})
     return references
 
@@ -931,10 +968,23 @@ def _validate_payload(machine, payload, trusted_provenance=False):
             raise ValidationError({"provenance": "La procedencia contiene campos no admitidos."})
         valid_assets = {str(pk) for pk in machine.assets.values_list("id", flat=True)}
         for key, value in provenance.items():
-            if not isinstance(value, dict) or set(value) - {"source", "review", "review_reason", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id"}:
+            meta_keys = {"source", "review", "review_reason", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id"}
+            if trusted_provenance and key in AGE_LABELS:
+                meta_keys |= {"period_origin", "period_records"}
+            if not isinstance(value, dict) or set(value) - meta_keys:
                 raise ValidationError({"provenance": "La procedencia debe indicar origen y revisión."})
-            if any(item is not None and (not isinstance(item, str) or len(item) > 12000) for item in value.values()):
+            if any(item is not None and (not isinstance(item, str) or len(item) > 12000)
+                   for name, item in value.items() if name != "period_records"):
                 raise ValidationError({"provenance": "Formato de procedencia inválido."})
+            if {"period_origin", "period_records"} & value.keys():
+                records = value.get("period_records")
+                if (value.get("source") != "web" or value.get("period_origin") != "lectura_catalogue_metadata_v1"
+                        or not isinstance(records, list) or not 1 <= len(records) <= 4
+                        or any(not isinstance(record, dict)
+                               or set(record) != {"source_url", "source_title", "start_year", "end_year"}
+                               or any(not isinstance(item, str) or len(item) > 2000 for item in record.values())
+                               for record in records)):
+                    raise ValidationError({"provenance": "Los periodos deben proceder de una referencia validada."})
             if value.get("asset_id") and value["asset_id"] not in valid_assets:
                 raise ValidationError({"provenance": "El archivo de procedencia no pertenece a esta maquinaria."})
             unchanged=(previous_title==machine.title if key=="title" else previous_category==machine.category_id if key=="category" else previous_data.get(key)==machine.data.get(key))

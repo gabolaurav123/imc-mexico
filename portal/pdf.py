@@ -394,13 +394,17 @@ def build_pdf(machine, data, assets, public=False, version=None):
         reference_items = [para("Las referencias del modelo no confirman la configuración de esta unidad.", "Small")]
         for index, reference in enumerate(web_references, 1):
             label = para(f"{index:02d}  {reference['label']} · {reference['scope_label']}. {reference['review_label']}.", "Small")
-            if reference["source_url"]:
-                url = escape(reference["source_url"], {'"': "&quot;", "'": "&#39;"})
-                link_title = escape(reference["source_title"] or "Consultar fuente")
-                link = Paragraph(f'<link href="{url}" color="#0074A5">{link_title}</link>', styles["Small"])
-            else:
-                link = para("Fuente privada; el enlace se conserva en la revisión interna.", "Small")
-            reference_items.append(KeepTogether([label, link, Spacer(1, 1.5 * mm)]))
+            for source_index, source in enumerate(reference.get("sources") or [reference]):
+                source_items = [label] if source_index == 0 else []
+                if source.get("period"):
+                    source_items.append(para(f"Periodo documentado en esta fuente: {source['period']}", "Small"))
+                if source["source_url"]:
+                    url = escape(source["source_url"], {'"': "&quot;", "'": "&#39;"})
+                    link_title = escape(source["source_title"] or "Consultar fuente")
+                    link = Paragraph(f'<link href="{url}" color="#0074A5">{link_title}</link>', styles["Small"])
+                else:
+                    link = para("Fuente privada; el enlace se conserva en la revisión interna.", "Small")
+                reference_items.append(KeepTogether([*source_items, link, Spacer(1, 1.5 * mm)]))
         section("Fuentes de referencia", reference_items)
     if not public:
         gallery(plate_pictures, "Documentación de placa / uso interno", plates=True)

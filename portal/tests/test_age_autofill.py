@@ -157,3 +157,49 @@ class AgeAutofillTests(TestCase):
         self.apply(self.job(result))
         self.assertFalse(AGE_LABELS.keys() & self.machine.data.keys())
         self.assertEqual(self.machine.data['year'], 1999)
+
+    def test_catalogue_period_records_reach_editable_draft_without_unit_year(self):
+        from portal.research import ResearchExtraction, merge_research, normalize_research
+        sources = [
+            {'url': 'https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-13775',
+             'title': 'Caterpillar 14H Specifications & Technical Data (1996-2002) | LECTURA Specs'},
+            {'url': 'https://www.lectura-specs.com/en/model/construction-machinery/graders-caterpillar/14h-1005586',
+             'title': 'Caterpillar 14H Specifications & Technical Data (2003-2007) | LECTURA Specs'},
+        ]
+        self.edit(brand='CAT', model='14H')
+        research = normalize_research(ResearchExtraction(fields=[]),
+            {'brand': 'CAT', 'model': '14H', 'serial': None}, 'model', sources, '',
+            citations={}, source_titles={source['url']: source['title'] for source in sources})
+        result = {'data': {}, 'provenance': {}, 'fields': [], 'warnings': []}
+        merge_research(result, research)
+        applied = self.apply(self.job(result))
+        self.assertTrue(AGE_LABELS.keys() <= set(applied['applied_fields']))
+        self.assertEqual(self.machine.data['estimated_year_from'], '1996')
+        self.assertEqual(self.machine.data['estimated_year_to'], '2007')
+        self.assertNotIn('year', self.machine.data)
+        for key in AGE_LABELS:
+            self.assertEqual(self.machine.provenance[key]['source'], 'web')
+            self.assertEqual(self.machine.provenance[key]['review'], 'needs_review')
+            records = self.machine.provenance[key]['period_records']
+            self.assertEqual({record['source_url'] for record in records}, {source['url'] for source in sources})
+        self.assertIn('Año aproximado: 1996–2007 (por confirmar)', self.machine.data['description'])
+        before = deepcopy(self.machine.provenance)
+        self.machine = save_draft(self.machine, self.user,
+            {'provenance': {key: {'source': 'user', 'review': 'confirmed'} for key in AGE_LABELS}},
+            self.machine.revision)
+        for key in AGE_LABELS:
+            self.assertEqual(self.machine.provenance[key], {**before[key], 'review': 'confirmed'})
+        self.edit(estimated_year_from=2000, estimated_year_to=2005)
+        self.apply(self.job(result))
+        self.assertEqual(self.machine.data['estimated_year_from'], 2000)
+        self.assertEqual(self.machine.data['estimated_year_to'], 2005)
+
+    def test_client_cannot_create_catalogue_period_provenance(self):
+        metadata = {'source': 'web', 'review': 'needs_review',
+            'period_origin': 'lectura_catalogue_metadata_v1',
+            'period_records': [{'source_url': 'https://www.lectura-specs.com/en/model/fake',
+                'source_title': 'Invented', 'start_year': '1990', 'end_year': '2000'}]}
+        for key in ('estimated_year_from', 'power'):
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                save_draft(self.machine, self.user, {'data': {key: '1990'},
+                    'provenance': {key: metadata}}, self.machine.revision)
