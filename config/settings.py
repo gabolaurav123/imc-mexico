@@ -78,7 +78,8 @@ EMAIL_REPLY_TO = os.getenv('EMAIL_REPLY_TO','').strip()
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 ADMIN_EMAIL = os.getenv('ADMIN_EMAIL','')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY','')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL','gpt-4.1-mini')
+from portal.ai_model import DEFAULT_MODEL
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', DEFAULT_MODEL)
 OPENAI_TIMEOUT = int(os.getenv('OPENAI_TIMEOUT','90'))
 AI_JOB_STALE_SECONDS = int(os.getenv('AI_JOB_STALE_SECONDS','600'))
 FFMPEG_BINARY = os.getenv('FFMPEG_BINARY','ffmpeg')

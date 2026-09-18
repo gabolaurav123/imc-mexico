@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, StrictInt
 from typing import Literal
 from .research_evidence import explicit_manufacturing_origin, has_conflicting_unit_reference
 from .research_field_values import is_valid_research_field_value
+from .ai_model import model_options, output_limit, request_timeout, token_reservation
 
 RESEARCH_VERSION = "imc-research-2026-09-v3"
 CONSENT_VERSION = "2026-09-research"
@@ -50,6 +51,11 @@ MANUFACTURER_DOMAINS = {"caterpillar": ("cat.com", "caterpillar.com", "catlifttr
                         "komatsu": ("komatsu.com",), "johndeere": ("deere.com",),
                         "volvo": ("volvoce.com",)}
 SIGNING_SALT = "portal.research.manifest.v1"
+
+
+def research_reservation(model):
+    """Reserve each bounded search/extraction call, including reasoning output."""
+    return 3 * token_reservation(model, SEARCH_RESERVATION) + 2 * token_reservation(model, NORMALIZE_RESERVATION)
 
 
 @dataclass
@@ -989,7 +995,8 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     diagnostics = {}
     try:
         response = client.responses.create(
-            model=model, store=False, timeout=55, max_output_tokens=1800, max_tool_calls=1,
+            model=model, store=False, timeout=request_timeout(model, 55),
+            max_output_tokens=output_limit(model, 1800), max_tool_calls=1, **model_options(model),
             tools=[{"type": "web_search", "search_context_size": "low"}], tool_choice="required",
             include=["web_search_call.action.sources"],
             instructions=("Busca una referencia introductoria de fabricante o documentación técnica sobre la categoría de maquinaria indicada. "
@@ -1003,14 +1010,17 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
             input=json.dumps({"identifiers": identity, "basis": basis}, ensure_ascii=False),
         )
         received = True
-        usage.add(_get(response, "usage"))
         source_titles = {}
         sources, calls = response_sources(response, diagnostics, source_titles)
         usage.web_search_calls += calls
         # Non-preview mini search has a fixed 8k search-content billing block.
         # Count separately as a conservative estimate, even if a future API
         # starts including that block in reported usage (never understate quota).
-        usage.estimate(8000 * calls)
+        if _get(response, 'usage') is None:
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+        else:
+            usage.add(_get(response, 'usage'))
+            usage.estimate(8000 * calls)
         outcome["sources"] = sources
         outcome["diagnostics"] = diagnostics
         if _get(response, "status") != "completed" or calls != 1:
@@ -1051,7 +1061,7 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     except Exception as exc:
         # A web outage or unsupported tool never discards OCR.
         if not received:
-            usage.estimate(SEARCH_RESERVATION)
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION))
         outcome["status"] = "degraded"
         outcome["error_type"] = type(exc).__name__[:80]
         outcome["error_stage"] = "search"

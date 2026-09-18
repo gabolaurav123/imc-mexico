@@ -81,8 +81,12 @@ el contenido de la solicitud ni URLs privadas. Las pruebas reales deben comproba
 también lotes mixtos y ambos órdenes de carga.
 
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
-inicial es `gpt-4.1-mini`, cuyo soporte de entrada de imagen, Responses y Structured
-Outputs se comprobó en la documentación oficial. `OPENAI_TIMEOUT` es 90 segundos.
+inicial es `gpt-6-astra`, con entrada de imagen, Responses, búsqueda web y Structured
+Outputs. El perfil usa `reasoning.effort=low`, añade 3.500 tokens al límite de salida
+y a la reserva de cada llamada y permite al menos 120 segundos por llamada.
+Los tokens de salida incluyen el razonamiento; se contabilizan una sola vez.
+Los límites diarios y la cantidad de búsquedas no aumentan con el modelo.
+`OPENAI_TIMEOUT` conserva su valor base de 90 segundos para modelos anteriores.
 La implementación usa `OpenAI.responses.parse` y modelos Pydantic estrictos.
 Envía las vistas JPEG como data URLs, nunca enlaces al almacenamiento ni originales
 con metadatos. `store=False` evita almacenar la respuesta para recuperación posterior
@@ -92,7 +96,14 @@ Referencias verificadas durante implementación:
 
 - [Imágenes y visión](https://developers.openai.com/api/docs/guides/images-vision)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
-- [Modelo configurable inicial GPT-4.1 mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+- [Modelo GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
+- [Migración y parámetros compatibles](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart)
+
+El modelo queda fijado al encolar cada `AnalysisJob`. En una instalación existente,
+hay que cambiar también `OPENAI_MODEL` en el servidor y reiniciar web/worker; cambiar
+sólo el valor predeterminado del código no sustituye una variable de entorno ya
+configurada. Los trabajos anteriores conservan su modelo y sus resultados históricos.
+No se hace una sustitución silenciosa por un modelo mini si el proveedor falla.
 
 El consentimiento IA queda registrado antes de encolar. Los documentos privados y
 videos no se envían. `asset_ids` permite reanalizar fotos concretas; `mode=description`
@@ -149,10 +160,12 @@ para desarrollo local con un worker.
   y no se repite automáticamente el lote ni se inicia la investigación externa.
   La interfaz distingue esa interrupción de una foto realmente ilegible.
   Los errores de validación/configuración de la primera lectura terminan el trabajo.
-- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` y mínimo 600 para una fotografía. Cubre hasta tres búsquedas
+- Lease de trabajo: `AI_JOB_STALE_SECONDS=600` es el mínimo del perfil anterior para una fotografía. Cubre hasta tres búsquedas
   de 65 segundos, dos normalizaciones de 55 segundos y la lectura visual de 90 segundos,
   con margen de 205 segundos para I/O. Si `OPENAI_TIMEOUT` aumenta sobre 90, ese
   exceso se suma al mínimo; cada fotografía adicional añade su timeout al plazo.
+  El perfil Astra amplía el plazo para cubrir sus llamadas de hasta 120 segundos,
+  incluidas las etapas de investigación y valoración, y añade tiempo por imagen.
   Se comprueban consentimiento, papelera y vigencia del intento antes de cada lectura.
   Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
@@ -160,13 +173,16 @@ para desarrollo local con un worker.
 - Valores por defecto del código: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
-- Reserva conservadora por intento: 12200 tokens por imagen; descripción
+- Reserva base conservadora por intento (modelos anteriores): 12200 tokens por imagen; descripción
   reserva 9000. La investigación añade 78000 por intento: hasta tres etapas de búsqueda
   de 14000 y dos normalizaciones de 18000. La segunda normalización sólo es necesaria
   cuando una coincidencia exacta de serie permite recuperar marca/modelo faltantes.
   Los nuevos trabajos de
   descripción con investigación omiten la redacción preliminar y reservan únicamente
-  78000. Una fotografía con investigación reserva 90200 por intento. Se reserva por adelantado
+  78000. Una fotografía con investigación técnica reserva 90200 por intento,
+  más 36000 si se solicita valoración. Con Astra se añaden 3500 por cada llamada:
+  15700 por imagen, 95500 para investigación y 43000 para valoración; una foto con
+  ambas fases reserva 154200 por intento. Se reserva por adelantado
   para los intentos que caben en la capacidad disponible, hasta el máximo configurado;
   si sólo cabe uno, el trabajo conserva ese tope y no reintenta sin reserva.
   La reserva no es una predicción de tokens ni un precio. La API devuelve consumo

@@ -25,16 +25,17 @@ from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
+from .ai_model import DEFAULT_MODEL, model_options, output_limit, request_timeout, token_reservation
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner)
 from .storage import option
-from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description,
+from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description, research_reservation,
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
-from .valuation import VALUATION_RESERVATION, estimate_machine
+from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v24"
+PROMPT_VERSION = "imc-vision-research-2026-09-v25"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -519,11 +520,13 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
             preview.close()
 
 
-def _reservation(image_count, mode, research=False, *, research_description_only=False):
+def _reservation(image_count, mode, research=False, *, research_description_only=False, model=""):
     # A conservative operational reservation, not a token prediction or price quote.
     if mode == "description" and research and research_description_only:
-        return RESEARCH_RESERVATION
-    return (9000 if mode == "description" else max(1, image_count) * IMAGE_RESERVATION) + (RESEARCH_RESERVATION if research else 0) + (VALUATION_RESERVATION if research and mode == "analysis" else 0)
+        return research_reservation(model)
+    reading = (token_reservation(model, 9000) if mode == "description"
+               else max(1, image_count) * token_reservation(model, IMAGE_RESERVATION))
+    return reading + (research_reservation(model) if research else 0) + (valuation_reservation(model) if research and mode == "analysis" else 0)
 
 
 def _attempt_limit(job, limits):
@@ -548,7 +551,7 @@ def _ensure_execution_reservation(job, limits, now):
     """Reconcile old queued strategies while holding settings then job locks."""
     per_attempt = _reservation(len(job.asset_ids), job.mode,
         job.result.get("research_requested") is True,
-        research_description_only=job.result.get("research_description_only") is True)
+        research_description_only=job.result.get("research_description_only") is True, model=job.model)
     remaining = max(0, _attempt_limit(job, limits) - job.attempts)
     required = per_attempt * remaining
     if (job.result.get("reservation_per_attempt") == per_attempt
@@ -583,11 +586,16 @@ def _job_lease_seconds(job=None):
     # Three 65s searches, two 55s normalizations and the default 90s vision
     # request leave 205s for local media/database work inside this minimum.
     # Preserve that allowance when an installation increases vision timeout.
-    timeout = float(option("OPENAI_TIMEOUT", 90))
+    model = getattr(job, "model", "")
+    timeout = request_timeout(model, float(option("OPENAI_TIMEOUT", 90)))
     vision_extra = max(0, timeout - 90)
     additional_images = max(0, len(job.asset_ids) - 1) if job and job.mode == "analysis" else 0
-    valuation_extra = 180 if job and job.mode == "analysis" and job.result.get("research_requested") else 0
-    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout + valuation_extra,
+    research_requested = bool(job and job.result.get("research_requested"))
+    research_extra = (3 * (request_timeout(model, 65) - 65) + 2 * (request_timeout(model, 55) - 55)
+                      if research_requested else 0)
+    valuation_extra = (180 + request_timeout(model, 60) - 60 + request_timeout(model, 45) - 45
+                       if job and job.mode == "analysis" and research_requested else 0)
+    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout + research_extra + valuation_extra,
                      int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
     recorded = job.result.get("execution_lease_seconds") if job else None
     return max(configured, recorded) if type(recorded) in {int, float} and recorded > 0 else configured
@@ -693,7 +701,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
             raise ValidationError("Sube al menos una fotografía útil antes de analizar.")
         if mode == "description" and not any(machine.data.values()):
             raise ValidationError("Completa algún dato de tu maquinaria para redactar una descripción.")
-        model = option("OPENAI_MODEL", "gpt-4.1-mini")
+        model = option("OPENAI_MODEL", DEFAULT_MODEL)
         category_names = list(Category.objects.filter(active=True).order_by("name").values_list("name", flat=True)[:80])
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
@@ -725,7 +733,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if jobs.count() >= limits.ai_global_daily_limit:
             raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes enviar la ficha con la información disponible o intentarlo mañana.")
         per_attempt = _reservation(len(assets), mode, research,
-                                   research_description_only=research_description_only)
+                                   research_description_only=research_description_only, model=model)
         # Include unfinished prior-day work and any work completed today, so a
         # midnight rollover cannot bypass the reservation budget.
         budget_jobs = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
@@ -1291,6 +1299,11 @@ def _merge_image_results(readings, asset_ids, categories):
                               response_size_limit=100_000 * max(1, len(asset_ids)))
 
 
+def _provider_model(response):
+    value = getattr(response, "model", None)
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", value) else ""
+
+
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     from openai import OpenAI
@@ -1344,7 +1357,8 @@ def process_analysis(job):
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     _check_analysis_draft(job)
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
-                    timeout=float(option("OPENAI_TIMEOUT", 90)), max_retries=0)
+                    timeout=request_timeout(job.model, float(option("OPENAI_TIMEOUT", 90))), max_retries=0)
+    image_reservation = token_reservation(job.model, IMAGE_RESERVATION)
     usage = UsageTotals()
     image_readings = []
     image_pipeline_interrupted = False
@@ -1361,21 +1375,27 @@ def process_analysis(job):
                 model=job.model, instructions=SYSTEM_PROMPT,
                 input=inputs,
                 text_format=DescriptionAnalysis if job.mode == "description" else MachineAnalysis,
-                max_output_tokens=MAX_OUTPUT_TOKENS, store=False,
+                max_output_tokens=output_limit(job.model, MAX_OUTPUT_TOKENS), store=False, **model_options(job.model),
             )
-            usage.add(response.usage)
+            if response.usage is None:
+                usage.estimate(token_reservation(job.model, 9000))
+            else:
+                usage.add(response.usage)
             if response.output_parsed is None or response.status != "completed":
                 raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
             result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode,
                                         allowed_categories=job.result.get("category_names", []))
+            if _provider_model(response):
+                result["provider_model"] = _provider_model(response)
         else:
             readings = []
             categories = job.result.get("category_names", [])
             for binding, request in zip(bindings, image_requests):
                 _check_image_execution(job)
+                provider_model = ""
                 before = (usage.input_tokens, usage.output_tokens, usage.estimated_tokens)
                 status = "not_run" if image_pipeline_interrupted else "completed"
-                if not image_pipeline_interrupted and not _can_spend_step(job, usage, IMAGE_RESERVATION):
+                if not image_pipeline_interrupted and not _can_spend_step(job, usage, image_reservation):
                     if not readings:
                         exc = ValidationError("No hay capacidad de análisis disponible hoy. Tus fotografías siguen guardadas.")
                         exc.accounted_usage = usage
@@ -1387,10 +1407,12 @@ def process_analysis(job):
                     received = False
                     try:
                         response = client.responses.parse(model=job.model, instructions=SYSTEM_PROMPT,
-                            input=request, text_format=MachineAnalysis, max_output_tokens=MAX_OUTPUT_TOKENS, store=False)
+                            input=request, text_format=MachineAnalysis,
+                            max_output_tokens=output_limit(job.model, MAX_OUTPUT_TOKENS), store=False, **model_options(job.model))
                         received = True
+                        provider_model = _provider_model(response)
                         if response.usage is None:
-                            usage.estimate(IMAGE_RESERVATION)
+                            usage.estimate(image_reservation)
                         else:
                             usage.add(response.usage)
                         if response.output_parsed is None or response.status != "completed":
@@ -1399,7 +1421,7 @@ def process_analysis(job):
                         reading = normalize_analysis(bound, [binding["asset_id"]], allowed_categories=categories)
                     except Exception as exc:
                         if not received:
-                            usage.estimate(IMAGE_RESERVATION)
+                            usage.estimate(image_reservation)
                         if not readings:
                             exc.accounted_usage = usage
                             raise
@@ -1410,6 +1432,7 @@ def process_analysis(job):
                         image_pipeline_interrupted = True
                 readings.append(reading)
                 image_readings.append({"asset_id": binding["asset_id"], "status": status,
+                    **({"provider_model": provider_model} if provider_model else {}),
                     "relevance": reading["relevance"]["status"],
                     "field_keys": sorted({item["key"] for item in reading["fields"] if item.get("value") not in (None, "")}),
                     "input_tokens": usage.input_tokens - before[0], "output_tokens": usage.output_tokens - before[1],
@@ -1434,7 +1457,7 @@ def process_analysis(job):
             result["research"] = {**empty_research("not_run"), "reason": "image_relevance"}
             result["usage"] = usage.as_dict()
             return result, usage
-        if research_requested and (image_pipeline_interrupted or not _can_spend_step(job, usage, RESEARCH_RESERVATION)):
+        if research_requested and (image_pipeline_interrupted or not _can_spend_step(job, usage, research_reservation(job.model))):
             result["research"] = {**empty_research("not_run"), "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
             result["warnings"].append("Se conservó la información leída; la investigación externa quedó pendiente.")
         elif research_requested:
@@ -1465,7 +1488,7 @@ def process_analysis(job):
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         else:
             result["research"] = empty_research()
-        if job.mode == "analysis" and research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, VALUATION_RESERVATION):
+        if job.mode == "analysis" and research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
             def valuation_allowed():
                 try:
                     _check_image_execution(job)

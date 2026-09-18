@@ -27,6 +27,7 @@ from .research import (UsageTotals, _contains_brand, _contains_identifier,
     human_declared_data, identifier_key, is_validated_web_field, response_sources, safe_public_url)
 from .research_catalogs import _Document, _Node
 from .research_fetch import CatalogFetchError, _read_html, _resolve_public_ip
+from .ai_model import model_options, output_limit, request_timeout, token_reservation
 
 VALUATION_VERSION = 'imc-valuation-2026-09-v1'
 VALUATION_RESERVATION = 36_000
@@ -40,6 +41,10 @@ MAX_DOCUMENTS = 4
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
 CONFIGURATION_KEYS = ('capacity', 'voltage', 'lift_height', 'engine')
+
+
+def valuation_reservation(model):
+    return token_reservation(model, SEARCH_RESERVATION) + token_reservation(model, PARSE_RESERVATION)
 
 SEARCH_INSTRUCTIONS = """Busca anuncios individuales públicos de distribuidores y resultados
 de subastas de maquinaria del modelo EXACTO indicado, con precios visibles.
@@ -550,10 +555,11 @@ def _normalize(parsed, passages, identity):
 
 
 def estimate_machine(client, model, result, snapshot=None, allowed=None):
-    """One search + parse, <=140 seconds configured and 36000 tokens reserved.
+    """One search + parse with model-aware request timeouts and reservations.
 
     The 27000 search allocation includes measured tokens and the existing 8000
-    web allowance; 9000 remains for extraction. Daily platform limits still apply.
+    web allowance; 9000 remains for extraction. Astra adds 3500 to each call's
+    output/allocation. Daily platform limits still apply without adjustment.
     """
     result, snapshot = result or {}, snapshot or {}
     usage = UsageTotals()
@@ -584,7 +590,8 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
     received = False
     phase = 'search'
     try:
-        response = client.responses.create(model=model, store=False, timeout=60, max_output_tokens=3000,
+        response = client.responses.create(model=model, store=False, timeout=request_timeout(model, 60),
+            max_output_tokens=output_limit(model, 3000), **model_options(model),
             max_tool_calls=1, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
             tool_choice='required', include=['web_search_call.action.sources'], instructions=SEARCH_INSTRUCTIONS,
             input=json.dumps({'brand': identity['brand'], 'model': identity['model'], 'condition': identity['condition'],
@@ -592,7 +599,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         received = True
         sources, calls = response_sources(response)
         if _get(response, 'usage') is None:
-            usage.estimate(SEARCH_RESERVATION)
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION))
         else:
             usage.add(_get(response, 'usage'))
             usage.estimate(8000 * calls)
@@ -629,7 +636,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
             return finish(value)
         if allowed is not None and not allowed():
             return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
-        if usage.input_tokens + usage.output_tokens + PARSE_RESERVATION > VALUATION_RESERVATION:
+        if usage.input_tokens + usage.output_tokens + token_reservation(model, PARSE_RESERVATION) > valuation_reservation(model):
             value = _empty(identity, 'No se pudo completar la verificación de los precios. Faltan comparables verificables antes de proponer un importe.')
             value['diagnostics']['stop_reason'] = 'parse_reservation_unavailable'
             return finish(value)
@@ -650,12 +657,13 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         passages = bounded
         phase, received = 'parse', False
         phase_start, phase_usage_start = time.monotonic(), usage.as_dict()
-        response = client.responses.parse(model=model, store=False, timeout=45, max_output_tokens=2500,
+        response = client.responses.parse(model=model, store=False, timeout=request_timeout(model, 45),
+            max_output_tokens=output_limit(model, 2500), **model_options(model),
             text_format=ComparableCandidates, instructions=PARSE_INSTRUCTIONS,
             input=payload)
         received = True
         if _get(response, 'usage') is None:
-            usage.estimate(PARSE_RESERVATION)
+            usage.estimate(token_reservation(model, PARSE_RESERVATION))
         else:
             usage.add(_get(response, 'usage'))
         record_phase('parse', 'completed' if _get(response, 'status') == 'completed' and _get(response, 'output_parsed') is not None else 'incomplete')
@@ -667,7 +675,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         return finish(valuation)
     except Exception as exc:
         if not received and phase in {'search', 'parse'}:
-            usage.estimate(SEARCH_RESERVATION if phase == 'search' else PARSE_RESERVATION)
+            usage.estimate(token_reservation(model, SEARCH_RESERVATION if phase == 'search' else PARSE_RESERVATION))
             record_phase(phase, 'outcome_unknown')
         outcome = _empty(identity, 'La consulta de comparables no pudo completarse. Faltan precios públicos verificables; no se propone un importe.')
         outcome['diagnostics'] = {'error_stage': phase, 'error_type': type(exc).__name__}

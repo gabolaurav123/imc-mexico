@@ -3,13 +3,14 @@ import json
 from urllib.parse import urlsplit
 
 from django.core import signing
+from .ai_model import model_options, output_limit, request_timeout, token_reservation
 
 from .research import (
     MAX_CITED_PASSAGES, MAX_RESEARCH_SOURCES, NORMALIZE_RESERVATION,
     SEARCH_RESERVATION, SIGNING_SALT, ResearchCandidates, UsageTotals, WEB_KEYS,
     _contains_identifier, _get, _identifier, _manifest, _retrieved_url_identity,
     _source_title_context, citation_passages, empty_research, normalize_candidates,
-    response_sources, identifier_key, normalize_direct_fields,
+    response_sources, identifier_key, normalize_direct_fields, research_reservation,
 )
 
 
@@ -178,17 +179,31 @@ def _collect(response, identity, sources, passages, titles, domains=()):
     return diagnostics, calls
 
 
+class ResearchBudgetExhausted(ValueError):
+    """No request was started; preserve verified local evidence without spending."""
+
+
+def _can_allocate(model, usage, legacy_allocation):
+    return usage.input_tokens + usage.output_tokens + token_reservation(model, legacy_allocation) <= research_reservation(model)
+
+
 def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None, direct_fields=()):
+    if not _can_allocate(model, usage, NORMALIZE_RESERVATION):
+        raise ResearchBudgetExhausted('Research extraction allocation unavailable')
     received = False
     try:
         response = client.responses.parse(
-            model=model, store=False, timeout=55, max_output_tokens=4000,
+            model=model, store=False, timeout=request_timeout(model, 55),
+            max_output_tokens=output_limit(model, 4000), **model_options(model),
             text_format=ResearchCandidates, instructions=NORMALIZE_INSTRUCTIONS,
             input=json.dumps({"identity": identity, "basis": basis,
                               "cited_passages": [p for p in passages if p.get("origin") != "direct_document"]}, ensure_ascii=False),
         )
         received = True
-        usage.add(_get(response, "usage"))
+        if _get(response, 'usage') is None:
+            usage.estimate(token_reservation(model, NORMALIZE_RESERVATION))
+        else:
+            usage.add(_get(response, 'usage'))
         if _get(response, "status") != "completed" or _get(response, "output_parsed") is None:
             raise ValueError("Incomplete research extraction")
         search_text = "\n\n".join(p["text"] for p in passages)
@@ -213,7 +228,7 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
         return normalized
     finally:
         if not received:
-            usage.estimate(NORMALIZE_RESERVATION)
+            usage.estimate(token_reservation(model, NORMALIZE_RESERVATION))
 
 
 def research_identified_machine(client, model, result, identity, basis, allowed=None, category=None):
@@ -228,6 +243,9 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     for stage in stages:
         if allowed is not None and not allowed():
             interrupted = True
+            break
+        if not _can_allocate(model, usage, SEARCH_RESERVATION):
+            attempts.append({'stage': stage, 'status': 'budget_unavailable'})
             break
         payload, domains = _stage_request(identity, stage, result, category)
         # Unknown brands have no invented official domain. Broader technical
@@ -248,16 +266,20 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         received = False
         try:
             response = client.responses.create(
-                model=model, store=False, timeout=65, max_output_tokens=3000, max_tool_calls=1,
+                model=model, store=False, timeout=request_timeout(model, 65),
+                max_output_tokens=output_limit(model, 3000), max_tool_calls=1, **model_options(model),
                 tools=[tool], tool_choice="required", include=["web_search_call.action.sources"],
                 instructions=SEARCH_INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False),
             )
             received = True
-            usage.add(_get(response, "usage"))
             # Account real calls even when a response is incomplete.
             _, calls = response_sources(response)
             usage.web_search_calls += calls
-            usage.estimate(8000 * calls)
+            if _get(response, 'usage') is None:
+                usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+            else:
+                usage.add(_get(response, 'usage'))
+                usage.estimate(8000 * calls)
             if _get(response, "status") != "completed" or calls != 1:
                 raise ValueError("Incomplete web search")
             metrics, _ = _collect(response, identity, sources, passages, titles, domains)
@@ -275,7 +297,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             attempt["status"] = "evidence_found" if metrics["retained_passage_count"] else "no_results"
         except Exception as exc:
             if not received:
-                usage.estimate(SEARCH_RESERVATION)
+                usage.estimate(token_reservation(model, SEARCH_RESERVATION))
             attempt.update(status="failed", error_type=type(exc).__name__[:80])
             # Other public sources can still work after a timeout. A provider
             # authentication/rate limit failure will affect every later query.
@@ -321,7 +343,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                 outcome["error_stage"] = "normalization"
                 outcome["error_type"] = type(exc).__name__[:80]
                 outcome["warnings"].append("No se pudo completar la comprobación de las fuentes externas. Se conservó la lectura de las fotografías.")
-    failed = bool(outcome.get("error_stage")) or any(a["status"] == "failed" or a.get("identity_resolution_error") for a in attempts)
+    failed = bool(outcome.get("error_stage")) or any(a["status"] in {'failed', 'budget_unavailable'} or a.get("identity_resolution_error") for a in attempts)
     if interrupted:
         # Never apply partial data after consent cancellation or draft deletion.
         outcome = empty_research("degraded", identity, basis)

@@ -17,7 +17,7 @@ from portal.research import RESEARCH_RESERVATION, UsageTotals, empty_research
 from portal.valuation import VALUATION_RESERVATION
 
 
-@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_TIMEOUT=90,
+@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini", OPENAI_TIMEOUT=90,
                    AI_JOB_STALE_SECONDS=300)
 class ResearchWorkerBudgetTests(TestCase):
     def setUp(self):
