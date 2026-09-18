@@ -1,47 +1,29 @@
 # Modelo de análisis y búsqueda
 
-La configuración predeterminada usa **GPT-6 Astra** (`gpt-6-astra`) mediante
-Responses. Sustituye el valor inicial `gpt-4.1-mini`. Las instalaciones existentes
-deben actualizar su variable `OPENAI_MODEL` y desplegar la aplicación para que web
-y worker carguen el mismo valor. La clave de producción permanece en el servidor.
+La configuración predeterminada usa **GPT-5.6 Luna** (`gpt-5.6-luna`) mediante
+Responses. El propietario retiró Astra por coste. `gpt-5.6-terra` queda compatible
+como alternativa explícita; no hay escalado automático a Terra ni Astra.
 
-## Perfil de ejecución
+## Perfil y control de consumo
 
-- Razonamiento `low` explícito en lectura de fotos, descripción, búsqueda,
-  normalización de fuentes y valoración.
-- 3.500 tokens adicionales de salida y de reserva por llamada; el espacio de
-  salida incluye tanto razonamiento como datos de la ficha.
-- Timeout mínimo de 120 segundos por llamada. La vigencia del trabajo contempla
-  todas las etapas y el número de fotografías.
-- Las mismas etapas, límites diarios, documentos permitidos y fuentes verificables.
-  Una llamada posterior sólo comienza si dispone de reserva suficiente.
-- Cada trabajo conserva su modelo. Los resultados ya generados no se recalculan
-  al desplegar; el propietario puede solicitar un nuevo análisis desde su ficha.
-- No hay descenso automático a un modelo mini ante un fallo de acceso o proveedor.
+- Razonamiento `low` en lectura de fotos, descripción, búsqueda, normalización y valoración.
+- 3.500 tokens de margen por llamada para razonamiento/salida y timeout mínimo de 120 segundos.
+- Se conservan las cuotas diarias y las reservas acotadas. La reserva no es una tarifa.
+- Astra está bloqueado antes de encolar y antes de llamar al proveedor, incluidos trabajos antiguos.
+- La clave permanece en producción. Los resultados anteriores no se recalculan automáticamente.
+- Las correcciones humanas y la validación de las fuentes siguen vigentes.
 
-La ficha conserva la edición y protección de correcciones humanas, la separación
-entre lectura de placa y referencia de catálogo, y las validaciones de identidad,
-precio y procedencia. Un modelo mejor no convierte la sede del fabricante en país
-de fabricación ni permite saber dónde se encuentra hoy una máquina por su serie.
+Las tarifas Standard consultadas de Luna son USD 0,20 por millón de tokens de
+entrada y USD 1,20 por millón de salida. Herramientas, caché y contexto largo tienen
+reglas adicionales. No se ejecutaron nuevas inferencias de pago para este cambio.
+Las pruebas locales usan respuestas simuladas y no acreditan calidad visual real
+ni saldo disponible en la cuenta del proveedor.
 
-## Coste y documentación
+Fuentes oficiales:
+- [GPT-5.6 Luna: capacidades y tarifas](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+- [GPT-5.6 Terra: alternativa compatible](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
 
-El consumo de API se factura por separado del alojamiento. Las tarifas Standard
-consultadas para Astra son USD 10 por millón de tokens de entrada y USD 50 por
-millón de salida, más herramientas y las reglas de caché aplicables. Los tokens
-de razonamiento forman parte de la salida. La reserva interna es un límite de
-capacidad, no un precio por ficha; el coste depende de fotos, fuentes y respuestas.
-
-Fuentes oficiales consultadas para esta implementación:
-
-- [GPT-6 Astra: capacidades y tarifas](https://developers.openai.com/api/docs/models/gpt-6-astra)
-- [Parámetros de migración](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart)
-- [Razonamiento y presupuesto de salida](https://developers.openai.com/api/docs/guides/reasoning)
-
-La validación de despliegue debe registrar el modelo del trabajo y el devuelto por
-la lectura real, la extracción de una placa, una fotografía general, los campos
-guardados, la ficha web/PDF y la conservación de ediciones. Los tests simulados
-comprueban compatibilidad y contabilidad; no demuestran calidad visual por sí solos.
+## Historial de la integración anterior
 
 ## Compatibilidad de los resultados de búsqueda
 
@@ -63,3 +45,17 @@ normalizar la evidencia ya encontrada. Así evita gastar toda la reserva buscand
 y quedarse sin capacidad para trasladar los datos verificados a la ficha.
 El cálculo de la siguiente búsqueda tiene en cuenta el mayor consumo observado
 en las búsquedas previas de ese trabajo, sin aumentar su reserva ni la cuota diaria.
+
+La comprobación real de v26 confirmó que las búsquedas se ejecutan y llegan a la
+normalización. En la placa de prueba se conservaron ocho datos legibles, pero el
+modelo quedó pendiente y las fuentes encontradas no identificaron esa misma
+unidad. Esa prueba no acredita una ficha enriquecida por fuentes externas; su
+objetivo de calidad completo permaneció fallido.
+
+## Fidelidad de la fotografía
+
+El análisis prioriza una copia decodificada del original y codificada en PNG sin
+metadatos. Evita volver a comprimir el texto fino de una placa a partir de la vista
+JPEG. Conserva orientación, encuadre y límites de tamaño; si ese camino no está
+disponible utiliza la vista sanitizada. No reconstruye letras ni añade detalles.
+Una lectura dudosa continúa pendiente de confirmar.

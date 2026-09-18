@@ -86,7 +86,7 @@ class WebSearchStatusTests(SimpleTestCase):
         client.responses.create.return_value = searched([tool(status='failed', url=OTHER)])
         client.responses.parse.return_value = extraction(candidate())
         with patch('portal.research_documents.collect_document_fields', return_value=([], [], False)):
-            value, usage = research_machine(client, 'gpt-6-astra', vision())
+            value, usage = research_machine(client, 'gpt-5.6-luna', vision())
         self.assertEqual(value['status'], 'completed')
         self.assertEqual(value['fields'][0]['value'], '70 kW')
         self.assertEqual(client.responses.create.call_count, 3)
@@ -110,7 +110,7 @@ class WebSearchStatusTests(SimpleTestCase):
         client.responses.create.return_value = searched([tool(status='failed', url=OTHER)], input_tokens=13900, output_tokens=100)
         client.responses.parse.return_value = extraction(candidate())
         with patch('portal.research_documents.collect_document_fields', return_value=([], [], False)):
-            value, usage = research_machine(client, 'gpt-6-astra', vision())
+            value, usage = research_machine(client, 'gpt-5.6-luna', vision())
         self.assertEqual(client.responses.create.call_count, 2)
         self.assertEqual(client.responses.parse.call_count, 1)
         self.assertEqual(value['status'], 'completed')
@@ -128,7 +128,7 @@ class WebSearchStatusTests(SimpleTestCase):
         client.responses.create.return_value = searched([tool(status='failed', url=OTHER)], input_tokens=25900, output_tokens=100)
         client.responses.parse.return_value = extraction(candidate())
         with patch('portal.research_documents.collect_document_fields', return_value=([], [], False)):
-            value, usage = research_machine(client, 'gpt-6-astra', vision())
+            value, usage = research_machine(client, 'gpt-5.6-luna', vision())
         self.assertEqual(client.responses.create.call_count, 1)
         self.assertEqual(client.responses.parse.call_count, 1)
         self.assertEqual(value['status'], 'completed')
@@ -142,7 +142,7 @@ class WebSearchStatusTests(SimpleTestCase):
         client.responses.create.return_value = response
         client.responses.parse.return_value = extraction(candidate())
         with patch('portal.research_documents.collect_document_fields', return_value=([], [], False)):
-            value, usage = research_machine(client, 'gpt-6-astra', vision())
+            value, usage = research_machine(client, 'gpt-5.6-luna', vision())
         self.assertEqual(value['status'], 'completed')
         self.assertEqual(client.responses.create.call_count, 2)
         self.assertEqual(usage.estimated_tokens, 2 * (17500 + 8000))
@@ -151,7 +151,7 @@ class WebSearchStatusTests(SimpleTestCase):
         category = vision()
         category['data'].pop('model')
         category['provenance'].pop('model')
-        value, usage = research_machine(client, 'gpt-6-astra', category, allowed_categories=['Retroexcavadoras'])
+        value, usage = research_machine(client, 'gpt-5.6-luna', category, allowed_categories=['Retroexcavadoras'])
         self.assertEqual(value['status'], 'general_context')
         self.assertEqual(usage.estimated_tokens, 17500 + 8000)
 
@@ -160,7 +160,7 @@ class WebSearchStatusTests(SimpleTestCase):
         valuation.responses.create.return_value.output[0]['action']['type'] = 'search'
         valuation.responses.create.return_value.output.append(tool(status='failed', url=OTHER))
         with patch('portal.valuation._fetch_listing', side_effect=[(html(), URLS[0]), (html(quote('USD 16,000')), URLS[1])]):
-            value, usage = estimate_machine(valuation, 'gpt-6-astra', valuation_vision(), {})
+            value, usage = estimate_machine(valuation, 'gpt-5.6-luna', valuation_vision(), {})
         self.assertEqual(usage.estimated_tokens, 30500 + 8000)
         self.assertEqual(usage.web_search_calls, 2)
         valuation.responses.parse.assert_not_called()
@@ -172,7 +172,7 @@ class WebSearchStatusTests(SimpleTestCase):
         result = vision()
         result['data'].pop('model')
         result['provenance'].pop('model')
-        value, usage = research_machine(client, 'gpt-6-astra', result, allowed_categories=['Retroexcavadoras'])
+        value, usage = research_machine(client, 'gpt-5.6-luna', result, allowed_categories=['Retroexcavadoras'])
         self.assertEqual(value['status'], 'general_context')
         self.assertEqual(value['fields'], [])
         self.assertEqual(usage.web_search_calls, 2)
@@ -186,7 +186,7 @@ class WebSearchStatusTests(SimpleTestCase):
         search.output[0]['action']['type'] = 'search'
         search.output.append(tool(status='failed', url=OTHER))
         with patch('portal.valuation._fetch_listing', side_effect=[(html(), URLS[0]), (html(quote('USD 16,000')), URLS[1])]) as fetch:
-            value, usage = estimate_machine(client, 'gpt-6-astra', valuation_vision(), {})
+            value, usage = estimate_machine(client, 'gpt-5.6-luna', valuation_vision(), {})
         self.assertEqual(value['status'], 'estimated')
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(usage.web_search_calls, 2)
@@ -200,7 +200,7 @@ class WebSearchStatusTests(SimpleTestCase):
         client.responses.create.return_value.output[0].update(status='failed')
         client.responses.create.return_value.output[0]['action']['type'] = 'search'
         with patch('portal.valuation._fetch_listing') as fetch:
-            value, usage = estimate_machine(client, 'gpt-6-astra', valuation_vision(), {})
+            value, usage = estimate_machine(client, 'gpt-5.6-luna', valuation_vision(), {})
         self.assertEqual(value['status'], 'insufficient')
         fetch.assert_not_called()
         client.responses.parse.assert_not_called()

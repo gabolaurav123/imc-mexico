@@ -1,4 +1,4 @@
-"""Astra keeps bounded calls, charges unknown outcomes, and never falls back."""
+"""Luna keeps bounded calls, charges unknown outcomes, and never falls back."""
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -13,7 +13,7 @@ from portal.tests.test_research_stages import response, extraction
 from portal.tests.test_valuation import provider, html, quote, URLS, vision as valuation_vision
 
 
-ASTRA = 'gpt-6-astra'
+LUNA = 'gpt-5.6-luna'
 
 
 class ReasoningResearchTests(SimpleTestCase):
@@ -27,13 +27,13 @@ class ReasoningResearchTests(SimpleTestCase):
         model = candidate(key='model', value='420F2', scope='exact_serial', matched_serial='UNIT123')
         client.responses.parse.side_effect = [extraction(model), extraction(model, candidate(1))]
         with patch('portal.research_documents.collect_document_fields', return_value=([], [], False)):
-            value, _ = research_machine(client, ASTRA, result)
+            value, _ = research_machine(client, LUNA, result)
         self.assertEqual({field['key'] for field in value['fields']}, {'model', 'power'})
         self.assertEqual(client.responses.create.call_count, 3)
         self.assertEqual(client.responses.parse.call_count, 2)
         for method, expected_output in ((client.responses.create, 6500), (client.responses.parse, 7500)):
             for call in method.call_args_list:
-                self.assertEqual(call.kwargs['model'], ASTRA)
+                self.assertEqual(call.kwargs['model'], LUNA)
                 self.assertEqual(call.kwargs['reasoning'], {'effort': 'low'})
                 self.assertEqual(call.kwargs['max_output_tokens'], expected_output)
                 self.assertEqual(call.kwargs['timeout'], 120)
@@ -44,12 +44,12 @@ class ReasoningResearchTests(SimpleTestCase):
 
     def test_model_aware_reservations_keep_legacy_and_add_each_reasoning_request(self):
         self.assertEqual(research_reservation('gpt-4.1-mini'), 78000)
-        self.assertEqual(research_reservation(ASTRA), 95500)
+        self.assertEqual(research_reservation(LUNA), 95500)
         self.assertEqual(valuation_reservation('gpt-4.1-mini'), 36000)
-        self.assertEqual(valuation_reservation(ASTRA), 43000)
+        self.assertEqual(valuation_reservation(LUNA), 43000)
 
     def test_missing_usage_charges_full_allocations_in_search_and_normalization(self):
-        for model, search_allocation, parse_allocation in (('gpt-4.1-mini', 14000, 18000), (ASTRA, 17500, 21500)):
+        for model, search_allocation, parse_allocation in (('gpt-4.1-mini', 14000, 18000), (LUNA, 17500, 21500)):
             with self.subTest(model=model):
                 client = Mock()
                 search = response(TEXT)
@@ -71,7 +71,7 @@ class ReasoningResearchTests(SimpleTestCase):
         # First response spends 78001 including the conservative web allowance;
         # the next 17500 cannot fit in the reserved 95500.
         client.responses.create.return_value = web_response(sources=[], input_tokens=70001, output_tokens=0)
-        value, usage = research_machine(client, ASTRA, vision())
+        value, usage = research_machine(client, LUNA, vision())
         self.assertEqual(client.responses.create.call_count, 1)
         client.responses.parse.assert_not_called()
         self.assertEqual(usage.input_tokens, 78001)
@@ -87,13 +87,13 @@ class ReasoningResearchTests(SimpleTestCase):
                 usage = UsageTotals(input_tokens=74000 + extra)
                 if extra:
                     with self.assertRaises(ResearchBudgetExhausted):
-                        _normalize(client, ASTRA, IDENTITY, 'model', [{'url': URL, 'title': 'Caterpillar 420F2'}],
+                        _normalize(client, LUNA, IDENTITY, 'model', [{'url': URL, 'title': 'Caterpillar 420F2'}],
                                    passages, {}, usage)
                     client.responses.parse.assert_not_called()
                     self.assertEqual(usage.input_tokens, 74001)
                     self.assertEqual(usage.estimated_tokens, 0)
                 else:
-                    value = _normalize(client, ASTRA, IDENTITY, 'model', [{'url': URL, 'title': 'Caterpillar 420F2'}],
+                    value = _normalize(client, LUNA, IDENTITY, 'model', [{'url': URL, 'title': 'Caterpillar 420F2'}],
                                        passages, {}, usage)
                     self.assertEqual(value['fields'][0]['value'], '70 kW')
                     self.assertEqual(usage.output_tokens, 100)
@@ -114,7 +114,7 @@ class ReasoningResearchTests(SimpleTestCase):
         first = web_response(sources=[{'url': URL}], input_tokens=70001, output_tokens=0, text='No specification.')
         client.responses.create.side_effect = [first]
         with patch('portal.research_documents.collect_document_fields', side_effect=documents):
-            value, _ = research_machine(client, ASTRA, vision())
+            value, _ = research_machine(client, LUNA, vision())
         client.responses.parse.assert_not_called()
         self.assertEqual(client.responses.create.call_count, 1)
         self.assertEqual(value['fields'][0]['value'], '70 kW')
@@ -130,7 +130,7 @@ class ReasoningResearchTests(SimpleTestCase):
                 client.responses.create.return_value = search
                 if failure == 'timeout':
                     client.responses.create.side_effect = TimeoutError('private')
-                value, usage = research_machine(client, ASTRA,
+                value, usage = research_machine(client, LUNA,
                     {'data': {}, 'provenance': {}, 'category': 'Motoniveladoras'},
                     allowed_categories=['Motoniveladoras'])
                 request = client.responses.create.call_args.kwargs
@@ -146,13 +146,13 @@ class ReasoningResearchTests(SimpleTestCase):
         search = web_response(sources=[], input_tokens=120, output_tokens=500)
         search.usage.output_tokens_details = SimpleNamespace(reasoning_tokens=400)
         client.responses.create.return_value = search
-        _, usage = research_machine(client, ASTRA, vision())
+        _, usage = research_machine(client, LUNA, vision())
         self.assertEqual(usage.output_tokens, 1500)
         self.assertEqual(usage.input_tokens, 3 * 8120)
 
 
 class ReasoningValuationTests(SimpleTestCase):
-    def run_estimate(self, client, model=ASTRA):
+    def run_estimate(self, client, model=LUNA):
         with patch('portal.valuation._fetch_listing', side_effect=[(html(), URLS[0]), (html(quote('USD 16,000')), URLS[1])]):
             return estimate_machine(client, model, valuation_vision(), {})
 
@@ -163,7 +163,7 @@ class ReasoningValuationTests(SimpleTestCase):
         self.assertTrue(is_validated_estimate(value))
         for method, output in ((client.responses.create, 6500), (client.responses.parse, 6000)):
             self.assertEqual(method.call_count, 1)
-            self.assertEqual(method.call_args.kwargs['model'], ASTRA)
+            self.assertEqual(method.call_args.kwargs['model'], LUNA)
             self.assertEqual(method.call_args.kwargs['reasoning'], {'effort': 'low'})
             self.assertEqual(method.call_args.kwargs['max_output_tokens'], output)
             self.assertEqual(method.call_args.kwargs['timeout'], 120)

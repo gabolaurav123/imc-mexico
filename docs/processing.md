@@ -81,14 +81,16 @@ el contenido de la solicitud ni URLs privadas. Las pruebas reales deben comproba
 también lotes mixtos y ambos órdenes de carga.
 
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
-inicial es `gpt-6-astra`, con entrada de imagen, Responses, búsqueda web y Structured
+inicial es `gpt-5.6-luna`, con entrada de imagen, Responses, búsqueda web y Structured
 Outputs. El perfil usa `reasoning.effort=low`, añade 3.500 tokens al límite de salida
 y a la reserva de cada llamada y permite al menos 120 segundos por llamada.
 Los tokens de salida incluyen el razonamiento; se contabilizan una sola vez.
 Los límites diarios y la cantidad de búsquedas no aumentan con el modelo.
 `OPENAI_TIMEOUT` conserva su valor base de 90 segundos para modelos anteriores.
 La implementación usa `OpenAI.responses.parse` y modelos Pydantic estrictos.
-Envía las vistas JPEG como data URLs, nunca enlaces al almacenamiento ni originales
+Envía una copia PNG del original decodificado y sin metadatos como data URL,
+con la vista JPEG sanitizada como alternativa cuando no se puede usar el original
+dentro de los límites. Nunca envía enlaces al almacenamiento ni originales
 con metadatos. `store=False` evita almacenar la respuesta para recuperación posterior
 por API; esto no equivale a una garantía de retención cero del proveedor.
 
@@ -96,8 +98,8 @@ Referencias verificadas durante implementación:
 
 - [Imágenes y visión](https://developers.openai.com/api/docs/guides/images-vision)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
-- [Modelo GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)
-- [Migración y parámetros compatibles](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md#migration-quickstart)
+- [Modelo GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
+- [Migración y parámetros compatibles](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
 
 El modelo queda fijado al encolar cada `AnalysisJob`. En una instalación existente,
 hay que cambiar también `OPENAI_MODEL` en el servidor y reiniciar web/worker; cambiar
@@ -164,7 +166,7 @@ para desarrollo local con un worker.
   de 65 segundos, dos normalizaciones de 55 segundos y la lectura visual de 90 segundos,
   con margen de 205 segundos para I/O. Si `OPENAI_TIMEOUT` aumenta sobre 90, ese
   exceso se suma al mínimo; cada fotografía adicional añade su timeout al plazo.
-  El perfil Astra amplía el plazo para cubrir sus llamadas de hasta 120 segundos,
+  El perfil Luna/Terra amplía el plazo para cubrir sus llamadas de hasta 120 segundos,
   incluidas las etapas de investigación y valoración, y añade tiempo por imagen.
   Se comprueban consentimiento, papelera y vigencia del intento antes de cada lectura.
   Se recuperan trabajos
@@ -180,7 +182,7 @@ para desarrollo local con un worker.
   Los nuevos trabajos de
   descripción con investigación omiten la redacción preliminar y reservan únicamente
   78000. Una fotografía con investigación técnica reserva 90200 por intento,
-  más 36000 si se solicita valoración. Con Astra se añaden 3500 por cada llamada:
+  más 36000 si se solicita valoración. Con Luna/Terra se añaden 3500 por cada llamada:
   15700 por imagen, 95500 para investigación y 43000 para valoración; una foto con
   ambas fases reserva 154200 por intento. Se reserva por adelantado
   para los intentos que caben en la capacidad disponible, hasta el máximo configurado;

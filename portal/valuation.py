@@ -559,7 +559,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
     """One search + parse with model-aware request timeouts and reservations.
 
     The 27000 search allocation includes measured tokens and the existing 8000
-    web allowance; 9000 remains for extraction. Astra adds 3500 to each call's
+    web allowance; 9000 remains for extraction. The reasoning profile adds 3500 to each call's
     output/allocation. Daily platform limits still apply without adjustment.
     """
     result, snapshot = result or {}, snapshot or {}

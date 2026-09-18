@@ -22,6 +22,7 @@ from .emailing import NotificationNotSendable, send_notification_email
 from django.db import connection, transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
+from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
@@ -35,7 +36,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v26"
+PROMPT_VERSION = "imc-vision-research-2026-09-v27"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -702,6 +703,10 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if mode == "description" and not any(machine.data.values()):
             raise ValidationError("Completa algún dato de tu maquinaria para redactar una descripción.")
         model = option("OPENAI_MODEL", DEFAULT_MODEL)
+        try:
+            model_options(model)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         category_names = list(Category.objects.filter(active=True).order_by("name").values_list("name", flat=True)[:80])
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
@@ -765,7 +770,65 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         return job
 
 
+def _original_analysis_png(asset):
+    """Sanitize decoded original pixels without another lossy compression.
+
+    Missing/oversized originals and oversized PNG payloads use the existing
+    sanitized preview path. Neither saved file is changed or sent with EXIF.
+    """
+    original = getattr(asset, 'original', None)
+    if not original:
+        return None
+    try:
+        with original.open('rb') as stream:
+            raw = stream.read(MAX_ANALYSIS_IMAGE_BYTES + 1)
+    except (OSError, BotoCoreError, ClientError):
+        # Storage providers use different exception types for a missing or
+        # unavailable historical original. The preview is independently checked.
+        return None
+    if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
+        return None
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as decoded:
+                if decoded.width * decoded.height > MAX_PIXELS or min(decoded.size) < 32:
+                    raise ValidationError('La fotografía excede las dimensiones permitidas para análisis.')
+                if getattr(decoded, 'n_frames', 1) > 1:
+                    raise ValidationError('El análisis requiere una fotografía fija.')
+                if decoded.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF'}:
+                    return None
+                decoded.load()
+                oriented = ImageOps.exif_transpose(decoded)
+                oriented.thumbnail((3200, 3200) if getattr(asset, 'purpose', None) == 'plate' else (2400, 2400))
+                # A new pixel container drops all EXIF, ICC and textual metadata.
+                fresh = Image.new('RGB', oriented.size, 'white')
+                if oriented.mode in {'RGBA', 'LA'} or 'transparency' in oriented.info:
+                    rgba = oriented.convert('RGBA')
+                    fresh.paste(rgba, mask=rgba.getchannel('A'))
+                else:
+                    fresh.paste(oriented.convert('RGB'))
+                edge = max(fresh.size)
+                if edge < MIN_ANALYSIS_IMAGE_EDGE:
+                    size = tuple(max(1, round(length * MIN_ANALYSIS_IMAGE_EDGE / edge)) for length in fresh.size)
+                    fresh = fresh.resize(size, Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                fresh.save(output, format='PNG')
+                payload = output.getvalue()
+                return payload if len(payload) <= MAX_ANALYSIS_IMAGE_BYTES else None
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValidationError('La fotografía excede las dimensiones permitidas para análisis.') from exc
+    except (UnidentifiedImageError, OSError, ValueError):
+        return None
+
+
 def _image_input(asset):
+    original_png = _original_analysis_png(asset)
+    if original_png is not None:
+        return {'type': 'input_image', 'detail': 'high',
+                'image_url': 'data:image/png;base64,' + base64.b64encode(original_png).decode('ascii')}
     if not asset.preview:
         raise ValidationError("Una fotografía no tiene vista previa disponible.")
     with asset.preview.open("rb") as stream:
@@ -1306,6 +1369,11 @@ def _provider_model(response):
 
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
+    try:
+        model_options(job.model)
+    except ValueError as exc:
+        exc.accounted_usage = UsageTotals()
+        raise
     from openai import OpenAI
     _check_analysis_draft(job)
     consent = Consent.objects.filter(user=job.requested_by, machine=job.machine, kind="ai").order_by("-created_at").first()

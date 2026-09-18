@@ -33,7 +33,7 @@ La serie puede escribirse de forma opcional junto a las fotos, antes de preparar
 | Almacenamiento | Volumen privado persistente de 5 GB en `/data`; medios en `/data/media` |
 | Coste contratado | Servicio US$4/mes + volumen US$2.50/mes = **US$6.50/mes**, sin incluir consumos de proveedores externos |
 | Base de datos | Neon Free independiente, Frankfurt, PostgreSQL 18; migraciones `0001`–`0005` aplicadas |
-| IA | OpenAI Responses, perfil `gpt-6-astra`; clave exclusiva de producción. [Configuración, consumo y migración](docs/model-upgrade.md) |
+| IA | OpenAI Responses, perfil `gpt-5.6-luna`; clave exclusiva de producción. [Configuración, consumo y migración](docs/model-upgrade.md) |
 | Correo | Resend SMTP con credencial de envío validada; recepción en Gmail confirmada, dominio/remitente general pendiente |
 | Respaldo | Restauración real de PostgreSQL y 10 archivos en `imc_restore_test` aprobada; último respaldo local de producción confirmado: 15 de septiembre, 23:35 UTC, 10 archivos y 699,9 KB. Programado cada 24 horas; segunda ejecución aún no observada. Destino externo pendiente |
 

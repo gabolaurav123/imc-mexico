@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
-from portal.ai_model import (DEFAULT_MODEL, is_astra_model, model_options, output_limit,
+from portal.ai_model import (DEFAULT_MODEL, is_reasoning_model, model_options, output_limit,
                              request_timeout, token_reservation)
 from portal.models import AnalysisJob, PlatformSettings
 from portal.processing import (DescriptionAnalysis, _claim_job, _job_lease_seconds, _reservation,
@@ -18,23 +18,28 @@ from portal.tests.test_image_relevance import observation, parsed
 
 class ModelPolicyTests(SimpleTestCase):
     def test_only_selected_model_and_dated_snapshots_get_reasoning_policy(self):
-        self.assertEqual(DEFAULT_MODEL, "gpt-6-astra")
-        for model in ("gpt-6-astra", "gpt-6-astra-2026-09-17"):
+        self.assertEqual(DEFAULT_MODEL, "gpt-5.6-luna")
+        for model in ("gpt-5.6-luna", "gpt-5.6-luna-2026-09-17", "gpt-5.6-terra", "gpt-5.6-terra-2026-09-17"):
             with self.subTest(model=model):
-                self.assertTrue(is_astra_model(model))
+                self.assertTrue(is_reasoning_model(model))
                 self.assertEqual(model_options(model), {"reasoning": {"effort": "low"}})
                 self.assertEqual(output_limit(model, 4500), 8000)
                 self.assertEqual(token_reservation(model, 12200), 15700)
                 self.assertEqual(request_timeout(model, 45), 120)
                 self.assertEqual(request_timeout(model, 180), 180)
-        for model in ("gpt-4.1-mini", "gpt-4.1", "gpt-6-astra-mini", "gpt-6-astra-pro",
-                      "gpt-6-astraish", "GPT-6-ASTRA", "", None):
+        for model in ("gpt-4.1-mini", "gpt-4.1", "gpt-5.6-luna-mini", "gpt-5.6-luna-pro",
+                      "gpt-5.6-lunaish", "GPT-6-LUNA", "", None):
             with self.subTest(legacy_or_other=model):
-                self.assertFalse(is_astra_model(model))
+                self.assertFalse(is_reasoning_model(model))
                 self.assertEqual(model_options(model), {})
                 self.assertEqual(output_limit(model, 4500), 4500)
                 self.assertEqual(token_reservation(model, 12200), 12200)
                 self.assertEqual(request_timeout(model, 90), 90)
+
+    def test_astra_is_blocked_even_if_an_old_configuration_selects_it(self):
+        for model in ("gpt-6-astra", "gpt-6-astra-2026-09-17", "gpt-6-astra-pro"):
+            with self.subTest(model=model), self.assertRaisesRegex(ValueError, "deshabilitado"):
+                model_options(model)
 
     def test_reservation_adds_reasoning_for_each_actual_pipeline_request(self):
         for images in (0, 1, 2, 20):
@@ -58,7 +63,7 @@ class ModelPolicyTests(SimpleTestCase):
         self.assertEqual(_job_lease_seconds(legacy), 600)
 
 
-@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-6-astra",
+@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-5.6-luna",
                    OPENAI_TIMEOUT=90, AI_JOB_STALE_SECONDS=600)
 class ReasoningModelWorkerTests(TestCase):
     def setUp(self):
@@ -67,11 +72,23 @@ class ReasoningModelWorkerTests(TestCase):
             return_value={"type": "input_image", "image_url": "data:synthetic-photo"}))
         self.provider = self.enterContext(patch("openai.OpenAI"))
 
-    def photo(self, *, model="gpt-6-astra-2026-09-17", usage=True):
+    def photo(self, *, model="gpt-5.6-luna-2026-09-17", usage=True):
         return SimpleNamespace(status="completed", model=model,
             output_parsed=parsed([observation("image_001", category="Montacargas")]),
             usage=SimpleNamespace(input_tokens=1000, output_tokens=5000,
                 output_tokens_details=SimpleNamespace(reasoning_tokens=4500)) if usage else None)
+
+    def test_astra_cannot_be_queued_or_dispatched_from_a_historical_job(self):
+        with override_settings(OPENAI_MODEL="gpt-6-astra"), self.assertRaises(ValidationError):
+            enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        self.assertFalse(AnalysisJob.objects.exists())
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        AnalysisJob.objects.filter(pk=job.pk).update(model="gpt-6-astra")
+        self.assertTrue(process_next_job())
+        job.refresh_from_db()
+        self.assertEqual(job.status, "failed")
+        self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (0, 0, 0))
+        self.provider.assert_not_called()
 
     def test_enqueued_model_is_pinned_across_environment_changes_and_reasoning_is_not_double_counted(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
@@ -90,7 +107,7 @@ class ReasoningModelWorkerTests(TestCase):
             self.assertFalse(call.kwargs["store"])
         self.assertEqual(self.provider.call_args.kwargs["timeout"], 120)
         self.assertEqual([r["provider_model"] for r in job.result["image_readings"]],
-                         ["gpt-6-astra-2026-09-17"] * 2)
+                         ["gpt-5.6-luna-2026-09-17"] * 2)
 
     def test_exact_capacity_admits_one_attempt_but_one_token_short_never_calls_provider(self):
         limits = PlatformSettings.objects.get(pk=1)
@@ -121,10 +138,10 @@ class ReasoningModelWorkerTests(TestCase):
     def test_description_uses_policy_and_only_keeps_safe_provider_model_metadata(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, mode="description")
         self.provider.return_value.responses.parse.return_value = SimpleNamespace(status="completed",
-            model="gpt-6-astra-2026-09-17", output_parsed=DescriptionAnalysis(description="Equipo declarado.", warnings=[], questions=[]),
+            model="gpt-5.6-luna-2026-09-17", output_parsed=DescriptionAnalysis(description="Equipo declarado.", warnings=[], questions=[]),
             usage=SimpleNamespace(input_tokens=100, output_tokens=500))
         result, _ = process_analysis(job)
-        self.assertEqual(result["provider_model"], "gpt-6-astra-2026-09-17")
+        self.assertEqual(result["provider_model"], "gpt-5.6-luna-2026-09-17")
         self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs["reasoning"], {"effort": "low"})
         self.assertEqual(job.result["reservation_per_attempt"], 12500)
         self.provider.return_value.responses.parse.return_value.model = "https://unsafe.example/private"

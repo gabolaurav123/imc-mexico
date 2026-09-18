@@ -203,7 +203,7 @@ class ProcessingTests(TestCase):
         self.assertFalse(kwargs["store"])
         self.assertEqual(kwargs["text_format"], MachineAnalysis)
         self.assertEqual(mock.call_args.kwargs["max_retries"], 0)
-        self.assertIn("data:image/jpeg;base64,", str(kwargs["input"]))
+        self.assertIn("data:image/png;base64,", str(kwargs["input"]))
         self.assertNotIn("private-contact@example.com", str(kwargs["input"]))
         self.assertEqual(result["relevance"]["status"], "relevant")
         self.assertEqual(result["input_image_bindings"], [{"alias": "image_001", "asset_id": str(asset.pk), "sequence": 1}])
