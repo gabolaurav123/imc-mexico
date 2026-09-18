@@ -42,6 +42,30 @@ class PhotoDetailViewTests(SimpleTestCase):
 
 @override_settings(OPENAI_API_KEY='test-only-no-network', OPENAI_MODEL='gpt-5.6-luna')
 class PhotoDetailPipelineTests(TestCase):
+    def test_catalogue_matching_receives_only_original_general_machine_photo(self):
+        from portal.models import Asset
+        from portal.research import UsageTotals, empty_research
+        from portal.tests.test_image_bindings import ImageMessageBindingTests, PLATE_ID, LIST_ID
+        ImageMessageBindingTests.setUp(self)
+        Asset.objects.filter(pk=PLATE_ID).update(purpose='plate')
+        source = PhotoDetailViewTests().photo()
+        original = base64.b64decode(source['image_url'].split(',', 1)[1])
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True)
+        response = SimpleNamespace(status='completed',
+            output_parsed=parsed([observation('image_001', category='Montacargas')]),
+            usage=SimpleNamespace(input_tokens=1000, output_tokens=200))
+        with patch('portal.processing._image_input', return_value=source), \
+             patch('openai.OpenAI') as provider, \
+             patch('portal.processing.research_machine', return_value=(empty_research('no_results'), UsageTotals())) as research, \
+             patch('portal.processing.estimate_machine', return_value=({'status': 'insufficient', 'fields': {}}, UsageTotals())):
+            provider.return_value.responses.parse.return_value = response
+            result, _ = process_analysis(job)
+        self.assertEqual(provider.return_value.responses.parse.call_count, 2)
+        photos = research.call_args.kwargs['photo_inputs']
+        self.assertEqual(photos, [{'asset_id': LIST_ID, 'bytes': original}])
+        self.assertNotIn('photo_inputs', result)
+        self.assertNotIn(source['image_url'], json.dumps(result))
+
     def test_five_views_remain_one_paid_call_and_one_observation_per_photo(self):
         from portal.tests.test_image_bindings import ImageMessageBindingTests
         ImageMessageBindingTests.setUp(self)

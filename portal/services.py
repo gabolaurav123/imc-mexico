@@ -22,6 +22,7 @@ from .commercial import VISUAL_LABELS, VISUAL_CHOICES, ESTIMATE_LABELS, VALUATIO
 
 PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "centrifugal_force": "Fuerza centrífuga",
                           "compaction_depth": "Profundidad de compactación", "country_of_origin": "País de fabricación",
+                          "digging_depth": "Profundidad máxima de excavación", "hydraulic_system": "Sistema hidráulico",
                           "front_tire_size": "Llantas delanteras", "rear_tire_size": "Llantas traseras",
                           "mast_tilt": "Inclinación mástil (placa)", "load_tire_tread": "Entrecentros de llantas de carga",
                           "manufacturer": "Fabricante", "manufacturer_address": "Dirección del fabricante",
@@ -40,7 +41,7 @@ WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "w
 NUMERIC_READING_FIELDS = {"serial", "year", "hours", "kilometers", "power", "weight", "capacity", "dimensions",
                           "vibration_frequency", "centrifugal_force", "compaction_depth", "front_tire_size",
                           "rear_tire_size", "mast_tilt", "load_tire_tread", "voltage", "lift_height", "load_center",
-                          "battery_weight", "battery_capacity", "fork_length"}
+                          "battery_weight", "battery_capacity", "fork_length", "digging_depth"}
 
 
 def _same_image_numeric_conflict(machine, key, value, meta):

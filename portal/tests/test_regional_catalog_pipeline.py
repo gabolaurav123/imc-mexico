@@ -54,9 +54,9 @@ class RegionalCatalogPipelineTests(SimpleTestCase):
             )
 
         self.assertEqual(fetch.call_count, 2)
-        self.assertEqual(len(research["fields"]), 4)
+        self.assertEqual(len(research["fields"]), 6)
         self.assertEqual({field["key"] for field in research["fields"]},
-                         {"weight", "capacity", "power", "engine"})
+                         {"weight", "capacity", "power", "engine", "digging_depth", "hydraulic_system"})
         self.assertEqual({field["scope"] for field in research["fields"]}, {"model"})
         self.assertEqual({field["source_url"] for field in research["fields"]}, {PRODUCT_URL})
         self.assertTrue(research.get("proof"))
@@ -104,5 +104,5 @@ class RegionalCatalogPipelineTests(SimpleTestCase):
                 client, "gpt-5.6-luna", IDENTITY_RESULT,
                 allowed_categories=["Excavadoras"],
             )
-        self.assertEqual(len(research["fields"]), 4)
+        self.assertEqual(len(research["fields"]), 6)
         self.assertEqual({field["source_url"] for field in research["fields"]}, {PRODUCT_URL})

@@ -99,7 +99,7 @@ class WebSearchStatusTests(SimpleTestCase):
             self.assertEqual(stage['web_call_status_counts'], {'completed': 1, 'failed': 1})
             self.assertEqual(stage['response_status'], 'completed')
         for request in client.responses.create.call_args_list:
-            self.assertEqual(request.kwargs['max_tool_calls'], 1)
+            self.assertEqual(request.kwargs['max_tool_calls'], 2)
         self.assertNotIn(OTHER, {source['url'] for source in value['sources']})
 
     def test_optional_search_stops_to_preserve_final_extraction_headroom(self):

@@ -39,7 +39,7 @@ class ReasoningResearchTests(SimpleTestCase):
                 self.assertEqual(call.kwargs['timeout'], 120)
                 self.assertFalse(call.kwargs['store'])
         for call in client.responses.create.call_args_list:
-            self.assertEqual(call.kwargs['max_tool_calls'], 1)
+            self.assertEqual(call.kwargs['max_tool_calls'], 2)
             self.assertEqual(call.kwargs['tool_choice'], 'required')
 
     def test_model_aware_reservations_keep_legacy_and_add_each_reasoning_request(self):

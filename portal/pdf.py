@@ -326,7 +326,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
             age_items.append(para(f"{AGE_LABELS['estimated_year_basis']}: {values['estimated_year_basis']}"))
         section(AGE_LABEL, age_items)
     specification_table("Especificaciones técnicas", [key for key in ("power", "weight", "capacity", "dimensions", "engine", "transmission", "fuel",
-                                                                       "vibration_frequency", "centrifugal_force", "compaction_depth",
+                                                                       "vibration_frequency", "centrifugal_force", "compaction_depth", "digging_depth", "hydraulic_system",
                                                                        "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
                                                                        "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length")
                                                         if key not in highlights])

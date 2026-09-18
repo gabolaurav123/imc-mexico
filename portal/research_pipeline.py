@@ -3,7 +3,7 @@ import json
 from urllib.parse import urlsplit
 
 from django.core import signing
-from .ai_model import model_options, output_limit, request_timeout, token_reservation
+from .ai_model import is_reasoning_model, model_options, output_limit, request_timeout, token_reservation
 
 from .research import (
     MAX_CITED_PASSAGES, MAX_RESEARCH_SOURCES, NORMALIZE_RESERVATION,
@@ -28,7 +28,7 @@ SEARCH_INSTRUCTIONS = (
     "Mantén literalmente marca, modelo, valor y unidades tal como aparecen en la fuente. "
     "No añadas la serie recibida a frases de fuentes que no la contienen. No conviertas unidades ni traduzcas valores. "
     "Copia las etiquetas y los valores de tablas técnicas; distingue potencia neta/bruta y variantes. "
-    "Incluye marca, modelo, potencia, peso, capacidad, dimensiones, combustible, motor, transmisión, "
+    "Incluye marca, modelo, potencia, peso, capacidad, dimensiones, combustible, motor, transmisión, profundidad de excavación, sistema hidráulico, "
     "frecuencia de vibración, fuerza centrífuga, profundidad de compactación y país de fabricación documentados. "
     "En montacargas busca capacidad de carga, altura de elevación, centro de carga, voltaje, neumáticos, "
     "inclinación del mástil, trocha, peso/capacidad de batería y longitud de horquillas; conserva los calificadores "
@@ -60,7 +60,7 @@ NORMALIZE_INSTRUCTIONS = (
     "Sólo keys brand,model,power,weight,capacity,dimensions,fuel,engine,transmission,year,"
     "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin,front_tire_size,rear_tire_size,"
     "mast_tilt,load_tire_tread,manufacturer,manufacturer_address,voltage,lift_height,load_center,"
-    "battery_weight,battery_capacity,fork_length,estimated_year_from,estimated_year_to,estimated_year_basis. "
+    "battery_weight,battery_capacity,fork_length,digging_depth,hydraulic_system,estimated_year_from,estimated_year_to,estimated_year_basis. "
     "Conserva condiciones técnicas con/sin batería y mínimo/máximo. manufacturer_address es dirección del fabricante "
     "expresamente identificado, nunca ubicación actual ni país de fabricación; no copies direcciones de vendedores. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
@@ -278,7 +278,8 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         try:
             response = client.responses.create(
                 model=model, store=False, timeout=request_timeout(model, 65),
-                max_output_tokens=output_limit(model, 3000), max_tool_calls=1, **model_options(model),
+                max_output_tokens=output_limit(model, 3000),
+                max_tool_calls=2 if is_reasoning_model(model) else 1, **model_options(model),
                 tools=[tool], tool_choice="required", include=["web_search_call.action.sources"],
                 instructions=SEARCH_INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False),
             )

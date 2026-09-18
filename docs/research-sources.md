@@ -117,8 +117,16 @@ La disponibilidad y el formato de una página externa pueden cambiar. El fallo d
 
 ### Catálogo regional DEVELON Chile
 
-Verificado el 18 de septiembre de 2026: el [índice de excavadoras](https://develon-ce.cl/product-category/excavadoras-sobre-orugas/) enlaza las fichas regionales, incluida [DX300LC-7](https://develon-ce.cl/product/excavadora-sobre-orugas-dx300lc-7-develon/). Con marca y modelo ya identificados, el lector sigue un único enlace del índice que coincida literalmente y comprueba el título del documento. Extrae filas de peso, capacidad, potencia y motor con sus unidades. Los datos conservan ámbito de modelo y pasan por la validación firmada, incluso si la búsqueda no devuelve resultados.
+Verificado el 18 de septiembre de 2026: el [índice de excavadoras](https://develon-ce.cl/product-category/excavadoras-sobre-orugas/) enlaza las fichas regionales, incluida [DX300LC-7](https://develon-ce.cl/product/excavadora-sobre-orugas-dx300lc-7-develon/). Con marca y modelo ya identificados, el lector sigue un único enlace del índice que coincida literalmente y comprueba el título del documento. Extrae filas de peso, capacidad, potencia, motor, profundidad máxima de excavación y sistema hidráulico con sus unidades. Los datos conservan ámbito de modelo y pasan por la validación firmada, incluso si la búsqueda no devuelve resultados.
 
 Son como máximo dos peticiones HTTPS, con un plazo compartido de 14 segundos y sin llamadas adicionales de IA. No compara miniaturas ni elige el modelo por semejanza. No deriva país de fabricación, ubicación de la unidad o año desde la dirección del distribuidor. Los dominios regionales registrados se mantienen separados del filtro global del fabricante.
+
+### Coincidencia de fotografías de catálogo
+
+Cuando se reconoce DEVELON y la categoría Excavadoras pero falta el modelo, un paso separado compara localmente hasta tres fotografías generales aceptadas con las miniaturas del índice chileno registrado. Reutiliza los píxeles sin metadatos preparados para visión; no envía la foto a un buscador de imágenes. No es un identificador universal de maquinaria: exige una imagen casi idéntica, un umbral de 0,985 y un margen de 0,02 frente a otro modelo. Rechaza imágenes uniformes y coincidencias ambiguas.
+
+La descarga limita el total a doce miniaturas, 2 MiB por imagen, 20 megapíxeles y 20 segundos compartidos. Sólo admite HTTPS del catálogo registrado, con DNS público fijado y redirecciones verificadas. Antes de proponer un modelo también comprueba el título y las filas de su página de producto. El modelo y sus especificaciones quedan como referencias web editables pendientes de comprobar en la unidad, nunca como lecturas de placa. Conserva la fuente, la coincidencia y la firma de los campos; respeta correcciones y borrados humanos.
+
+Si este paso no identifica un modelo, la búsqueda general de Luna continúa. Una lista general de catálogo sólo actúa como respaldo cuando la búsqueda no aporta candidatos citados; no termina anticipadamente la investigación. La coincidencia no prueba año, ubicación, condición ni precio de una unidad real.
 
 `portal/tests/test_research_sources.py` verifica aliases completos, separación de fabricantes y catálogos, marca desconocida, inmutabilidad, origen por marca, falsificación de dominios, URLs no públicas y reclasificación de redirecciones. Son pruebas sin red y sin acceso a producción; no sustituyen una nueva comprobación de disponibilidad del sitio en cada investigación.

@@ -10,6 +10,7 @@ from copy import deepcopy
 import ipaddress
 import json
 import re
+import time
 import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
@@ -19,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, StrictInt
 from typing import Literal
 from .research_evidence import explicit_manufacturing_origin, has_conflicting_unit_reference
 from .research_field_values import is_valid_research_field_value
-from .ai_model import model_options, output_limit, request_timeout, token_reservation
+from .ai_model import is_reasoning_model, model_options, output_limit, request_timeout, token_reservation
 
 RESEARCH_VERSION = "imc-research-2026-09-v3"
 CONSENT_VERSION = "2026-09-research"
@@ -33,7 +34,8 @@ MODEL_YEAR_KEYS = frozenset({"estimated_year_from", "estimated_year_to", "estima
 WEB_KEYS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission", "year",
             "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
             "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer",
-            "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length", *MODEL_YEAR_KEYS}
+            "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity",
+            "fork_length", "digging_depth", "hydraulic_system", *MODEL_YEAR_KEYS}
 LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
           "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
           "engine": "Motor", "transmission": "Transmisión", "year": "Año",
@@ -43,7 +45,8 @@ LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "P
           "load_tire_tread": "Entrecentros de llantas de carga", "manufacturer": "Fabricante",
           "manufacturer_address": "Dirección del fabricante", "voltage": "Voltaje", "lift_height": "Altura de elevación",
           "load_center": "Centro de carga", "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería",
-          "fork_length": "Longitud de horquillas", "estimated_year_from": "Periodo del modelo: desde",
+          "fork_length": "Longitud de horquillas", "digging_depth": "Profundidad máxima de excavación",
+          "hydraulic_system": "Sistema hidráulico", "estimated_year_from": "Periodo del modelo: desde",
           "estimated_year_to": "Periodo del modelo: hasta", "estimated_year_basis": "Base del periodo documentado"}
 # Conservative authority recognition: unsupported manufacturers cannot supply a
 # year automatically. These manufacturer domains were checked against their own sites.
@@ -546,6 +549,8 @@ def _manifest(research):
         result["context"] = research["context"]
     if "hypotheses" in research:
         result["hypotheses"] = research["hypotheses"]
+    if "photo_match" in research:
+        result["photo_match"] = research["photo_match"]
     return result
 
 
@@ -1185,9 +1190,171 @@ def validated_model_hypotheses(research):
     return checked
 
 
-def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None):
+def _photo_match_cancelled(identity, basis, usage=None):
+    outcome = empty_research("degraded", identity, basis)
+    outcome["diagnostics"] = {"origin": "photo_catalog_match", "cancelled": True}
+    outcome["warnings"].append("La autorización de búsqueda ya no estaba vigente; no se aplicó la referencia fotográfica.")
+    usage = usage if isinstance(usage, UsageTotals) else UsageTotals()
+    outcome["usage"] = usage.as_dict()
+    return outcome, usage
+
+
+def _research_photo_catalog_reference(client, model, result, identity, basis, photo_inputs,
+                                      snapshot=None, allowed=None):
+    """Resolve one exact catalogue-photo reference before model research.
+
+    A photo match is a provisional web identity. It is only promoted after the
+    product page itself validates the model and supplies literal evidence. The
+    resulting model field is signed together with the ordinary model-scoped
+    research fields; it is never marked as an image reading.
+    """
+    model_meta = result.get("provenance", {}).get("model", {})
+    declared = human_declared_data(snapshot)
+    if (not isinstance(photo_inputs, list) or not photo_inputs
+            or not identity.get("brand") or identity.get("model")
+            or result.get("data", {}).get("model") not in (None, "")
+            or "model" in declared
+            or (isinstance(model_meta, dict)
+                and (model_meta.get("source") == "user" or model_meta.get("review") == "confirmed"))):
+        return None
+    from .research_catalog import catalog_product_fields
+    from .research_photo_match import match_catalog_photo
+    from .valuation import _fetch_listing
+
+    category = identity.get("category") or result.get("category")
+    deadline = time.monotonic() + 20.0
+    matches = []
+    for item in photo_inputs[:3]:
+        if not isinstance(item, dict) or not isinstance(item.get("bytes"), (bytes, bytearray)):
+            continue
+        if allowed is not None and not allowed():
+            return _photo_match_cancelled(identity, basis)
+        if time.monotonic() >= deadline:
+            break
+        try:
+            match = match_catalog_photo(item["bytes"], identity["brand"], category, deadline=deadline)
+        except Exception:
+            match = None
+        if not isinstance(match, dict):
+            continue
+        candidate = _identifier(match.get("model"))
+        source_url = safe_public_url(match.get("source_url"))
+        image_url = safe_public_url(match.get("image_url"))
+        try:
+            score = float(match.get("score"))
+        except (TypeError, ValueError):
+            score = -1
+        if (not candidate or not source_url or not image_url or not 0 <= score <= 1
+                or not isinstance(match.get("origin"), str)
+                or not match.get("origin")[:120]):
+            continue
+        matches.append((score, item, match, candidate, source_url, image_url))
+    if not matches:
+        return None
+    candidate_keys = {identifier_key(item[3]) for item in matches}
+    if len(candidate_keys) != 1:
+        # Conflicting high-confidence photos must not pick a winner. Let the
+        # ordinary research path provide non-authoritative context instead.
+        return None
+    if allowed is not None and not allowed():
+        return _photo_match_cancelled(identity, basis)
+    best = max(matches, key=lambda item: item[0])
+    candidate_model = best[3]
+    candidate_identity = {**identity, "model": candidate_model}
+    try:
+        product = catalog_product_fields(candidate_identity, candidate_model,
+                                         fetcher=_fetch_listing, deadline=time.monotonic() + 14.0)
+    except Exception:
+        product = None
+    if allowed is not None and not allowed():
+        return _photo_match_cancelled(identity, basis)
+    if not isinstance(product, dict):
+        return None
+    product_model = _identifier(product.get("model"))
+    product_url = safe_public_url(product.get("source_url"))
+    product_title = " ".join(str(product.get("source_title", "") or "").split())[:200]
+    evidence = " ".join(str(product.get("evidence", "") or "").split())[:800]
+    if (not product_model or identifier_key(product_model) != identifier_key(candidate_model)
+            or not product_url or _retrieved_url_identity(product_url) != _retrieved_url_identity(best[4])
+            or not product_title or not evidence
+            or not _contains_brand(evidence, identity.get("brand"))
+            or not _contains_identifier(evidence, product_model)):
+        return None
+    source = {"url": product_url, "title": product_title}
+    model_field = ResearchField(key="model", value=product_model, scope="model",
+                                source_url=product_url, evidence=evidence,
+                                matched_serial=None, matched_brand=identity["brand"],
+                                matched_model=product_model)
+    product_fields = [model_field]
+    for field in product.get("fields", ()):
+        if (isinstance(field, ResearchField) and field.key in WEB_KEYS
+                and field.scope == "model" and safe_public_url(field.source_url) == product_url
+                and identifier_key(field.matched_model) == identifier_key(product_model)):
+            product_fields.append(field)
+    product_passages = [evidence]
+    for field in product_fields:
+        field_evidence = " ".join(str(field.evidence or "").split())[:800]
+        if field_evidence and field_evidence not in product_passages:
+            product_passages.append(field_evidence)
+    seed = normalize_research(ResearchExtraction(fields=[]), candidate_identity, "model",
+                               [source], "\n\n".join(product_passages), {product_url: product_passages},
+                               {product_url: product_title}, direct_fields=product_fields)
+    if not any(field.get("key") == "model" and field.get("value") == product_model
+               for field in seed.get("fields", [])):
+        return None
+    from .research_pipeline import research_identified_machine
+    followup, usage = research_identified_machine(client, model, result, candidate_identity,
+                                                  "model", allowed, category)
+    if allowed is not None and not allowed():
+        return _photo_match_cancelled(identity, basis, usage)
+    combined = deepcopy(followup if isinstance(followup, dict) else seed)
+    combined.update(identity=candidate_identity, basis="model", match="model")
+    combined["sources"] = [source]
+    combined["fields"] = deepcopy(seed.get("fields", []))
+    seen = {field.get("key"): field.get("value") for field in combined["fields"]}
+    for field in (followup.get("fields", []) if isinstance(followup, dict) else []):
+        key, value = field.get("key"), field.get("value")
+        if key == "model":
+            continue
+        if key in seen:
+            continue
+        combined["fields"].append(deepcopy(field))
+        seen[key] = value
+    known_urls = {source["url"]}
+    for item in (followup.get("sources", []) if isinstance(followup, dict) else []):
+        url = safe_public_url(item.get("url")) if isinstance(item, dict) else None
+        title = " ".join(str(item.get("title", "") or "").split())[:200] if isinstance(item, dict) else ""
+        if url and url not in known_urls:
+            combined["sources"].append({"url": url, "title": title})
+            known_urls.add(url)
+    combined["warnings"] = list(dict.fromkeys([
+        *(seed.get("warnings", []) or []), *(followup.get("warnings", []) if isinstance(followup, dict) else []),
+        "El modelo procede de una coincidencia fotográfica casi idéntica con un catálogo público y queda pendiente de confirmar en esta unidad.",
+        "Las especificaciones citadas son referencias del modelo; no prueban la configuración de esta unidad.",
+    ]))
+    combined["status"] = "completed"
+    combined["photo_match"] = {
+        "asset_id": str(best[1].get("asset_id", ""))[:120], "model": product_model,
+        "source_url": product_url, "source_title": product_title,
+        "image_url": best[5], "score": best[0],
+        "photo_sha256": str(best[2].get("photo_sha256", ""))[:128],
+        "image_sha256": str(best[2].get("image_sha256", ""))[:128],
+        "origin": str(best[2].get("origin", ""))[:120],
+    }
+    combined["diagnostics"] = {"origin": "photo_catalog_match", "matched_photo_count": len(matches),
+                                "spec_followup": bool(isinstance(followup, dict))}
+    combined["usage"] = usage.as_dict() if isinstance(usage, UsageTotals) else combined.get("usage", UsageTotals().as_dict())
+    combined["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(combined), compress=True)
+    return combined, usage
+
+
+def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None):
     identity, basis = research_identity(result, snapshot, allowed_categories)
     if basis in {"none", "category"}:
+        photo_reference = _research_photo_catalog_reference(
+            client, model, result, identity, basis, photo_inputs, snapshot, allowed)
+        if photo_reference is not None:
+            return photo_reference
         return _research_general_context(client, model, result, snapshot, allowed, allowed_categories)
     from .research_pipeline import research_identified_machine
     category_meta = (snapshot or {}).get("provenance", {}).get("category", {})
@@ -1249,10 +1416,20 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     received = False
     diagnostics = {}
     candidate_mode = bool(identity.get("brand") and not identity.get("model"))
-    if candidate_mode:
+
+    def direct_catalog_fallback():
+        if not candidate_mode:
+            return None
         direct = _direct_catalog_context(identity, allowed)
         if direct is not None:
-            return direct, usage
+            # Preserve any bounded search cost already spent before the direct
+            # catalogue fallback; the direct reader itself has no provider usage.
+            direct["usage"] = usage.as_dict()
+            direct["diagnostics"] = {**direct.get("diagnostics", {}),
+                                      "fallback_after_general_search": True,
+                                      "general_search": diagnostics}
+        return direct
+
     private_identifiers = [data.get(key) for data in
                            (result.get("data", {}), (snapshot or {}).get("data", {}))
                            for key in ("serial", "vin")]
@@ -1316,7 +1493,8 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     try:
         response = client.responses.create(
             model=model, store=False, timeout=request_timeout(model, 55),
-            max_output_tokens=output_limit(model, 2200 if candidate_mode else 1800), max_tool_calls=1, **model_options(model),
+            max_output_tokens=output_limit(model, 2200 if candidate_mode else 1800),
+            max_tool_calls=2 if is_reasoning_model(model) else 1, **model_options(model),
             tools=[search_tool], tool_choice="required",
             include=["web_search_call.action.sources"],
             instructions=search_instructions,
@@ -1374,6 +1552,9 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
         cited_urls = {passage["source_url"] for passage in cited_passages}
         outcome["sources"] = [source for source in sources if source["url"] in cited_urls]
         if not sources or not cited_passages:
+            direct = direct_catalog_fallback()
+            if direct is not None:
+                return direct, usage
             outcome["status"] = "no_results"
             return outcome, usage
         if candidate_mode:
@@ -1429,6 +1610,9 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
         # A web outage or unsupported tool never discards OCR.
         if not received:
             usage.estimate(token_reservation(model, SEARCH_RESERVATION))
+        direct = direct_catalog_fallback()
+        if direct is not None:
+            return direct, usage
         outcome["status"] = "degraded"
         outcome["error_type"] = type(exc).__name__[:80]
         outcome["error_stage"] = "search"
@@ -1515,7 +1699,8 @@ def compose_description(data, provenance, category=None, visual_description="", 
     for key in ("brand", "model", "year", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission",
                 "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
                 "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer", "manufacturer_address",
-                "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length"):
+                "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length",
+                "digging_depth", "hydraulic_system"):
         value, meta = data.get(key), provenance.get(key, {})
         if value in (None, "") or not isinstance(value, (str, int, float)) or contains_private_identifier(value):
             continue

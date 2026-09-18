@@ -385,6 +385,8 @@ def _regional_row_fields(parser, source_url, source_title, model):
         "peso operativo": "weight", "capacidad del balde": "capacity",
         "potencia del motor": "power", "motor": "engine",
         "combustible": "fuel", "dimensiones": "dimensions",
+        "profundidad máxima de excavación": "digging_depth",
+        "sistema hidráulico": "hydraulic_system",
     }
     fields = []
     for label, value in parser.rows:

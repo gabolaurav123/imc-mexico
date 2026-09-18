@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
@@ -15,8 +16,12 @@ LEAD = {'model': 'DX225LC-7 SLR', 'status': 'hypothesis', 'confidence': 'lead',
 
 
 class DirectCatalogPipelineTests(SimpleTestCase):
-    def test_direct_document_reference_is_signed_without_any_paid_model_call(self):
+    def test_direct_document_reference_is_signed_after_general_search_fallback(self):
         client = Mock()
+        client.responses.create.return_value = SimpleNamespace(
+            status='completed', output_text='', output=[],
+            usage=SimpleNamespace(input_tokens=123, output_tokens=45),
+        )
         result = {'data': {'brand': 'DEVELON'}, 'category': 'Excavadoras',
                   'provenance': {'brand': {'source': 'image', 'review': 'clear', 'component': 'machine'}}}
         with patch('portal.research_catalog.catalog_listing_candidates', return_value=[LEAD]):
@@ -26,8 +31,12 @@ class DirectCatalogPipelineTests(SimpleTestCase):
         self.assertEqual(research['hypotheses'][0]['model'], 'DX225LC-7 SLR')
         self.assertEqual(research['fields'], [])
         self.assertIsNone(research['identity']['model'])
-        self.assertEqual(usage.input_tokens + usage.output_tokens + usage.web_search_calls, 0)
-        client.responses.create.assert_not_called()
+        self.assertEqual(usage.input_tokens, 123)
+        self.assertEqual(usage.output_tokens, 45)
+        self.assertEqual(research['usage']['input_tokens'], 123)
+        self.assertEqual(research['usage']['output_tokens'], 45)
+        self.assertTrue(research['diagnostics']['fallback_after_general_search'])
+        client.responses.create.assert_called_once()
         client.responses.parse.assert_not_called()
 
     def test_withdrawal_after_fetch_discards_leads(self):

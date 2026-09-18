@@ -36,7 +36,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v31"
+PROMPT_VERSION = "imc-vision-research-2026-09-v32"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -45,7 +45,7 @@ MAX_OUTPUT_TOKENS = 4500
 IMAGE_RESERVATION = 12_200
 MIN_ANALYSIS_IMAGE_EDGE = 1280
 MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
-AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
+AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity", "digging_depth", "hydraulic_system",
            "dimensions", "fuel", "kilometers", "engine", "transmission",
            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
            "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
@@ -1599,8 +1599,24 @@ def process_analysis(job):
                                                 machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
                 return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
 
+            # Reuse the decoded, metadata-free photo already read by vision.
+            # Catalogue matching compares locally; no photo is uploaded to a
+            # search engine. Plates, documents and unrelated images stay out.
+            photo_inputs = []
+            machine_photos = {item.get('asset_id') for item in result.get('image_observations', [])
+                              if item.get('kind') == 'machine' and item.get('relevance') == 'machinery'}
+            if job.mode == 'analysis':
+                for binding, asset, request in zip(bindings, assets, image_requests):
+                    if (binding['asset_id'] not in machine_photos or asset.purpose not in {'general', 'detail'}
+                            or len(photo_inputs) >= 3):
+                        continue
+                    encoded = request[1]['content'][1].get('image_url', '')
+                    if encoded.startswith('data:image/') and ';base64,' in encoded:
+                        photo_inputs.append({'asset_id': binding['asset_id'],
+                                             'bytes': base64.b64decode(encoded.split(';base64,', 1)[1], validate=True)})
             research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
-                                                       allowed_categories=job.result.get("category_names", []))
+                                                       allowed_categories=job.result.get("category_names", []),
+                                                       photo_inputs=photo_inputs)
             usage.add(research_usage)
             usage.estimated_tokens += research_usage.estimated_tokens
             usage.web_search_calls += research_usage.web_search_calls

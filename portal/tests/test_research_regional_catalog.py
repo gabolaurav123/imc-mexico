@@ -25,6 +25,8 @@ PRODUCT = """
 <tr><th>Capacidad del Balde</th><td>1.60 m3</td></tr>
 <tr><th>Potencia del Motor</th><td>266.9 hp @ 1,900 rpm</td></tr>
 <tr><th>Motor</th><td>DEVELON DL08 (6 cilindros)</td></tr>
+<tr><th>Profundidad máxima de excavación</th><td>7.3 m</td></tr>
+<tr><th>Sistema hidráulico</th><td>Dos bombas de pistón axial de 248 L/min</td></tr>
 <tr><th>Ubicación del distribuidor</th><td>Santiago</td></tr></table>
 </body></html>
 """
@@ -58,6 +60,8 @@ class RegionalCatalogTests(SimpleTestCase):
         fields = {field.key: field for field in result["fields"]}
         self.assertEqual(fields["weight"].value, "31.5 t")
         self.assertEqual(fields["power"].value, "266.9 hp @ 1,900 rpm")
+        self.assertEqual(fields["digging_depth"].value, "7.3 m")
+        self.assertEqual(fields["hydraulic_system"].value, "Dos bombas de pistón axial de 248 L/min")
         self.assertNotIn("distribuidor", fields)
         self.assertTrue(all(field.scope == "model" for field in result["fields"]))
 
