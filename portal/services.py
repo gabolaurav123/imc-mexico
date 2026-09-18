@@ -229,7 +229,8 @@ def _valuation_identity_matches(data, valuation):
         not identity.get(key) or _reference_text(data.get(key)) == _reference_text(identity[key])
         for key in ("brand", "model")):
         return False
-    if valuation.get("status") != "estimated":
+    status = valuation.get("status")
+    if status not in {"estimated", "conditional_reference"}:
         return True
     condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
                  "Para reparación": "for_repair"}.get(data.get("condition"))
@@ -239,6 +240,11 @@ def _valuation_identity_matches(data, valuation):
         condition = "used"
     if identity.get("condition") and condition != identity["condition"]:
         return False
+    if status == "conditional_reference" and condition is not None:
+        reference_conditions = {item.get("condition") for item in valuation.get("comparables", [])
+                                if isinstance(item, dict) and item.get("condition")}
+        if reference_conditions and condition not in reference_conditions:
+            return False
     return all(_reference_text(data.get(key)) == _reference_text(value)
                for key, value in identity.get("configurations", {}).items())
 

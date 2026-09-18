@@ -242,9 +242,12 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     discovery = None
     interrupted = False
     observed_search_cost = 0
+    from .research_documents import collect_registered_fields
+    direct_fields, document_attempts, interrupted = collect_registered_fields(
+        identity, category, sources, passages, titles, allowed)
     stages = ["serial", "manufacturer", "catalogs"] if identity.get("serial") else ["manufacturer", "catalogs", "manuals"]
     for stage in stages:
-        if allowed is not None and not allowed():
+        if interrupted or (allowed is not None and not allowed()):
             interrupted = True
             break
         # Once evidence exists, another optional search must leave enough room
@@ -333,8 +336,10 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                 attempt["identity_resolution_error"] = type(exc).__name__[:80]
     if not interrupted and retrieved:
         from .research_documents import collect_document_fields
-        direct_fields, document_attempts, interrupted = collect_document_fields(
+        extra_fields, extra_attempts, interrupted = collect_document_fields(
             identity, retrieved, sources, passages, titles, allowed)
+        direct_fields.extend(extra_fields)
+        document_attempts.extend(extra_attempts)
     if not interrupted and passages:
         if allowed is not None and not allowed():
             interrupted = True

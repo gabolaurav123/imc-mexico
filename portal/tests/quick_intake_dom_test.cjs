@@ -432,6 +432,8 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  const onlyReason=setup(async()=>{throw Error('No request expected');},{data:{estimate_basis:'Estimación orientativa',estimate_missing_info:'Falta identificar modelo'}});
  assert.match(onlyReason.doc.querySelector('#valuation-status').textContent,/No hay una estimación activa.*Falta identificar modelo/);
  assert.doesNotMatch(onlyReason.doc.querySelector('#valuation-status').textContent,/Estos importes/);
+ const conditionalReference=setup(async()=>{throw Error('Conditional reference preview must not make requests');},{state:{valuation:{status:'conditional_reference',suggested_price:null,comparables:[]},provenance:{estimate_min:{source:'valuation',review:'needs_review'},estimate_max:{source:'valuation',review:'needs_review'},estimate_basis:{source:'valuation',review:'needs_review'}}},data:{estimate_min:'1000',estimate_max:'1500',estimate_currency:'USD',estimate_basis:'Comparables con condición documentada',estimate_missing_info:'Confirmar condición de esta unidad',price:null}});
+ assert.match(conditionalReference.doc.querySelector('#valuation-disclaimer').textContent,/Referencia de mercado condicional/);assert.match(conditionalReference.doc.querySelector('#valuation-status').textContent,/no confirma la condición de esta unidad.*No se completó un precio de anuncio sugerido/);assert.equal(conditionalReference.doc.querySelector('#price').value,'');conditionalReference.close();pass('conditional market reference is explicit, keeps asking price blank and remains editable');
  onlyReason.close();pass('a missing-data explanation alone is never displayed as an existing monetary estimate');
  let invalidatedSave,invalidatedCalls=[];
  invalidatedSave=setup(async(url,o)=>{

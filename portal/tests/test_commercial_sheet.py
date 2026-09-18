@@ -102,6 +102,24 @@ class CommercialSheetTests(TestCase):
         text = "\n".join(page.extract_text() for page in document.pages)
         return html, document, text
 
+    def test_conditional_reference_wording_persists_in_virtual_sheet_and_pdf_without_suggested_price(self):
+        fixture = commercial_snapshot()
+        fixture["data"]["price"] = None
+        fixture["data"]["estimate_basis"] = "BASE FIRMADA: comparables de condición documentada; confirmar en esta unidad."
+        valuation = next(iter(fixture["valuations"].values()))
+        valuation.update(status="conditional_reference", suggested_price=None)
+        valuation["fields"]["estimate_basis"] = "BASE FIRMADA: comparables de condición documentada; confirmar en esta unidad."
+        _seal(valuation)
+        for public in (False, True):
+            with self.subTest(public=public):
+                html, document, text = self.render(fixture, public=public)
+                for output in (html, " ".join(text.split())):
+                    self.assertIn("Referencia de mercado condicional", output)
+                    self.assertIn("no confirma la condición de esta unidad", output)
+                    self.assertIn("No se completó un precio de anuncio sugerido", output)
+                    self.assertIn("BASE FIRMADA", output)
+                    self.assertNotIn("PRECIO SUGERIDO", output)
+
     def test_visual_fields_estimate_and_asking_vs_sold_are_present_in_both_documents(self):
         fixture = commercial_snapshot()
         for public in (False, True):

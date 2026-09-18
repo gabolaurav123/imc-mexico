@@ -9,6 +9,46 @@ from .research_fetch import CatalogFetchError, fetch_catalog_html, supports_cata
 from .research_catalogs import parse_catalog_html
 
 
+def collect_registered_fields(identity, category, sources, passages, titles, allowed=None):
+    """Read a registered regional catalogue for an already identified model.
+
+    Literal rows enter the same signed evidence validator as retrieved manuals.
+    An index never supplies the unit's identity, location or year.
+    """
+    from .research_catalog import catalog_product_fields
+    from .research_sources import lookup_brand
+    from .valuation import _fetch_listing
+    profile = lookup_brand(identity.get('brand'), category)
+    if not identity.get('model') or not profile or not profile.catalog_urls:
+        return [], [], False
+    if allowed is not None and not allowed():
+        return [], [], True
+    attempt = {'host': urlsplit(profile.catalog_urls[0]).hostname, 'status': 'no_data',
+               'origin': 'registered_regional_catalog'}
+    try:
+        document = catalog_product_fields({**identity, 'brand': profile.brand, 'category': category},
+                                          fetcher=_fetch_listing)
+    except Exception:
+        attempt.update(status='unavailable', reason='document_parse_failed')
+        return [], [attempt], False
+    if allowed is not None and not allowed():
+        return [], [attempt], True
+    if not document:
+        return [], [attempt], False
+    url, title = document['source_url'], document['source_title']
+    sources.append({'url': url, 'title': title})
+    titles[url] = title
+    fields = document['fields'][:10]
+    for field in fields:
+        entry = {'passage_index': len(passages), 'source_url': url, 'source_title': title,
+                 'text': field.evidence, 'origin': 'direct_document'}
+        if _source_title_context(title, identity, field.evidence):
+            entry['identity_context'] = {'origin': 'same_source_title', 'title': title}
+        passages.append(entry)
+    attempt.update(status='evidence_found', parsed_field_count=len(fields), retained_field_count=len(fields))
+    return fields, [attempt], False
+
+
 def collect_document_fields(identity, retrieved, sources, passages, titles, allowed=None):
     """Append literal document evidence, bounded to two pages and twenty fields.
 

@@ -614,7 +614,7 @@ def machine_capacity_evidence(value, evidence):
                      r"\b(?:hydraulic\s+(?:system|fluid|pump|capacity)|sistema\s+hidraulico)\b", clause):
             continue
         if re.search(r"\b(?:payload|lifting|carrying|load|bucket|hopper|heaped|struck|throughput|"
-                     r"carga|elevacion|levantamiento|cucharon|cazo|cubeta|tolva|productiva|produccion|production)\b", clause):
+                     r"carga|elevacion|levantamiento|balde|cucharon|cazo|cubeta|tolva|productiva|produccion|production)\b", clause):
             return True
         # Nominal CAPACITY in a load rating is common on forklift plates and
         # seller rows. The label is still required; units alone never suffice.

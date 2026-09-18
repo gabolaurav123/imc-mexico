@@ -176,7 +176,7 @@ def _seal(value):
 def is_validated_estimate(valuation):
     if not isinstance(valuation, dict) or valuation.get('version') != VALUATION_VERSION or valuation.get('label') != LABEL:
         return False
-    if valuation.get('status') not in {'estimated', 'insufficient', 'not_run'}:
+    if valuation.get('status') not in {'estimated', 'conditional_reference', 'insufficient', 'not_run'}:
         return False
     try:
         return signing.Signer(salt=SIGNING_SALT).unsign_object(valuation.get('proof', '')) == _manifest(valuation)
@@ -561,23 +561,31 @@ def _normalize(parsed, passages, identity):
     if eligible:
         (currency, market, price_type, condition), comps = eligible[0]
         outcome['comparables'] = comps[:6]
-        if len(comps) >= 2 and identity['condition']:
+        if len(comps) >= 2 and (identity['condition'] or condition):
             prices = sorted(Decimal(comp['price']) for comp in comps[:6])
             middle = len(prices) // 2
             median = prices[middle] if len(prices) % 2 else (prices[middle - 1] + prices[middle]) / 2
             basis = ('Precios finales publicados de ventas' if price_type == 'sold' else 'Precios publicados de oferta; no acreditan una venta cerrada')
-            outcome.update(status='estimated', suggested_price=format(median, '.2f'))
+            conditional = not bool(identity['condition'])
+            if conditional:
+                basis = (f'Referencia condicional del modelo: comparables de {"equipos usados" if condition == "used" else "equipos nuevos" if condition == "new" else "equipos reacondicionados" if condition == "refurbished" else "equipos para reparación"}; '
+                         'no confirma la condición de esta unidad. ' + basis)
+                outcome.update(status='conditional_reference', suggested_price=None)
+            else:
+                outcome.update(status='estimated', suggested_price=format(median, '.2f'))
             outcome['fields'].update(estimate_min=format(min(prices), '.2f'), estimate_max=format(max(prices), '.2f'),
                 estimate_currency=currency, estimate_market=_MARKET_NAMES[market],
                 estimate_basis=f'{LABEL}. {basis}: {len(prices)} unidades del mismo modelo y clase de uso. Sin conversión de moneda ni ajustes por funcionamiento.',
                 estimate_missing_info='Confirmar funcionamiento, año, horas y configuración real antes de fijar el precio final.')
+            if conditional:
+                outcome['fields']['estimate_missing_info'] = CONDITION_MISSING + ' También confirma funcionamiento, año y horas antes de fijar el precio final.'
             if identity.get('condition_basis') in {'apparent', 'owner_apparent'}:
                 outcome['fields']['estimate_basis'] += ' La clasificación usada es aparente; no confirma funcionamiento.'
             if identity.get('preservation'):
                 outcome['fields']['estimate_basis'] += f' Conservación aparente: {identity["preservation"]}; no se aplicó un descuento o aumento por apariencia.'
-    if not identity['condition']:
+    if not identity['condition'] and outcome['status'] != 'conditional_reference':
         outcome['fields']['estimate_missing_info'] = CONDITION_MISSING
-    elif rejected['configuration_missing_or_different'] and outcome['status'] != 'estimated':
+    elif rejected['configuration_missing_or_different'] and outcome['status'] not in {'estimated', 'conditional_reference'}:
         outcome['fields']['estimate_missing_info'] = 'Faltan comparables que documenten la misma configuración: ' + ', '.join(identity['configurations']) + '.'
     elif len(outcome['comparables']) == 1:
         outcome['fields']['estimate_missing_info'] = 'Sólo hay un comparable verificable; falta una segunda unidad independiente del mismo mercado, moneda, condición y tipo de precio.'

@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
-from portal.ai_model import (DEFAULT_MODEL, is_reasoning_model, model_options, output_limit,
+from portal.ai_model import (DEFAULT_MODEL, VISION_MODEL, image_model, is_reasoning_model, model_options, output_limit,
                              request_timeout, token_reservation)
 from portal.models import AnalysisJob, PlatformSettings
 from portal.processing import (DescriptionAnalysis, _claim_job, _job_lease_seconds, _reservation,
@@ -17,6 +17,13 @@ from portal.tests.test_image_relevance import observation, parsed
 
 
 class ModelPolicyTests(SimpleTestCase):
+    def test_visual_stage_uses_permitted_terra_without_changing_research_model(self):
+        self.assertEqual(image_model(DEFAULT_MODEL), VISION_MODEL)
+        self.assertEqual(DEFAULT_MODEL, 'gpt-5.6-luna')
+        self.assertEqual(image_model('gpt-4.1-mini'), 'gpt-4.1-mini')
+        with self.assertRaises(ValueError):
+            image_model('gpt-6-astra')
+
     def test_only_selected_model_and_dated_snapshots_get_reasoning_policy(self):
         self.assertEqual(DEFAULT_MODEL, "gpt-5.6-luna")
         for model in ("gpt-5.6-luna", "gpt-5.6-luna-2026-09-17", "gpt-5.6-terra", "gpt-5.6-terra-2026-09-17"):
@@ -72,7 +79,7 @@ class ReasoningModelWorkerTests(TestCase):
             return_value={"type": "input_image", "image_url": "data:synthetic-photo"}))
         self.provider = self.enterContext(patch("openai.OpenAI"))
 
-    def photo(self, *, model="gpt-5.6-luna-2026-09-17", usage=True):
+    def photo(self, *, model="gpt-5.6-terra-2026-09-17", usage=True):
         return SimpleNamespace(status="completed", model=model,
             output_parsed=parsed([observation("image_001", category="Montacargas")]),
             usage=SimpleNamespace(input_tokens=1000, output_tokens=5000,
@@ -93,6 +100,7 @@ class ReasoningModelWorkerTests(TestCase):
     def test_enqueued_model_is_pinned_across_environment_changes_and_reasoning_is_not_double_counted(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
         self.assertEqual(job.model, DEFAULT_MODEL)
+        self.assertEqual(job.result['vision_model'], VISION_MODEL)
         self.assertEqual(job.result["reservation_per_attempt"], 31400)
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
         with override_settings(OPENAI_MODEL="gpt-4.1-mini"):
@@ -101,13 +109,24 @@ class ReasoningModelWorkerTests(TestCase):
         self.assertEqual(job.status, "completed")
         self.assertEqual((job.input_tokens, job.output_tokens), (2000, 10000))
         for call in self.provider.return_value.responses.parse.call_args_list:
-            self.assertEqual(call.kwargs["model"], DEFAULT_MODEL)
+            self.assertEqual(call.kwargs["model"], VISION_MODEL)
             self.assertEqual(call.kwargs["reasoning"], {"effort": "low"})
             self.assertEqual(call.kwargs["max_output_tokens"], 8000)
             self.assertFalse(call.kwargs["store"])
         self.assertEqual(self.provider.call_args.kwargs["timeout"], 120)
         self.assertEqual([r["provider_model"] for r in job.result["image_readings"]],
-                         ["gpt-5.6-luna-2026-09-17"] * 2)
+                         ["gpt-5.6-terra-2026-09-17"] * 2)
+        self.assertEqual([r['requested_model'] for r in job.result['image_readings']], [VISION_MODEL] * 2)
+
+    def test_historical_luna_job_without_stage_policy_still_dispatches_luna(self):
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        job.result.pop('vision_model')
+        job.save(update_fields=['result'])
+        self.provider.return_value.responses.parse.side_effect = [self.photo(model=DEFAULT_MODEL), self.photo(model=DEFAULT_MODEL)]
+        self.assertTrue(process_next_job())
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual([c.kwargs['model'] for c in self.provider.return_value.responses.parse.call_args_list], [DEFAULT_MODEL] * 2)
 
     def test_exact_capacity_admits_one_attempt_but_one_token_short_never_calls_provider(self):
         limits = PlatformSettings.objects.get(pk=1)
@@ -162,7 +181,7 @@ class ReasoningModelWorkerTests(TestCase):
         self.assertEqual(job.status, "failed")
         self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (1000, 8000, 0))
         self.assertEqual(self.provider.return_value.responses.parse.call_count, 1)
-        self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs["model"], DEFAULT_MODEL)
+        self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs["model"], VISION_MODEL)
 
     def test_legacy_job_keeps_legacy_requests_after_global_upgrade(self):
         with override_settings(OPENAI_MODEL="gpt-4.1-mini"):

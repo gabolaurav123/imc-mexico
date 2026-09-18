@@ -82,7 +82,10 @@ también lotes mixtos y ambos órdenes de carga.
 
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
 inicial es `gpt-5.6-luna`, con entrada de imagen, Responses, búsqueda web y Structured
-Outputs. El perfil usa `reasoning.effort=low`, añade 3.500 tokens al límite de salida
+Outputs. Desde v31, los trabajos nuevos con Luna fijan Terra como modelo de la
+etapa visual, con una llamada por foto; las demás etapas conservan Luna. El modelo
+solicitado y el devuelto se registran por imagen. Los trabajos anteriores no cambian.
+El perfil usa `reasoning.effort=low`, añade 3.500 tokens al límite de salida
 y a la reserva de cada llamada y permite al menos 120 segundos por llamada.
 Los tokens de salida incluyen el razonamiento; se contabilizan una sola vez.
 Los límites diarios y la cantidad de búsquedas no aumentan con el modelo.

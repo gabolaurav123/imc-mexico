@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from portal.models import Consent, PlatformSettings
 from portal.processing import IMAGE_RESERVATION, _reservation, enqueue_analysis, process_next_job
 from portal.research import RESEARCH_RESERVATION, UsageTotals, empty_research
-from portal.services import save_draft
+from portal.services import _valuation_identity_matches, save_draft
 from portal.tests import test_image_bindings as fixtures
 from portal.tests.test_image_relevance import field, observation, parsed
 from portal.valuation import LABEL, VALUATION_RESERVATION, VALUATION_VERSION, _seal
@@ -37,6 +37,18 @@ class ValuationPipelineTests(TestCase):
                        "estimate_market": "Estados Unidos", "estimate_basis": "Comparables públicos",
                        "estimate_missing_info": "Confirmar funcionamiento"},
             "suggested_price": "15000", "comparables": []})
+
+    @staticmethod
+    def conditional_valuation():
+        return _seal({"version": VALUATION_VERSION, "label": LABEL, "status": "conditional_reference",
+            "identity": {"brand": "Caterpillar", "model": "2EC25", "condition": None, "configurations": {}},
+            "fields": {"estimate_min": "10000", "estimate_max": "20000", "estimate_currency": "USD",
+                       "estimate_market": "Estados Unidos",
+                       "estimate_basis": "Referencia condicional del modelo: comparables de equipos usados; no confirma la condición de esta unidad.",
+                       "estimate_missing_info": "Confirmar condición y funcionamiento"},
+            "suggested_price": None,
+            "comparables": [{"condition": "used", "currency": "USD", "market": "US", "price_type": "asking"},
+                            {"condition": "used", "currency": "USD", "market": "US", "price_type": "asking"}]})
 
     @staticmethod
     def photo(relevance="machinery", kind="machine"):
@@ -132,6 +144,32 @@ class ValuationPipelineTests(TestCase):
         self.assertEqual(self.machine.data["price"], "7777")
         self.assertEqual(self.machine.data["currency"], "MXN")
         self.assertEqual(self.machine.provenance["price"], {"source": "user", "review": "confirmed"})
+
+    def test_conditional_reference_applies_range_without_overwriting_human_price(self):
+        self.machine.data.update(condition="Por confirmar", price="7777", currency="MXN")
+        self.machine.provenance.update({"condition": {"source": "user", "review": "confirmed"},
+            "price": {"source": "user", "review": "confirmed"},
+            "currency": {"source": "user", "review": "confirmed"}})
+        self.machine.save()
+        self.estimate.return_value = (self.conditional_valuation(), UsageTotals(300, 100))
+        self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
+        job = self.queue(auto_apply=True)
+        self.assertTrue(process_next_job())
+        self.machine.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, "completed", job.error)
+        self.assertEqual(self.machine.data["estimate_min"], "10000")
+        self.assertEqual(self.machine.data["estimate_max"], "20000")
+        self.assertEqual(self.machine.data["price"], "7777")
+        self.assertEqual(self.machine.data["currency"], "MXN")
+        self.assertEqual(self.machine.provenance["price"]["source"], "user")
+
+    def test_conditional_reference_invalidates_when_owner_confirms_conflicting_condition(self):
+        valuation = self.conditional_valuation()
+        data = {"brand": "Caterpillar", "model": "2EC25", "condition": "Nueva"}
+        self.assertFalse(_valuation_identity_matches(data, valuation))
+        data["condition"] = "Usada"
+        self.assertTrue(_valuation_identity_matches(data, valuation))
 
     def test_valuation_authorization_rechecks_consent_before_external_work(self):
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]

@@ -622,15 +622,19 @@
     return JSON.stringify([snapshot.category,...['brand','model','serial'].map(key => snapshot.data?.[key])].map(value => String(value ?? '').trim()));
   }
   function renderValuation(value) {
-    const data = value.data, feedback = $('#valuation-status'), target = $('#valuation-comparables');
+    const data = value.data, feedback = $('#valuation-status'), disclaimer = $('#valuation-disclaimer'), target = $('#valuation-comparables');
     const identityMatches = valuationIdentityOf(value) === valuationIdentity;
     const hasEstimate = ['estimate_min','estimate_max'].some(key => !missing(data[key]));
     const activePrice = !missing(data.price) && value.provenance.price?.source === 'valuation';
     const activeEstimate = Object.keys(estimateLabels).some(key => !missing(data[key]) && value.provenance[key]?.source === 'valuation');
     const valuation = identityMatches && (activeEstimate || activePrice) && state.valuation && typeof state.valuation === 'object' ? state.valuation : null;
     const status = valuation?.status || (identityMatches && state.valuation?.status === 'insufficient' ? 'insufficient' : valuationFeedback);
+    if (disclaimer) disclaimer.textContent = status === 'conditional_reference'
+      ? 'Referencia de mercado condicional, editable y sujeta a confirmación.'
+      : 'Estimación orientativa, editable y sujeta a confirmación';
     if (!identityMatches) feedback.textContent = 'La identificación cambió. Las referencias anteriores quedan ocultas hasta una nueva estimación; conserva o corrige los importes que quieras.';
     else if (status === 'insufficient') feedback.textContent = 'No se encontraron referencias de precio suficientes para una estimación fiable. Puedes continuar sin precio o indicar el tuyo.';
+    else if (status === 'conditional_reference') feedback.textContent = 'Rango de mercado de comparables con una condición documentada; no confirma la condición de esta unidad. No se completó un precio de anuncio sugerido.';
     else if (hasEstimate || activePrice) feedback.textContent = 'Estos importes son orientativos. Puedes modificar o borrar cada propuesta; los anuncios no acreditan precios de venta.';
     else feedback.textContent = 'No hay una estimación activa. Puedes continuar sin precio o indicar el tuyo.';
     if (!missing(data.estimate_missing_info)) feedback.textContent += ` ${hasEstimate ? 'Para afinarla' : 'Para obtenerla'}: ${String(data.estimate_missing_info)}`;

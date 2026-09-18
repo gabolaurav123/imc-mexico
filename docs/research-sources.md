@@ -115,4 +115,10 @@ La disponibilidad y el formato de una página externa pueden cambiar. El fallo d
 
 ## Pruebas locales de las fuentes
 
+### Catálogo regional DEVELON Chile
+
+Verificado el 18 de septiembre de 2026: el [índice de excavadoras](https://develon-ce.cl/product-category/excavadoras-sobre-orugas/) enlaza las fichas regionales, incluida [DX300LC-7](https://develon-ce.cl/product/excavadora-sobre-orugas-dx300lc-7-develon/). Con marca y modelo ya identificados, el lector sigue un único enlace del índice que coincida literalmente y comprueba el título del documento. Extrae filas de peso, capacidad, potencia y motor con sus unidades. Los datos conservan ámbito de modelo y pasan por la validación firmada, incluso si la búsqueda no devuelve resultados.
+
+Son como máximo dos peticiones HTTPS, con un plazo compartido de 14 segundos y sin llamadas adicionales de IA. No compara miniaturas ni elige el modelo por semejanza. No deriva país de fabricación, ubicación de la unidad o año desde la dirección del distribuidor. Los dominios regionales registrados se mantienen separados del filtro global del fabricante.
+
 `portal/tests/test_research_sources.py` verifica aliases completos, separación de fabricantes y catálogos, marca desconocida, inmutabilidad, origen por marca, falsificación de dominios, URLs no públicas y reclasificación de redirecciones. Son pruebas sin red y sin acceso a producción; no sustituyen una nueva comprobación de disponibilidad del sitio en cada investigación.

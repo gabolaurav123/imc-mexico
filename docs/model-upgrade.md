@@ -1,8 +1,12 @@
 # Modelo de análisis y búsqueda
 
-La configuración predeterminada usa **GPT-5.6 Luna** (`gpt-5.6-luna`) mediante
-Responses. El propietario retiró Astra por coste. `gpt-5.6-terra` queda compatible
-como alternativa explícita; no hay escalado automático a Terra ni Astra.
+Los análisis nuevos de v31 usan **GPT-5.6 Terra** para la lectura visual y
+**GPT-5.6 Luna** (`OPENAI_MODEL=gpt-5.6-luna`) para investigación, normalización y
+texto mediante Responses. Es una política por etapa dentro de los dos modelos
+autorizados por el propietario: una sola llamada por foto, sin reintento con
+otro modelo. Se registra `requested_model` y el modelo devuelto por el proveedor
+para cada fotografía. Los trabajos anteriores conservan su modelo encolado.
+El propietario retiró Astra por coste y permanece bloqueado.
 
 ## Perfil y control de consumo
 
@@ -15,7 +19,9 @@ como alternativa explícita; no hay escalado automático a Terra ni Astra.
 
 Las tarifas Standard consultadas de Luna son USD 0,20 por millón de tokens de
 entrada y USD 1,20 por millón de salida. Herramientas, caché y contexto largo tienen
-reglas adicionales. No se ejecutaron nuevas inferencias de pago para este cambio.
+reglas adicionales. Terra tiene una tarifa Standard mayor: USD 2 por millón de
+tokens de entrada y USD 12 por millón de salida, según la documentación consultada
+el 18 de septiembre de 2026. Su uso se limita a la lectura visual.
 Las pruebas locales usan respuestas simuladas y no acreditan calidad visual real
 ni saldo disponible en la cuenta del proveedor.
 

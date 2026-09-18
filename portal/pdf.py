@@ -294,7 +294,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
         story.append(para("Una fotografía no estaba disponible al generar este documento.", "Small"))
 
     price = _price(values.get("price"), values.get("currency"))
-    price_label = "PRECIO SUGERIDO" if provenance.get("price", {}).get("source") == "valuation" else "PRECIO"
+    price_label = ("PRECIO SUGERIDO"
+                   if provenance.get("price", {}).get("source") == "valuation"
+                   and valuation.get("status") != "conditional_reference" else "PRECIO")
     commercial = [[para(price_label, "Label"), para(price, "Value")],
                   [para("DISPONIBILIDAD", "Label"), para(AVAILABILITY.get(machine.availability, machine.availability), "Value")],
                   [para("UBICACIÓN", "Label"), para(values.get("location") or "Por confirmar")]]
@@ -332,7 +334,10 @@ def build_pdf(machine, data, assets, public=False, version=None):
                                                    if key not in displayed_identity])
     specification_table("Estado aparente, componentes y aplicaciones", list(VISUAL_LABELS))
     if any(_present(values.get(key)) for key in ESTIMATE_LABELS):
-        items = [para(ESTIMATE_LABEL, "Small")]
+        valuation_label = ("Referencia de mercado condicional. El rango reúne comparables con una condición documentada; "
+                           "no confirma la condición de esta unidad ni su funcionamiento. No se completó un precio de anuncio sugerido."
+                           if valuation.get("status") == "conditional_reference" else ESTIMATE_LABEL)
+        items = [para(valuation_label, "Small")]
         if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
             items.append(para(f"{values['estimate_min']} - {values['estimate_max']} {values.get('estimate_currency') or ''}", "Value"))
         else:

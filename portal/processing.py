@@ -26,7 +26,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .ai_model import DEFAULT_MODEL, model_options, output_limit, request_timeout, token_reservation
+from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner)
@@ -36,7 +36,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v30"
+PROMPT_VERSION = "imc-vision-research-2026-09-v31"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -722,7 +722,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         material = {"machine": str(machine.pk), "revision": machine.revision, "mode": mode,
                     "assets": [(str(a.pk), a.sha256, a.purpose) for a in assets],
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
-                    "category_names": category_names, "research": research}
+                    "category_names": category_names, "research": research,
+                    "vision_model": image_model(model) if mode == "analysis" else model}
         research_description_only = mode == "description" and research
         if research_description_only:
             # Avoid a preliminary description that research composes locally.
@@ -770,6 +771,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
                                         result={"attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
                                                 "research_requested": research,
+                                                "vision_model": material["vision_model"],
                                                 "research_description_only": research_description_only, "category_names": category_names,
                                                 "input_snapshot": {"title": machine.title,
                                                 "category": machine.category.name if machine.category_id else None,
@@ -1481,7 +1483,12 @@ def process_analysis(job):
     _check_analysis_draft(job)
     client = OpenAI(api_key=option("OPENAI_API_KEY", ""),
                     timeout=request_timeout(job.model, float(option("OPENAI_TIMEOUT", 90))), max_retries=0)
-    image_reservation = token_reservation(job.model, IMAGE_RESERVATION)
+    # Pin the explicit stage policy at enqueue time. Historical queued jobs
+    # retain their selected model instead of silently changing after a deploy.
+    visual_model = job.result.get("vision_model", job.model)
+    if visual_model not in {job.model, image_model(job.model)}:
+        raise ValidationError("El modelo visual no coincide con la política autorizada.")
+    image_reservation = token_reservation(visual_model, IMAGE_RESERVATION)
     usage = UsageTotals()
     image_readings = []
     image_pipeline_interrupted = False
@@ -1529,9 +1536,9 @@ def process_analysis(job):
                 else:
                     received = False
                     try:
-                        response = client.responses.parse(model=job.model, instructions=SYSTEM_PROMPT,
+                        response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT,
                             input=request, text_format=MachineAnalysis,
-                            max_output_tokens=output_limit(job.model, MAX_OUTPUT_TOKENS), store=False, **model_options(job.model))
+                            max_output_tokens=output_limit(visual_model, MAX_OUTPUT_TOKENS), store=False, **model_options(visual_model))
                         received = True
                         provider_model = _provider_model(response)
                         if response.usage is None:
@@ -1555,6 +1562,7 @@ def process_analysis(job):
                         image_pipeline_interrupted = True
                 readings.append(reading)
                 image_readings.append({"asset_id": binding["asset_id"], "status": status,
+                    "requested_model": visual_model,
                     **({"provider_model": provider_model} if provider_model else {}),
                     "relevance": reading["relevance"]["status"],
                     "field_keys": sorted({item["key"] for item in reading["fields"] if item.get("value") not in (None, "")}),

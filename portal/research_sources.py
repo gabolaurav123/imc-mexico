@@ -26,6 +26,10 @@ class BrandProfile:
     access_note: str
     source_kind: Literal['manufacturer'] = 'manufacturer'
     verified_on: str = VERIFIED_ON
+    # Regional product catalogues can be verified for direct, model-scoped
+    # reads without making their host a global web-search manufacturer domain.
+    catalog_domains: tuple[str, ...] = ()
+    catalog_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +90,8 @@ MANUFACTURERS = (
         ),
         access_note='Sitios regionales oficiales de equipos DEVELON; las fichas de producto identifican modelos, no unidades fotografiadas.',
         verified_on='2026-09-18',
+        catalog_domains=('develon-ce.cl',),
+        catalog_urls=('https://develon-ce.cl/product-category/excavadoras-sobre-orugas/',),
     ),
 )
 

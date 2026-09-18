@@ -54,13 +54,16 @@ No crear nuevas llamadas a IA al abrir páginas, consultar resultados o descarga
 PDF. Luna es el modelo activo; Astra está bloqueado. La prueba de integración
 automática debe simular el proveedor para evitar costes.
 
-### Investigación y ficha unificada (v30)
+### Investigación y ficha unificada (v31)
 
 - La ficha editable reúne identificación, año aproximado, conservación, datos
   comerciales y estimación en un único documento. Los cambios manuales conservan
   prioridad al repetir el análisis.
 - Una foto general incluye hasta cuatro acercamientos de sus mismos píxeles en
-  la misma llamada de Luna. No son fotos de unidades diferentes ni nuevas llamadas.
+  la misma llamada visual. Los nuevos análisis usan Terra para leer cada foto y
+  Luna para investigación y texto. No hay una segunda llamada visual de respaldo.
+  La elección visual queda fijada al crear el trabajo y registrada por imagen;
+  los trabajos antiguos mantienen su modelo. Astra sigue bloqueado.
 - Con marca legible y sin modelo, la búsqueda devuelve `research.hypotheses`:
   modelos documentados, evidencia, fuentes y periodo de producción cuando existe.
   Son referencias para identificar el equipo; no se copian a `data.model`, al año
@@ -79,8 +82,13 @@ automática debe simular el proveedor para evitar costes.
   páginas de anuncios dentro del presupuesto y plazo existentes. Para calcular
   precio necesita comparables verificables e independientes del mismo modelo,
   condición, mercado, moneda y tipo de precio. Anuncios y ventas no se mezclan.
+- Si la condición de la unidad no está confirmada, dos comparables compatibles
+  pueden producir una `conditional_reference`: rango del mercado del modelo,
+  con el estado de esos comparables declarado como supuesto. No confirma el uso
+  de la unidad y no rellena su precio de publicación. La base y el rango quedan
+  firmados, editables y visibles en la ficha y el PDF.
 
-Reabrir una ficha anterior no repite llamadas de pago. Para usar v30 con fotos ya
+Reabrir una ficha anterior no repite llamadas de pago. Para usar v31 con fotos ya
 analizadas, solicitar explícitamente un nuevo análisis en el flujo de fotos.
 
 ## Antes de migrar

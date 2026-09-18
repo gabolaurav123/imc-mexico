@@ -207,13 +207,32 @@ class ValuationGroundingTests(SimpleTestCase):
         value = normalize([candidate(text=text, price='US$ 195,500')], passages, identity)
         self.assertEqual(value['diagnostics']['rejections'], {'market_not_literal': 1})
 
-    def test_unknown_condition_cannot_estimate_even_with_two_matching_sources(self):
+    def test_unknown_condition_gets_conditional_model_reference_without_unit_price(self):
         identity = {**IDENTITY, 'condition': None}
         value = normalize([candidate(), candidate(1, price='USD 16,000')],
                           [passage(), passage(quote('USD 16,000'), 1)], identity)
         self.assertEqual(len(value['comparables']), 2)
-        self.assertEqual(value['status'], 'insufficient')
-        self.assertIn('confirmar si', value['fields']['estimate_missing_info'])
+        self.assertEqual(value['status'], 'conditional_reference')
+        self.assertIsNone(value['suggested_price'])
+        self.assertEqual(value['fields']['estimate_min'], '12000.00')
+        self.assertEqual(value['fields']['estimate_max'], '16000.00')
+        self.assertIn('Referencia condicional', value['fields']['estimate_basis'])
+        self.assertIn('equipos usados', value['fields']['estimate_basis'])
+        self.assertIn('no confirma la condición', value['fields']['estimate_basis'])
+        self.assertIn('confirmar', value['fields']['estimate_missing_info'])
+        self.assertTrue(is_validated_estimate(value))
+
+    def test_conditional_reference_proof_covers_status_and_assumption(self):
+        identity = {**IDENTITY, 'condition': None}
+        value = normalize([candidate(), candidate(1, price='USD 16,000')],
+                          [passage(), passage(quote('USD 16,000'), 1)], identity)
+        for key, altered in [('status', 'estimated'),
+                             ('suggested_price', '14000.00'),
+                             ('fields', {**value['fields'], 'estimate_basis': 'Precio de esta unidad'})]:
+            tampered = copy.deepcopy(value)
+            tampered[key] = altered
+            with self.subTest(key=key):
+                self.assertFalse(is_validated_estimate(tampered))
 
     def test_configuration_must_be_literal_and_match_without_fx_or_unit_conversion(self):
         identity = {**IDENTITY, 'configurations': {'voltage': '36 V'}}
