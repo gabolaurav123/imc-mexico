@@ -1198,6 +1198,43 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
     return research_identified_machine(client, model, result, identity, basis, allowed, category)
 
 
+def _direct_catalog_context(identity, allowed=None):
+    """Consult supported public manufacturer indexes without paid model calls."""
+    from .research_catalog import catalog_listing_candidates
+    from .research_sources import lookup_brand
+    from .valuation import _fetch_listing
+    profile = lookup_brand(identity.get("brand"), identity.get("category"))
+    if not profile or profile.brand != "DEVELON" or identity.get("category") != "Excavadoras":
+        return None
+    outcome = empty_research("degraded", identity, "category")
+    if allowed is not None and not allowed():
+        outcome["warnings"].append("La autorización de búsqueda ya no está vigente.")
+        return outcome
+    leads = catalog_listing_candidates(identity, identity.get("category"), fetcher=_fetch_listing)
+    if allowed is not None and not allowed():
+        outcome["warnings"].append("La autorización de búsqueda ya no está vigente.")
+        return outcome
+    if not leads:
+        return None
+    outcome["hypotheses"] = leads[:8]
+    sources = {}
+    for lead in outcome["hypotheses"]:
+        sources[lead["source_url"]] = {"url": lead["source_url"], "title": lead["source_title"]}
+    outcome["sources"] = list(sources.values())
+    if validated_model_hypotheses(outcome) is None:
+        return None
+    outcome.update(status="general_context", match="category",
+        context={"category": identity["category"],
+                 "label": "Catálogo público del fabricante consultado directamente; modelo de esta unidad por identificar",
+                 "hypothesis_count": len(outcome["hypotheses"])},
+        diagnostics={"origin": "direct_manufacturer_catalog", "document_count": len(sources),
+                     "hypothesis_count": len(outcome["hypotheses"]), "web_search_calls": 0},
+        usage=UsageTotals().as_dict())
+    outcome["warnings"].append("Estos modelos están documentados en el catálogo del fabricante; no son una identificación de la unidad fotografiada.")
+    outcome["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(outcome), compress=True)
+    return outcome
+
+
 def _research_general_context(client, model, result, snapshot=None, allowed=None, allowed_categories=None):
     """Category lookup, with separately signed model leads when brand is clear."""
     identity, basis = research_identity(result, snapshot, allowed_categories)
@@ -1212,6 +1249,10 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     received = False
     diagnostics = {}
     candidate_mode = bool(identity.get("brand") and not identity.get("model"))
+    if candidate_mode:
+        direct = _direct_catalog_context(identity, allowed)
+        if direct is not None:
+            return direct, usage
     private_identifiers = [data.get(key) for data in
                            (result.get("data", {}), (snapshot or {}).get("data", {}))
                            for key in ("serial", "vin")]

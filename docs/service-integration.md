@@ -54,7 +54,7 @@ No crear nuevas llamadas a IA al abrir páginas, consultar resultados o descarga
 PDF. Luna es el modelo activo; Astra está bloqueado. La prueba de integración
 automática debe simular el proveedor para evitar costes.
 
-### Investigación y ficha unificada (v29)
+### Investigación y ficha unificada (v30)
 
 - La ficha editable reúne identificación, año aproximado, conservación, datos
   comerciales y estimación en un único documento. Los cambios manuales conservan
@@ -68,6 +68,11 @@ automática debe simular el proveedor para evitar costes.
 - Cuando existe un perfil de fabricante verificado, la búsqueda de candidatos
   restringe y valida sus dominios. Esto evita confundir empresas homónimas, como
   DEVELON maquinaria (`develon-ce.com`) y una empresa ajena de nombre parecido.
+- Para excavadoras DEVELON sin modelo se consulta primero el catálogo público
+  registrado mediante HTTPS validado. Se extraen hasta ocho nombres literales
+  como referencias generales, sin llamadas de IA ni atribuirlos a la foto.
+  Si no se puede leer el catálogo, continúa la búsqueda con Luna. La descarga
+  conserva los límites de red, tamaño, plazo y consentimiento del servicio.
 - Un rango visual de edad puede abarcar desde dos años, siempre con indicios de
   generación y sin superar el año actual. Nunca se presenta como fecha exacta.
 - Con modelo identificado, la valoración permite hasta dos acciones web y seis
@@ -75,7 +80,7 @@ automática debe simular el proveedor para evitar costes.
   precio necesita comparables verificables e independientes del mismo modelo,
   condición, mercado, moneda y tipo de precio. Anuncios y ventas no se mezclan.
 
-Reabrir una ficha anterior no repite llamadas de pago. Para usar v29 con fotos ya
+Reabrir una ficha anterior no repite llamadas de pago. Para usar v30 con fotos ya
 analizadas, solicitar explícitamente un nuevo análisis en el flujo de fotos.
 
 ## Antes de migrar

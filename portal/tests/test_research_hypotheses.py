@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 
@@ -44,6 +44,13 @@ def search_response(passages):
 
 
 class PhotoModelHypothesisTests(SimpleTestCase):
+    def setUp(self):
+        # Web-search regressions remain offline; direct-catalog transport has
+        # dedicated tests and is not part of these provider response fixtures.
+        direct = patch("portal.research._direct_catalog_context", return_value=None)
+        direct.start()
+        self.addCleanup(direct.stop)
+
     def test_same_source_title_can_supply_brand_when_cited_model_passage_omits_it(self):
         client = Mock()
         client.responses.create.return_value = search_response([

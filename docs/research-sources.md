@@ -13,6 +13,13 @@ al fabricante de la excavadora y queda fuera de esta búsqueda.
 Con marca visible y sin modelo, estas páginas orientan la búsqueda de candidatos;
 no prueban que la foto corresponda a DX350LC-7 ni autorizan copiar sus cifras.
 
+El lector directo de `portal/research_catalog.py` consulta el índice europeo
+registrado cuando la marca es DEVELON y no se ha identificado el modelo.
+La prueba HTTP del 18 de septiembre de 2026 recuperó el título real y ocho
+nombres de producto. Es una lectura del catálogo, no una búsqueda por similitud
+visual: no asigna esos modelos, años, precios ni especificaciones a la unidad.
+No requiere otra llamada de IA; si falla, continúa el buscador existente.
+
 ## Fabricantes verificados
 
 | Marca / aliases | Dominio para búsqueda | Página comprobada | Alcance y acceso observado |

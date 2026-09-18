@@ -36,7 +36,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 
-PROMPT_VERSION = "imc-vision-research-2026-09-v29"
+PROMPT_VERSION = "imc-vision-research-2026-09-v30"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
