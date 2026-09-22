@@ -57,7 +57,7 @@ class PdfDesignTests(SimpleTestCase):
 
     def test_downloadable_pdf_uses_plain_estimate_labels_and_starts_visual_block_on_page_two(self):
         values = {
-            "brand": "PRUEBA", "model": "MODELO PDF", "description": "Equipo por revisar; sujeto a verificación. Pendiente de confirmar.",
+            "brand": "PRUEBA", "model": "MODELO PDF", "description": "Excavadora CAT 320D L. Año aproximado: 2006–2014 (por Periodos catalogados 2006–2014; año de esta unidad por confirmar). Condición de uso aparente: Usada. Desgaste y detalles visibles: Desgaste superficial visible.",
             "estimated_year_from": 2004, "estimated_year_to": 2009,
             "estimated_year_basis": "Periodos publicados 2004–2009; año de esta unidad por confirmar.",
             "estimate_min": "1000", "estimate_max": "2000", "estimate_currency": "USD",
@@ -65,15 +65,18 @@ class PdfDesignTests(SimpleTestCase):
             "visible_defects": "Rayones visibles en el bastidor.", "visible_components": "Mástil y horquillas.",
             "applications": "Manipulación de cargas.",
         }
-        document, text = self.build(values)
+        document, text = self.build(values, provenance={"description": {"source": "system"}})
         self.assertGreaterEqual(len(document.pages), 2)
         first_page, second_page = (page.extract_text() or "" for page in document.pages[:2])
         self.assertNotIn("Estado aparente, componentes y aplicaciones", first_page)
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
+        self.assertIn("IMC MÉXICO", second_page)
         for expected in ("Año aproximado", "2004–2009", "Valor estimado", "1,000–2,000 USD",
-                         "Mercado de referencia: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
+                         "Referencia de mercado: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
             self.assertIn(expected, text)
-        for forbidden in ("por revisar", "sujeto a verificaci", "pendiente de revisar", "confirm", "sin estimar", "sin conversi", "no acreditan una venta cerrada", "uso interno",
+        self.assertIn("Excavadora CAT 320D L.", text)
+        self.assertNotIn("(por", text)
+        for forbidden in ("por revisar", "sujeto a verificaci", "pendiente de revisar", "confirm", "verific", "comprob", "inspección pendiente", "sin estimar", "sin conversi", "no acreditan una venta cerrada", "uso interno",
                           "Trazabilidad de la información", "PDF INTERNO"):
             self.assertNotIn(forbidden.lower(), text.lower())
 
@@ -84,6 +87,19 @@ class PdfDesignTests(SimpleTestCase):
         _, declared = self.build({"operating_status": "Confirmado por el propietario"})
         self.assertIn("Funcionamiento declarado por el propietario", declared)
         self.assertNotIn("Confirmado", declared)
+
+    def test_owner_description_keeps_its_own_year_and_hours_context(self):
+        description = "Mantenimiento realizado en 2020. Año aproximado: referencia del propietario. Horas de uso: lectura al recibirlo."
+        _, text = self.build({"description": description}, provenance={"description": {"source": "user"}})
+        for phrase in ("Mantenimiento realizado en 2020.", "Año aproximado: referencia del propietario.", "Horas de uso: lectura al"):
+            self.assertIn(phrase, text)
+
+    def test_manual_parenthetical_review_phrase_does_not_leave_a_broken_fragment(self):
+        description = "Año aproximado: 2010 (por confirmar). Motor sustituido en 2020."
+        _, text = self.build({"description": description}, provenance={"description": {"source": "user"}})
+        self.assertIn("Año aproximado: 2010.", text)
+        self.assertIn("Motor sustituido en 2020.", text)
+        self.assertNotIn("(por", text)
 
     def test_long_description_and_many_specs_do_not_push_visual_condition_past_page_two(self):
         values = {

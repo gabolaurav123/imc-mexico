@@ -17,7 +17,8 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (CondPageBreak, Flowable, LongTable, PageBreak, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
-from .services import PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text
+from .services import (PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
+                       public_valuation, valuations_for_provenance)
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, AGE_LABELS
 from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
 
@@ -49,9 +50,11 @@ _WORKFLOW_CLAUSES = (
 )
 _WORKFLOW_TAIL = re.compile(
     r"(?:[;,]\s*|\s+)(?:pendiente de revisi[oó]n|pendiente de confirmar|por confirmar|"
-    r"por revisar|sujeto a verificaci[oó]n|sin estimar|confirmar)\b[^.;]*[.;]?",
+    r"por revisar|sujetos? a verificaci[oó]n|sin estimar|confirm(?:ar|a(?:n|do)?|aci[oó]n)|"
+    r"comprob(?:ar|aci[oó]n)|inspecci[oó]n pendiente)\b[^.;]*[.;]?",
     re.IGNORECASE,
 )
+_DESCRIPTION_DUPLICATE = re.compile(r"\b(?:Año aproximado|Horas de uso|Condici[oó]n de uso aparente)\s*:", re.IGNORECASE)
 _OPERATING_STATUS = {"Confirmado por el propietario": "Funcionamiento declarado por el propietario",
                      "Pendiente de confirmar": ""}
 
@@ -81,15 +84,28 @@ def _pdf_text(value):
     prospective reader.
     """
     clean = str(value if value is not None else "")
+    clean = re.sub(r"\s*\((?:por confirmar|pendiente de confirmar|por revisar|sujeto a verificaci[oó]n)\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\bUsos sugeridos,\s*sujetos? a verificaci[oó]n\s*:", "Usos sugeridos:", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\bLa clasificaci[oó]n usada es aparente,\s*no confirma funcionamiento\.?", "Clasificación aparente.", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\bno confirm(?:a(?:n|do)?|aci[oó]n)\b[^.;]*[.;]?", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:Estos datos )?requieren comprobaci[oó]n\b[^.;]*[.;]?", "", clean, flags=re.IGNORECASE)
     for pattern in _WORKFLOW_CLAUSES:
         clean = pattern.sub("", clean)
     clean = _WORKFLOW_TAIL.sub("", clean)
-    clean = re.sub(r"\b(?:confirmaci[oó]n|confirmar)\b[^.;]*[.;]?", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"\b(?:inspecci[oó]n pendiente|confirm(?:ar|a(?:n|do)?|aci[oó]n)|verific(?:ar|aci[oó]n)|comprob(?:ar|aci[oó]n))\b[^.;]*[.;]?", "", clean, flags=re.IGNORECASE)
     clean = re.sub(r"[ \t]{2,}", " ", clean)
     clean = re.sub(r"\s+([,;.])", r"\1", clean)
     clean = clean.strip()
     clean = re.sub(r"^[,;]+\s*", "", clean)
     return re.sub(r"[,;]+$", "", clean).strip()
+
+
+def _description_text(value, provenance):
+    """Only trim generated duplicated summaries; preserve owner's prose intact."""
+    clean = _pdf_text(value)
+    if isinstance(provenance, dict) and provenance.get("source") == "system":
+        return _DESCRIPTION_DUPLICATE.split(clean, maxsplit=1)[0].strip()
+    return clean
 
 
 def _display_value(key, value):
@@ -143,16 +159,6 @@ class PhotoPanel(Flowable):
         canvas.restoreState()
 
 
-class PdfDocTemplate(SimpleDocTemplate):
-    """Overlay the shared masthead after each page's body is complete."""
-    page_decorator = None
-
-    def afterPage(self):
-        super().afterPage()
-        if self.page_decorator:
-            self.page_decorator(self.canv, self)
-
-
 def build_pdf(machine, data, assets, public=False, version=None):
     """Return PDF bytes. Public mode always needs an authorized snapshot."""
     snapshot = version.data if version else {}
@@ -166,6 +172,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
         from .public_data import public_json
         title = public_json(snapshot, title=title).get("title") or "Maquinaria"
     provenance = {} if public else snapshot.get("provenance", getattr(machine, "provenance", {}))
+    valuation_snapshot = snapshot if version else {"data": values, "provenance": provenance,
+                                                  "valuations": valuations_for_provenance(provenance)}
+    valuation = {} if public else public_valuation(valuation_snapshot)
     plate_ids = {str(value) for value in (snapshot.get("private_plate_asset_ids", []) if version
                                         else getattr(machine, "_detected_plate_asset_ids", set()))}
 
@@ -198,7 +207,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     output, width = BytesIO(), 176 * mm
     # SimpleDocTemplate adds six points of horizontal frame padding. Account
     # for it so text, photo panels, header and footer share the same edges.
-    document = PdfDocTemplate(output, pagesize=A4, rightMargin=17 * mm - 6, leftMargin=17 * mm - 6,
+    document = SimpleDocTemplate(output, pagesize=A4, rightMargin=17 * mm - 6, leftMargin=17 * mm - 6,
                                  topMargin=39 * mm, bottomMargin=21 * mm,
                                  title=f"{machine.folio} - {title}", author="IMC México",
                                  subject="Ficha técnica y comercial de maquinaria", pageCompression=1)
@@ -348,6 +357,23 @@ def build_pdf(machine, data, assets, public=False, version=None):
         cells = [[para(LABELS[key].upper(), "Label"), para(_display_value(key, values[key]), "Value")]
                  for key in highlights]
         story.extend([Spacer(1, 2 * mm), panel(cells, [width / len(cells)] * len(cells))])
+    cover_reference = []
+    if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):
+        if _present(values.get("estimated_year_from")) and _present(values.get("estimated_year_to")):
+            year_value = f"{values['estimated_year_from']}–{values['estimated_year_to']}"
+        elif _present(values.get("estimated_year_from")):
+            year_value = f"Desde {values['estimated_year_from']}"
+        else:
+            year_value = f"Hasta {values['estimated_year_to']}"
+        cover_reference.append([para("AÑO APROXIMADO", "Label"), para(year_value, "Value")])
+    if _present(values.get("estimate_min")) or _present(values.get("estimate_max")) or _present(values.get("estimate_suggested_price")):
+        if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
+            estimate_value = _estimate_range(values["estimate_min"], values["estimate_max"], values.get("estimate_currency"))
+        else:
+            estimate_value = _estimate_price(next(values[key] for key in ("estimate_min", "estimate_max", "estimate_suggested_price") if _present(values.get(key))), values.get("estimate_currency"))
+        cover_reference.append([para("VALOR ESTIMADO", "Label"), para(estimate_value, "Value")])
+    if cover_reference:
+        story.extend([Spacer(1, 2 * mm), panel(cover_reference, [width / len(cover_reference)] * len(cover_reference))])
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
     if any(_present(values.get(key)) for key in VISUAL_LABELS):
@@ -365,7 +391,12 @@ def build_pdf(machine, data, assets, public=False, version=None):
                 if _present(values.get(key)):
                     items.append(para(_estimate_price(values[key], values.get("estimate_currency")), "Value"))
                     break
-        for key in ("estimate_market", "estimate_currency", "estimate_basis"):
+        comparable_types = {item.get("price_type") for item in valuation.get("comparables", []) if isinstance(item, dict) and item.get("price_type")}
+        market_label = "Precios anunciados de referencia" if comparable_types == {"asking"} else "Referencia de mercado"
+        market = _pdf_text(values.get("estimate_market"))
+        if market:
+            items.append(para(f"{market_label}: {market}"))
+        for key in ("estimate_currency", "estimate_basis"):
             value = _pdf_text(values.get(key))
             if value:
                 items.append(para(f"{ESTIMATE_LABELS[key]}: {value}"))
@@ -373,7 +404,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
     # Keep the concise commercial summary on page 1 and reserve page 2 for
     # visual condition. Descriptions and full specifications may legitimately
     # continue further when they are long.
-    description = _pdf_text(values.get("description"))
+    description = _description_text(values.get("description"), provenance.get("description"))
     section("Descripción del equipo", [para(description)] if description else [])
     specification_table("Identificación del equipo", [key for key in ("brand", "model", "hours", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
@@ -445,6 +476,8 @@ def build_pdf(machine, data, assets, public=False, version=None):
     brand_logo = ImageReader(str(LOGO_PATH))
     def page(canvas, doc):
         canvas.saveState()
+        canvas.setFillAlpha(1)
+        canvas.setStrokeAlpha(1)
         page_width, height = A4
         canvas.setFillColor(NAVY)
         canvas.rect(0, height - 31 * mm, page_width, 31 * mm, fill=1, stroke=0)
@@ -454,6 +487,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         canvas.roundRect(17 * mm, height - 28 * mm, 24 * mm, 23 * mm, 3, fill=1, stroke=0)
         canvas.drawImage(brand_logo, 18 * mm, height - 27 * mm, width=22 * mm, height=21 * mm,
                          preserveAspectRatio=True, anchor="c", mask="auto")
+        canvas.setFillColor(colors.white)
         canvas.setFont(bold, 15)
         canvas.drawString(47 * mm, height - 15 * mm, "IMC MÉXICO")
         canvas.setFont(regular, 7)
@@ -480,6 +514,7 @@ def build_pdf(machine, data, assets, public=False, version=None):
         canvas.drawRightString(page_width - 17 * mm, 11 * mm, f"Página {doc.page}")
         canvas.restoreState()
 
-    document.page_decorator = page
-    document.build(story)
+    # Paint before each frame. Drawing the masthead at page end inherits the
+    # clipping path of a split table, which hid its logo and text on page two.
+    document.build(story, onFirstPage=page, onLaterPages=page)
     return output.getvalue()
