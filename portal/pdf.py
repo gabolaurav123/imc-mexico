@@ -2,6 +2,7 @@
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from textwrap import shorten
 from decimal import Decimal, InvalidOperation
 import re
 from xml.sax.saxutils import escape
@@ -374,6 +375,11 @@ def build_pdf(machine, data, assets, public=False, version=None):
         cover_reference.append([para("VALOR ESTIMADO", "Label"), para(estimate_value, "Value")])
     if cover_reference:
         story.extend([Spacer(1, 2 * mm), panel(cover_reference, [width / len(cover_reference)] * len(cover_reference))])
+    description = _description_text(values.get("description"), provenance.get("description"))
+    # Bound the cover copy so a long owner description cannot move the visual
+    # condition block beyond page 2. The complete text remains below when needed.
+    short_description = shorten(description, width=600, placeholder="…")
+    section("Descripción del equipo", [para(short_description)] if short_description else [])
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
     if any(_present(values.get(key)) for key in VISUAL_LABELS):
@@ -401,11 +407,8 @@ def build_pdf(machine, data, assets, public=False, version=None):
             if value:
                 items.append(para(f"{ESTIMATE_LABELS[key]}: {value}"))
         section("Valor estimado", items)
-    # Keep the concise commercial summary on page 1 and reserve page 2 for
-    # visual condition. Descriptions and full specifications may legitimately
-    # continue further when they are long.
-    description = _description_text(values.get("description"), provenance.get("description"))
-    section("Descripción del equipo", [para(description)] if description else [])
+    if short_description != " ".join(description.split()):
+        section("Descripción ampliada", [para(description)])
     specification_table("Identificación del equipo", [key for key in ("brand", "model", "hours", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
     if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):

@@ -71,6 +71,9 @@ class PdfDesignTests(SimpleTestCase):
         self.assertNotIn("Estado aparente, componentes y aplicaciones", first_page)
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
         self.assertIn("IMC MÉXICO", second_page)
+        self.assertIn("Excavadora CAT 320D L.", first_page)
+        self.assertLess(first_page.index("VALOR ESTIMADO"), first_page.index("Descripción del equipo"))
+        self.assertNotIn("Descripción del equipo", second_page)
         for expected in ("Año aproximado", "2004–2009", "Valor estimado", "1,000–2,000 USD",
                          "Referencia de mercado: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
             self.assertIn(expected, text)
@@ -120,6 +123,9 @@ class PdfDesignTests(SimpleTestCase):
         self.assertNotIn("Estado aparente, componentes y aplicaciones", first_page)
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
         self.assertIn("Desgaste objetivo visible.", second_page)
+        self.assertIn("INICIO-DESCRIPCION", first_page)
+        self.assertNotIn("FIN-DESCRIPCION", first_page)
+        self.assertIn("Descripción ampliada", text)
         self.assertIn("FIN-DESCRIPCION", text)
 
     def test_snapshot_values_take_precedence_over_live_machine_values(self):
