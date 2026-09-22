@@ -134,6 +134,22 @@ def _contains_private(text, private):
     return any(identifier_key(value) and identifier_key(value) in key for value in private)
 
 
+def _context_value(value):
+    """Keep declared comparison details only when they convey a value.
+
+    Intake uses a few human-friendly placeholders while a field is still
+    unknown.  They must not become literal configuration constraints or leak
+    into a paid search query.
+    """
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        return ""
+    text = _plain(value)[:120]
+    if _fold(text) in {"", "-", "na", "n/a", "nd", "n/d", "none", "null", "unknown", "desconocido",
+                       "sin confirmar", "por confirmar", "no disponible", "no aplica"}:
+        return ""
+    return text
+
+
 def _identity(result, snapshot):
     declared = human_declared_data(snapshot)
     data, meta = result.get('data', {}), result.get('provenance', {})
@@ -153,7 +169,7 @@ def _identity(result, snapshot):
                 accepted = False
             value = data.get(key)
         if accepted and isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            value = _identifier(str(value)) if key in {'brand', 'model'} else _plain(value)[:120]
+            value = _identifier(str(value)) if key in {'brand', 'model'} else _context_value(value)
             if value and re.search(r'https?://|www\.|@|\b(?:tel[eé]fono|contacto|contact|phone)\b', value, re.I):
                 value = None
             if key in {'brand', 'model'}:
@@ -166,7 +182,7 @@ def _identity(result, snapshot):
     for key in COMPATIBILITY_KEYS:
         value = declared.get(key)
         if key in declared and isinstance(value, (str, int, float)) and not isinstance(value, bool):
-            value = _plain(value)[:120]
+            value = _context_value(value)
             if value and not re.search(r'https?://|www\.|@|\b(?:tel[eé]fono|contacto|contact|phone)\b', value, re.I):
                 identity['compatibility'][key] = value
     identity['market_hint'] = _market_hint(declared.get('location_country')) if 'location_country' in declared else None
@@ -612,12 +628,21 @@ def _normalize(parsed, passages, identity):
     return _seal(outcome)
 
 
+def configuration_signature(configurations):
+    """Keep documented configurations in separate price groups, including unknown ones."""
+    if not isinstance(configurations, dict):
+        return ()
+    return tuple(sorted((str(key), _configuration_key(value)) for key, value in configurations.items()))
+
+
 def range_from_comparables(accepted, identity):
-    """Group verified observations without combining markets or sale types."""
+    """Group verified observations without combining markets, sale types or configurations."""
     outcome = _empty(identity, 'Faltan al menos dos anuncios independientes verificables del mismo modelo, configuración y condición.')
+
     groups = defaultdict(list)
     for comp in accepted:
-        groups[(comp['currency'], comp['market'], comp['price_type'], comp['condition'])].append(comp)
+        groups[(comp['currency'], comp['market'], comp['price_type'], comp['condition'],
+                configuration_signature(comp.get('configurations', {})))].append(comp)
     # One host contributes at most one unit without a printed serial. This
     # conservative rule prevents duplicate index/listing pages from inflating N.
     eligible = []
@@ -633,7 +658,7 @@ def range_from_comparables(accepted, identity):
     eligible.sort(key=lambda group: (market_hint is not None and group[0][1] != market_hint,
                                      -len(group[1]), group[0][2] != 'sold', group[0]))
     if eligible:
-        (currency, market, price_type, condition), comps = eligible[0]
+        (currency, market, price_type, condition, configuration), comps = eligible[0]
         outcome['comparables'] = comps[:6]
         if len(comps) >= 2 and (identity['condition'] or condition):
             prices = sorted(Decimal(comp['price']) for comp in comps[:6])
@@ -660,7 +685,9 @@ def range_from_comparables(accepted, identity):
                     compatibility_note += ' Los comparables pueden tener otras horas: el rango no incluye un ajuste por utilización.'
             outcome['fields'].update(estimate_min=format(min(prices), '.2f'), estimate_max=format(max(prices), '.2f'),
                 estimate_currency=currency, estimate_date=timezone.localdate().isoformat(), estimate_market=market_label,
-                estimate_basis=f'{LABEL}. {basis}: {len(prices)} unidades del mismo modelo y clase de uso. Sin conversión de moneda ni ajustes por funcionamiento.',
+                estimate_basis=(f'{LABEL}. {basis}: {len(prices)} unidades del mismo modelo'
+                                f'{", configuración documentada" if configuration else ""} y clase de uso. '
+                                'Sin conversión de moneda ni ajustes por funcionamiento.'),
                 estimate_missing_info='Confirmar funcionamiento, año, horas y configuración real antes de fijar el precio final.')
             outcome['fields']['estimate_basis'] += compatibility_note
             if conditional:

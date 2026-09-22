@@ -4,6 +4,21 @@ Aplicación complementaria para preparar solicitudes de maquinaria desde fotogra
 
 Repositorio: [gabolaurav123/imc-mexico](https://github.com/gabolaurav123/imc-mexico), rama `main`. El sitio principal [imcmexico.com.mx](https://www.imcmexico.com.mx/) no se modifica ni se reemplaza. No hay pagos, subastas, financiación, comisiones ni publicación automática en ese sitio.
 
+## Revisión de base técnica — 22 de septiembre de 2026
+
+Ampliado el catálogo de excavadoras, compactadores y montacargas con fuentes de
+fabricantes y anuncios individuales fechados. El panel muestra periodos y rangos
+de mercado, permite filtrar su disponibilidad y reúne la documentación de cada
+modelo. Se añadieron restricciones de integridad, importaciones protegidas,
+acciones administrativas atómicas y deduplicación de comparables. Las
+estimaciones separan configuraciones documentadas incompatibles.
+
+[Informe técnico y límites](docs/database-review-2026-09-22.md) ·
+[Ampliación del catálogo y fuentes](docs/catalogue-expansion-2026-09-22.md).
+El esquema incluye la migración `0015_reference_integrity`. Las cifras de
+aceptación de los apartados iniciales siguientes corresponden a sus fechas
+históricas y no describen la cobertura actual.
+
 **Aceptación inicial al 15 de septiembre de 2026:** servicio activo en [imc-mexico.seenode.app](https://imc-mexico.seenode.app), flujo inicial verificado en `389c1a997012a888885e9b4d1183ed9da64328bb`, con **117 pruebas locales aprobadas sin omisiones** y **106 comprobaciones registradas de aplicación aprobadas** (HTTPS, base de datos y repeticiones; 88 etiquetas distintas). Se verificaron MFA, medios, IA real, revisión, PDF, persistencia tras redespliegue, recepción de invitación/recuperación en Gmail y último respaldo local de producción. El registro está habilitado en el código por solicitud del propietario para probar cuentas y borradores; la migración `0006_open_user_registration` abre también las instalaciones existentes al desplegar. La revisión documental, el remitente de correo para otras cuentas y la activación personal del titular siguen pendientes. La analítica está desplegada y apagada, sin eventos ni cookies de analítica. El detalle y los límites están en [Aceptación y evidencias](docs/acceptance.md).
 
 ## Identidad y referencias de maquinaria

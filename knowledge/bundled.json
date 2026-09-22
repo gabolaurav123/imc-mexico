@@ -16,6 +16,22 @@
     {
       "path": "compactadores/catalogo_tecnico_2026-09-22.json",
       "sha256": "946013ee29c85a339cb336f16cfe6458bac6e9fed3d85b64ad673112373ebb4b"
+    },
+    {
+      "path": "excavadoras/catalogo_tecnico_mini_cat_2026-09-22.json",
+      "sha256": "5e003d8e104448701be21c93f41f8f875588cf768682485b5924b6e2d856a741"
+    },
+    {
+      "path": "compactadores/catalogo_tecnico_wacker_bpu_2026-09-22.json",
+      "sha256": "8bc4ac050c43fb62d0f5906bfefa191238b7c102e1112fc3836015c153bd0fcb"
+    },
+    {
+      "path": "montacargas/catalogo_tecnico_toyota_ic_2026-09-22.json",
+      "sha256": "422b21939e149427605cc27457368428789edef1290191488c688104abcb23d7"
+    },
+    {
+      "path": "excavadoras/periodos_produccion_volvo_2026-09-22.json",
+      "sha256": "14305fc4c62995f8f15e28a760882fb6727014b68e2f6cd5ef1a09bb171617ba"
     }
   ]
 }

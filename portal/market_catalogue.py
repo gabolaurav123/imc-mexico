@@ -7,7 +7,7 @@ from pathlib import Path
 
 from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -38,40 +38,69 @@ def install_bundled_market(root=None):
     if not manifest.exists():
         return 0
     created = 0
-    for entry in json.loads(manifest.read_text(encoding='utf-8'))['files']:
+    try:
+        entries = json.loads(manifest.read_text(encoding='utf-8'))['files']
+        if not isinstance(entries, list):
+            raise TypeError('files no es una lista')
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise CommandError('No se pudo leer el manifiesto de mercado revisado.') from exc
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get('path'), str) or not isinstance(entry.get('sha256'), str):
+            raise CommandError('El manifiesto de mercado contiene una entrada inválida.')
         path = (root / entry['path']).resolve()
         if not path.is_relative_to(root) or path.suffix != '.json':
             raise CommandError('Ruta de mercado fuera del paquete.')
         raw = path.read_bytes().replace(b'\r\n', b'\n')
         if hashlib.sha256(raw).hexdigest() != entry['sha256']:
             raise CommandError('La referencia de mercado no coincide con la versión revisada.')
-        payload = json.loads(raw)
         try:
+            payload = json.loads(raw)
             subject = payload['subject']
+            listings = payload['listings']
+            if not isinstance(subject, dict) or not isinstance(listings, list):
+                raise TypeError('estructura inválida')
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise CommandError('El paquete de mercado no contiene un sujeto y anuncios válidos.') from exc
+        try:
             model = EquipmentModel.objects.get(brand__name__iexact=subject['brand'],
                 name__iexact=subject['model'], category__slug=subject['category_slug'])
-        except (KeyError, EquipmentModel.DoesNotExist, EquipmentModel.MultipleObjectsReturned) as exc:
+        except (KeyError, TypeError, EquipmentModel.DoesNotExist, EquipmentModel.MultipleObjectsReturned) as exc:
             raise CommandError('El anuncio debe vincular una marca, modelo y categoría exactos del catálogo.') from exc
-        for item in payload['listings']:
-            if MarketReference.objects.filter(source=item['url']).exists():
+        for item in listings:
+            if not isinstance(item, dict):
+                raise CommandError('El anuncio de mercado no contiene campos válidos.')
+            source = str(item.get('url') or '').strip()
+            if not source:
+                raise CommandError('El anuncio de mercado no contiene una URL válida.')
+            if MarketReference.objects.filter(source=source).exists():
                 continue
             try:
                 observed_at = date.fromisoformat(item['observed_at'])
+                if observed_at.isoformat() != item['observed_at']:
+                    raise ValueError('fecha no canónica')
                 if observed_at > timezone.localdate():
                     raise CommandError('La fecha observada del anuncio no puede estar en el futuro.')
                 market = _market(item)
                 price_type = item.get('price_type', 'asking')
-                row = MarketReference(equipment_model=model, source=item['url'],
+                row = MarketReference(equipment_model=model, source=source,
                 source_title=item.get('title') or f"{subject['brand']} {subject['model']} · {item['source']}",
                 price=Decimal(str(item['price'])), currency=item['currency'], market=market,
                 price_type=price_type, condition=item['condition'], year=item.get('year'),
                 hours=item.get('hours'), retrieved_at=observed_at,
                 evidence=item['evidence'], configurations=item.get('configurations', {}),
                 unit_key=item.get('unit_key', ''), review='approved', active=True, reviewed_at=timezone.now())
-                row.full_clean()
-            except (KeyError, ValueError, ValidationError) as exc:
+                # ``source`` is unique and is checked again at save time so a
+                # concurrent release import remains idempotent.
+                row.full_clean(validate_unique=False)
+            except (KeyError, TypeError, ValueError, ValidationError) as exc:
                 raise CommandError('El anuncio de mercado no contiene campos válidos.') from exc
-            row.save()
+            try:
+                with transaction.atomic():
+                    row.save()
+            except IntegrityError:
+                if MarketReference.objects.filter(source=source).exists():
+                    continue
+                raise
             created += 1
     return created
 
@@ -79,42 +108,58 @@ def install_bundled_market(root=None):
 def valuation_from_library(identity, category):
     """Use exact, active model references for 30 days; never infer an identity."""
     from .valuation import _configuration_key, range_from_comparables, _seal, _MARKET_NAMES
-    if not category or not identity.get('brand') or not identity.get('model'):
+    from .market_observations import latest_market_observations, market_unit_key
+    if not isinstance(identity, dict) or not category or not identity.get('brand') or not identity.get('model'):
+        return None
+    configurations = identity.get('configurations', {})
+    compatibility_context = identity.get('compatibility', {})
+    if not isinstance(configurations, dict) or not isinstance(compatibility_context, dict):
         return None
     brand_query = Q()
     for alias in _brand_aliases(identity['brand']):
         brand_query |= Q(equipment_model__brand__name__iexact=alias)
     today = timezone.localdate()
+    oldest_allowed = today - timedelta(days=MAX_REFERENCE_AGE_DAYS)
     rows = MarketReference.objects.filter(brand_query, equipment_model__category=category,
         equipment_model__active=True, equipment_model__brand__active=True,
-        review='approved', active=True, retrieved_at__range=(today - timedelta(days=MAX_REFERENCE_AGE_DAYS), today)
-        ).select_related('equipment_model__brand').order_by('-retrieved_at', 'pk')
-    comparable, seen = [], set()
-    for row in rows:
+        review='approved', active=True).select_related('equipment_model__brand')
+    comparable = []
+    # Choose the latest observation for each unit before checking age, state or
+    # compatibility. An older ad cannot reappear merely because its replacement
+    # omitted a detail or changed its documented condition.
+    for row in latest_market_observations(rows, today=today):
+        if row.retrieved_at < oldest_allowed:
+            continue
         if identifier_key(row.equipment_model.name) != identifier_key(identity['model']):
             continue
-        if row.market not in _MARKET_NAMES or row.condition not in {'new', 'used', 'refurbished', 'for_repair'} or row.price <= 0:
+        if (row.market not in _MARKET_NAMES or row.currency not in {'USD', 'MXN', 'EUR'}
+                or row.price_type not in {'asking', 'sold'}
+                or row.condition not in {'new', 'used', 'refurbished', 'for_repair'}
+                or not isinstance(row.configurations, dict) or not isinstance(row.evidence, str)):
+            continue
+        try:
+            valid_price = row.price > 0
+        except (TypeError, ValueError, ArithmeticError):
+            valid_price = False
+        if not valid_price:
             continue
         if identity.get('condition') and row.condition != identity['condition']:
             continue
         if any(_configuration_key(row.configurations.get(key)) != _configuration_key(value)
-               for key, value in identity.get('configurations', {}).items()):
+               for key, value in configurations.items()):
             continue
         # Reject documented incompatible variants/years, never guess a discount.
         compatibility = {**row.configurations, **({'year': str(row.year)} if row.year else {})}
         if any(key != 'hours' and key in compatibility and identifier_key(value) != identifier_key(compatibility[key])
-               for key, value in identity.get('compatibility', {}).items()):
+               for key, value in compatibility_context.items()):
             continue
-        unit = row.unit_key or row.source
-        if unit in seen:
-            continue
-        seen.add(unit)
+        unit = market_unit_key(row)
         comparable.append({'url': row.source, 'title': row.source_title, 'price': str(row.price),
             'currency': row.currency, 'market': row.market, 'price_type': row.price_type,
             'condition': row.condition, 'retrieved_at': row.retrieved_at.isoformat(),
             'brand': identity['brand'], 'model': identity['model'], 'evidence': row.evidence,
             'configurations': row.configurations, 'compatibility': compatibility,
-            '_unit_hash': hashlib.sha256(row.unit_key.encode()).hexdigest() if row.unit_key else ''})
+            '_unit_hash': hashlib.sha256(str(unit[2]).encode()).hexdigest() if unit[1] == 'unit' else ''})
     value = range_from_comparables(comparable, identity)
     if value['status'] not in {'estimated', 'conditional_reference'}:
         return None

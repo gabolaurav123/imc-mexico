@@ -10,7 +10,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase
 
 from portal.knowledge import research_from_knowledge, retrieve_technical_references
-from portal.knowledge_catalogue import KNOWLEDGE_ROOT, bundled_records
+from portal.knowledge_catalogue import KNOWLEDGE_ROOT, bundled_records, link_catalogue
 from portal.models import Brand, Category, EquipmentModel, Machine, TechnicalReference
 from portal.structured_data import normalize_structured_data
 
@@ -95,6 +95,51 @@ class BundledKnowledgeTests(TestCase):
         self.seed()
         reference = TechnicalReference.objects.first()
         reference.provenance = []
+        with self.assertRaises(ValidationError):
+            reference.full_clean()
+
+    def test_future_retrieval_date_is_rejected_before_a_bundle_can_create_rows(self):
+        record = deepcopy(bundled_records()[0])
+        record["retrieved_at"] = "2099-01-01"
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "future.json"
+            path.write_text(json.dumps({"references": [record]}), encoding="utf-8")
+            Category.objects.create(slug="excavadoras", name="Excavadoras")
+            with self.assertRaises(CommandError):
+                call_command("import_technical_knowledge", path=str(path), stdout=StringIO())
+        self.assertFalse(TechnicalReference.objects.exists())
+        self.assertFalse(Brand.objects.exists())
+
+    def test_duplicate_import_identity_rolls_back_instead_of_keeping_the_last_copy(self):
+        record = deepcopy(bundled_records()[0])
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "duplicates.json"
+            path.write_text(json.dumps({"references": [record, record]}), encoding="utf-8")
+            Category.objects.create(slug="excavadoras", name="Excavadoras")
+            with self.assertRaises(CommandError):
+                call_command("import_technical_knowledge", path=str(path), stdout=StringIO())
+        self.assertFalse(TechnicalReference.objects.exists())
+        self.assertFalse(Brand.objects.exists())
+
+    def test_catalogue_linking_accepts_one_normalized_match_but_leaves_ambiguous_models_unlinked(self):
+        category = Category.objects.create(slug="excavadoras", name="Excavadoras")
+        brand = Brand.objects.create(name="Caterpillar")
+        preferred = EquipmentModel.objects.create(brand=brand, name="320 D", category=category)
+        reference = TechnicalReference(category=category, brand="CAT", model="320-D",
+            source="https://manufacturer.example.invalid/320-d", source_title="Ficha", retrieved_at="2026-09-01")
+        link_catalogue(reference)
+        self.assertEqual(reference.equipment_model_id, preferred.pk)
+        EquipmentModel.objects.create(brand=brand, name="320D", category=category)
+        ambiguous = TechnicalReference(category=category, brand="Caterpillar", model="320-D",
+            source="https://manufacturer.example.invalid/another-320-d", source_title="Ficha", retrieved_at="2026-09-01")
+        link_catalogue(ambiguous)
+        self.assertIsNone(ambiguous.equipment_model_id)
+
+    def test_reference_validation_rejects_future_years_and_incoherent_periods(self):
+        category = Category.objects.create(slug="excavadoras", name="Excavadoras")
+        reference = TechnicalReference(category=category, brand="Marca", model="Modelo",
+            source="https://manufacturer.example.invalid/model", source_title="Ficha", retrieved_at="2026-09-01",
+            period_from=2028, period_to=2029)
         with self.assertRaises(ValidationError):
             reference.full_clean()
 

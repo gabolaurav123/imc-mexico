@@ -151,20 +151,40 @@ def _brand_key(value):
     return {"cat": "caterpillar", "deere": "johndeere", "volvoce": "volvo"}.get(value, value)
 
 
+def _model_identifier_pattern(identifier):
+    """Match a model identifier without turning a decimal code into a prefix.
+
+    Whitespace and hyphens are presentation differences for ordinary model
+    codes. A literal period is different: it is retained as an internal,
+    required separator, so ``307.5`` cannot silently become ``307`` or
+    ``307-5``.
+    """
+    identifier = str(identifier or "")
+    if not re.fullmatch(r"[\w\s.-]+", identifier, re.UNICODE) or "_" in identifier:
+        return ""
+    pieces = identifier.split(".")
+    if any(not piece or not re.fullmatch(r"[\w\s-]+", piece, re.UNICODE) for piece in pieces):
+        return ""
+    patterns = []
+    for piece in pieces:
+        characters = [character for character in piece if character.isalnum()]
+        if not characters:
+            return ""
+        patterns.append(r"[\s-]*".join(re.escape(character) for character in characters))
+    return r"\.".join(patterns)
+
+
 def _contains_identifier(text, identifier):
     if not identifier:
         return False
-    # Formatting may separate characters with whitespace or hyphens, but a
-    # longer identifier is a different machine/model. Do not reduce the whole
-    # evidence passage to alphanumerics: that would turn a prefix into a match.
-    identifier = str(identifier)
-    if not re.fullmatch(r"[\w\s-]+", identifier, re.UNICODE) or "_" in identifier:
+    # Formatting may separate ordinary code characters with whitespace or
+    # hyphens. Decimal model codes retain their period as a required literal;
+    # otherwise a shorter code could become a prefix of another model.
+    pattern = _model_identifier_pattern(identifier)
+    if not pattern:
         return False
-    characters = [character for character in identifier if character.isalnum()]
-    if not characters:
-        return False
-    pattern = r"(?<![^\W_])(?<![\w]-)" + r"[\s-]*".join(re.escape(c) for c in characters)
-    pattern += r"(?![^\W_]|-[^\W_])"
+    pattern = r"(?<![^\W_])(?<![\w]-)" + pattern
+    pattern += r"(?![^\W_]|[.-][^\W_])"
     return bool(re.search(pattern, str(text), re.I))
 
 
@@ -380,10 +400,10 @@ def _model_suffix(text, *, in_title=False):
 
 def _model_variant_conflict_reason(text, model, *, in_title=False):
     """A base-code occurrence cannot stand in for a suffixed/comparison model."""
-    if not model or not re.fullmatch(r"[\w\s-]+", str(model)):
+    pattern = _model_identifier_pattern(model)
+    if not pattern:
         return ""
-    characters = [c for c in str(model) if c.isalnum()]
-    pattern = r"(?<![^\W_])(?<![\w]-)" + r"[\s-]*".join(re.escape(c) for c in characters) + r"(?!\d)"
+    pattern = r"(?<![^\W_])(?<![\w]-)" + pattern + r"(?!\d)"
     for match in re.finditer(pattern, str(text), re.I):
         tail = str(text)[match.end():]
         if re.match(r"^[A-Za-z]{1,6}(?!\w)", tail) or _model_suffix(tail, in_title=in_title):
@@ -462,7 +482,7 @@ def _conflicting_explicit_model_reason(evidence, identity, *, in_title=False):
     for alias in aliases:
         if alias:
             patterns.append(r"\b" + re.escape(alias) + r"\s+((?=[A-Za-z0-9-]*\d)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)(?![A-Za-z0-9])")
-    complete = r"[\s-]*".join(re.escape(c) for c in str(model) if c.isalnum()) + r"(?![^\W_]|-[^\W_])"
+    complete = _model_identifier_pattern(model) + r"(?![^\W_]|[.-][^\W_])"
     for pattern in patterns:
         for match in re.finditer(pattern, evidence, re.I):
             # A directly labeled component has its own manufacturer/model.

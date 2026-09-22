@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 from portal.valuation import (ComparableCandidate, ComparableCandidates, Compatibility, Configuration,
     LABEL, PARSE_RESERVATION, SEARCH_RESERVATION, VALUATION_RESERVATION,
     _document_passages, _fetch_listing, _identity, _listing_url, _listing_fact_snippets, _money, _normalize,
-    estimate_machine, is_validated_estimate)
+    estimate_machine, is_validated_estimate, range_from_comparables)
 from portal.research_fetch import CatalogFetchError
 
 
@@ -246,6 +246,16 @@ class ValuationGroundingTests(SimpleTestCase):
         self.assertEqual(len(normalize([candidate(text=text, configurations=[Configuration(key='voltage', value='36 V')])],
                                      [passage(text)], identity)['comparables']), 1)
 
+    def test_documented_different_configurations_are_not_pooled_when_the_unit_configuration_is_unknown(self):
+        common = {'title': 'Anuncio', 'currency': 'USD', 'market': 'US', 'price_type': 'asking',
+                  'condition': 'used', 'compatibility': {}, '_unit_hash': ''}
+        value = range_from_comparables([
+            {**common, 'url': URLS[0], 'price': '12000.00', 'configurations': {'fuel': 'LP Gas', 'mast_type': 'Three Stage'}},
+            {**common, 'url': URLS[1], 'price': '16000.00', 'configurations': {'fuel': 'Diesel', 'mast_type': 'Two Stage'}},
+        ], IDENTITY)
+        self.assertEqual(value['status'], 'insufficient')
+        self.assertLessEqual(len(value['comparables']), 1)
+
     def test_explicit_country_is_a_market_hint_and_compatibility_never_adjusts_price(self):
         mexico = quote('MXN 240000', country='Mexico')
         identity = {**IDENTITY, 'market_hint': 'MX', 'compatibility': {'variant': 'LC', 'year': '2020', 'hours': '5000'}}
@@ -329,6 +339,15 @@ class ValuationIdentityAndDocumentsTests(SimpleTestCase):
         snapshot = {'data': {'engine': 'Call contact owner@example.invalid'},
                     'provenance': {'engine': {'source': 'user'}}}
         self.assertNotIn('engine', _identity(result, snapshot)['configurations'])
+
+    def test_unknown_declared_details_do_not_constrain_local_or_paid_comparables(self):
+        snapshot = {'data': {'engine': 'Unknown', 'voltage': 'N/A', 'variant': 'Por confirmar',
+                             'year': 'Desconocido', 'hours': 'N/D'},
+                    'provenance': {key: {'source': 'user'} for key in
+                                   ('engine', 'voltage', 'variant', 'year', 'hours')}}
+        identity = _identity(vision(), snapshot)
+        self.assertEqual(identity['configurations'], {})
+        self.assertEqual(identity['compatibility'], {})
 
     def test_apparent_condition_and_preservation_are_disclosed_without_adjustments(self):
         result = vision()

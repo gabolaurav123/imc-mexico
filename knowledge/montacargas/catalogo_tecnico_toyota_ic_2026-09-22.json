@@ -1,0 +1,106 @@
+{
+  "references": [
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "50-8FGCU25",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 50-8FGCU25 LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 50-8FGCU25 LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "2250 kg", "evidence": "Toyota 50-8FGCU25: Load Capacity 2250 kg."},
+        "lift_height": {"value": "3340 mm", "evidence": "Toyota 50-8FGCU25: Maximum Fork Height (top of forks) 3340 mm."},
+        "weight": {"value": "3630 kg", "evidence": "Toyota 50-8FGCU25: Total Weight 3630 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "50-8FGCU30",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 50-8FGCU30 LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 50-8FGCU30 LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "2700 kg", "evidence": "Toyota 50-8FGCU30: Load Capacity 2700 kg."},
+        "lift_height": {"value": "3345 mm", "evidence": "Toyota 50-8FGCU30: Maximum Fork Height (top of forks) 3345 mm."},
+        "weight": {"value": "4200 kg", "evidence": "Toyota 50-8FGCU30: Total Weight 4200 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "50-8FGCU32",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 50-8FGCU32 LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 50-8FGCU32 LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "3000 kg", "evidence": "Toyota 50-8FGCU32: Load Capacity 3000 kg."},
+        "lift_height": {"value": "3345 mm", "evidence": "Toyota 50-8FGCU32: Maximum Fork Height (top of forks) 3345 mm."},
+        "weight": {"value": "4410 kg", "evidence": "Toyota 50-8FGCU32: Total Weight 4410 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "40-8FGCU20",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 40-8FGCU20 gasoline/LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 40-8FGCU20 gasoline/LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "1800 kg", "evidence": "Toyota 40-8FGCU20: Load Capacity 1800 kg."},
+        "lift_height": {"value": "3340 mm", "evidence": "Toyota 40-8FGCU20: Maximum Fork Height (top of forks) 3340 mm."},
+        "weight": {"value": "3310 kg", "evidence": "Toyota 40-8FGCU20: Total Weight 3310 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "40-8FGCU25",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 40-8FGCU25 gasoline/LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 40-8FGCU25 gasoline/LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "2250 kg", "evidence": "Toyota 40-8FGCU25: Load Capacity 2250 kg."},
+        "lift_height": {"value": "3340 mm", "evidence": "Toyota 40-8FGCU25: Maximum Fork Height (top of forks) 3340 mm."},
+        "weight": {"value": "3700 kg", "evidence": "Toyota 40-8FGCU25: Total Weight 3700 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "40-8FGCU30",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.toyotaforklift.com/content/dam/tmh/marketing/en/pdf/product-spec-brochures/2024_Core%20IC%20Cushion_Spec%20Sheet_Digital.pdf",
+      "source_title": "Core IC Cushion Spec Sheet | Toyota Material Handling",
+      "source_version": "2024 PDF; 40-8FGCU30 gasoline/LP",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Hoja de especificaciones de Toyota Material Handling US. Se conserva la columna exacta 40-8FGCU30 gasoline/LP con neumático cushion; las cifras no prueban mástil, accesorios, condición, país de fabricación ni año de una unidad."},
+      "specs": {
+        "capacity": {"value": "2700 kg", "evidence": "Toyota 40-8FGCU30: Load Capacity 2700 kg."},
+        "lift_height": {"value": "3345 mm", "evidence": "Toyota 40-8FGCU30: Maximum Fork Height (top of forks) 3345 mm."},
+        "weight": {"value": "4290 kg", "evidence": "Toyota 40-8FGCU30: Total Weight 4290 kg."}
+      }
+    }
+  ]
+}

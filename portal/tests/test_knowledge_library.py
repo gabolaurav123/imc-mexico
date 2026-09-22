@@ -1,8 +1,11 @@
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django_otp import DEVICE_ID_SESSION_KEY
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from datetime import timedelta
+from django.utils import timezone
 
 from portal.models import Brand, Category, EquipmentModel, MarketReference, TechnicalReference, User
 
@@ -128,3 +131,83 @@ class TechnicalLibraryTests(TestCase):
         self.assertFalse(reference.active)
         reference.configurations = []
         with self.assertRaises(ValidationError): reference.full_clean()
+
+    def market_observation(self, suffix, **overrides):
+        values = {"equipment_model": self.equipment_model, "currency": "USD", "market": "US",
+                  "price_type": "asking", "condition": "used", "retrieved_at": timezone.localdate(),
+                  "evidence": "Precio y condición visibles en el anuncio.", "review": "approved", "active": True,
+                  "source": f"https://market.example.invalid/{suffix}", "source_title": suffix, "price": "45000.00"}
+        values.update(overrides)
+        return MarketReference.objects.create(**values)
+
+    def test_availability_filters_and_market_summary_include_only_dated_approved_observations(self):
+        self.make_reference(brand="Volvo", model="EC140C")
+        self.market_observation("first", unit_key="Unit 1")
+        self.market_observation("second", unit_key="Unit 2", price="50000.00")
+        self.market_observation("pending", review="pending", active=False, price="1.00")
+        self.market_observation("future", retrieved_at=timezone.localdate() + timedelta(days=1), price="2.00")
+        self.login_with_permission()
+        response = self.client.get("/operaciones/base-tecnica/", {"availability": "with_market"})
+        self.assertEqual(list(response.context["references"]), [self.reference])
+        self.assertEqual(response.context["completeness"], {"periods": 1, "market_models": 1})
+        summary = response.context["references"][0].market_overview["ranges"][0]
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["minimum"], 45000)
+        self.assertEqual(summary["median"], 47500)
+        response = self.client.get("/operaciones/base-tecnica/", {"availability": "without_market"})
+        self.assertEqual([row.model for row in response.context["references"]], ["EC140C"])
+        response = self.client.get("/operaciones/base-tecnica/", {"availability": "without_period"})
+        self.assertEqual([row.model for row in response.context["references"]], ["EC140C"])
+        response = self.client.get("/operaciones/base-tecnica/", {"category": "9" * 100})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["category"], "")
+
+    def test_latest_observation_supersedes_older_condition_and_does_not_create_a_false_range(self):
+        self.market_observation("old", unit_key="Stock 1", retrieved_at=timezone.localdate() - timedelta(days=1))
+        self.market_observation("new", unit_key="  STOCK   1 ", condition="unknown", price="60000.00")
+        self.market_observation("independent", unit_key="Stock 2")
+        self.login_with_permission()
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertEqual(len(response.context["market_listings"]), 2)
+        self.assertEqual(response.context["market_ranges"], [])
+        self.assertNotContains(response, 'href="https://market.example.invalid/old"')
+
+    def test_related_documentation_keeps_variant_scope_and_excludes_inactive_references(self):
+        sibling = self.make_reference(brand="Caterpillar", model="320", equipment_model=self.equipment_model,
+            variant="GC", market="US", source="https://manufacturer.example.invalid/us-320",
+            specs={"weight": {"value": "22000 kg", "evidence": "Peso operativo documentado."}})
+        self.make_reference(brand="Caterpillar", model="320", equipment_model=self.equipment_model,
+            active=False, source="https://manufacturer.example.invalid/inactive", source_title="Documento inactivo")
+        self.login_with_permission()
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertEqual([row["reference"] for row in response.context["related_references"]], [sibling])
+        self.assertContains(response, "Más documentación del modelo")
+        self.assertContains(response, "22000 kg")
+        self.assertContains(response, "US")
+        self.assertNotContains(response, "Documento inactivo")
+
+    def test_market_links_are_safe_and_sold_prices_are_labelled_correctly(self):
+        self.market_observation("unsafe", source="javascript:alert(1)", price_type="sold")
+        self.login_with_permission()
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertNotContains(response, 'href="javascript:alert(1)"')
+        self.assertContains(response, "Precio de venta")
+
+    def test_market_summary_does_not_mix_different_documented_configurations(self):
+        self.market_observation("diesel", configurations={"fuel": "Diesel"})
+        self.market_observation("lpg", configurations={"fuel": "LPG"})
+        self.login_with_permission()
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertEqual(response.context["market_ranges"], [])
+
+    def test_database_constraints_block_invalid_bulk_updates_that_bypass_model_clean(self):
+        observation = self.market_observation("valid")
+        for model, pk, values in (
+            (TechnicalReference, self.reference.pk, {"review": "pending", "active": True}),
+            (TechnicalReference, self.reference.pk, {"period_from": 2020, "period_to": 2010}),
+            (MarketReference, observation.pk, {"review": "pending", "active": True}),
+            (MarketReference, observation.pk, {"price": 0}),
+        ):
+            with self.subTest(model=model.__name__, values=values):
+                with self.assertRaises(IntegrityError), transaction.atomic():
+                    model.objects.filter(pk=pk).update(**values)

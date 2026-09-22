@@ -1,0 +1,64 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EC140C",
+      "variant": "",
+      "market": "",
+      "period_from": 2008,
+      "period_to": 2017,
+      "source": "https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-c-series/ec140c/",
+      "source_title": "EC140C - Volvo, C series | Volvo Construction Equipment",
+      "source_version": "Global past-products archive; documented production period",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "period_evidence": "Volvo EC140C: Production year 2008-2017.", "note": "Archivo global de producto pasado. El periodo es una cobertura de modelo documentada por Volvo y no identifica el año de fabricación de una unidad ni su configuración. Peso, capacidad, alcance y profundidad son rangos o máximos de la ficha global; la potencia publicada es bruta."},
+      "specs": {
+        "weight": {"value": "12800-15000 kg", "evidence": "Volvo EC140C: Operating weight 12800-15000 kg."},
+        "power": {"value": "80 kW", "evidence": "Volvo EC140C: Gross power 80 kW."},
+        "capacity": {"value": "0.45-0.93 m³", "evidence": "Volvo EC140C: Bucket capacity 0.45-0.93 m³."},
+        "digging_depth": {"value": "6030 mm", "evidence": "Volvo EC140C: Max. digging depth 6030 mm."}
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EC170D",
+      "variant": "",
+      "market": "",
+      "period_from": 2015,
+      "period_to": 2021,
+      "source": "https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-d-series/ec170d/",
+      "source_title": "EC170D - Volvo, D series | Volvo Construction Equipment",
+      "source_version": "Global past-products archive; documented production period",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "period_evidence": "Volvo EC170D: Production year 2015-2021.", "note": "Archivo global de producto pasado. El periodo es una cobertura de modelo documentada por Volvo y no identifica el año de fabricación de una unidad ni su configuración. Peso, capacidad, alcance y profundidad son rangos o máximos de la ficha global; la potencia publicada es bruta."},
+      "specs": {
+        "weight": {"value": "16400-19400 kg", "evidence": "Volvo EC170D: Operating weight 16400-19400 kg."},
+        "power": {"value": "91 kW", "evidence": "Volvo EC170D: Gross power 91 kW."},
+        "capacity": {"value": "0.3-0.84 m³", "evidence": "Volvo EC170D: Bucket capacity 0.3-0.84 m³."},
+        "digging_depth": {"value": "6043 mm", "evidence": "Volvo EC170D: Max. digging depth 6043 mm."}
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Volvo",
+      "model": "EC700C",
+      "variant": "",
+      "market": "",
+      "period_from": 2007,
+      "period_to": 2016,
+      "source": "https://www.volvoce.com/global/en/products-and-services/past-products/crawler-excavators/volvo-c-series/ec700c/",
+      "source_title": "EC700C - Volvo, C series | Volvo Construction Equipment",
+      "source_version": "Global past-products archive; documented production period",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "period_evidence": "Volvo EC700C: Production year 2007-2016.", "note": "Archivo global de producto pasado. El periodo es una cobertura de modelo documentada por Volvo y no identifica el año de fabricación de una unidad ni su configuración. Peso, capacidad, alcance y profundidad son rangos o máximos de la ficha global; la potencia publicada es bruta."},
+      "specs": {
+        "weight": {"value": "69300-71700 kg", "evidence": "Volvo EC700C: Operating weight 69300-71700 kg."},
+        "power": {"value": "346 kW", "evidence": "Volvo EC700C: Gross power 346 kW."},
+        "capacity": {"value": "1.99-5.16 m³", "evidence": "Volvo EC700C: Bucket capacity 1.99-5.16 m³."},
+        "digging_depth": {"value": "8400 mm", "evidence": "Volvo EC700C: Max. digging depth 8400 mm."}
+      }
+    }
+  ]
+}

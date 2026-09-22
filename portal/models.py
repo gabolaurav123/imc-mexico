@@ -1,5 +1,6 @@
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from string import Template
 from pathlib import Path
 
@@ -332,6 +333,17 @@ class TechnicalReference(models.Model):
         verbose_name = "referencia técnica"
         verbose_name_plural = "referencias técnicas"
         indexes = [models.Index(fields=["category", "brand", "model", "variant", "market", "active"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(active=False) | models.Q(review="approved"),
+                name="technical_active_requires_approval",
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(period_from__isnull=True) | models.Q(period_to__isnull=True)
+                           | models.Q(period_from__lte=models.F("period_to"))),
+                name="technical_period_is_ordered",
+            ),
+        ]
 
     def clean(self):
         errors = {}
@@ -344,6 +356,12 @@ class TechnicalReference(models.Model):
                 errors["equipment_model"] = "El modelo del catálogo debe coincidir con la categoría, marca y modelo de la referencia."
         if self.period_from and self.period_to and self.period_from > self.period_to:
             errors["period_to"] = "El final del periodo no puede ser anterior al inicio."
+        maximum_year = timezone.localdate().year + 1
+        for field in ("period_from", "period_to"):
+            if getattr(self, field) and getattr(self, field) > maximum_year:
+                errors[field] = f"El año no puede ser posterior a {maximum_year}."
+        if self.retrieved_at and self.retrieved_at > timezone.localdate():
+            errors["retrieved_at"] = "La fecha de consulta no puede estar en el futuro."
         if self.active and self.review != self.Review.APPROVED:
             errors["active"] = "Sólo una referencia aprobada puede activarse."
         if not isinstance(self.specs, dict):
@@ -380,7 +398,7 @@ class MarketReference(models.Model):
                                         verbose_name="modelo del catálogo")
     source = models.URLField("URL de fuente", max_length=1000, unique=True)
     source_title = models.CharField("título de fuente", max_length=300)
-    price = models.DecimalField("precio", max_digits=16, decimal_places=2, validators=[MinValueValidator(0)])
+    price = models.DecimalField("precio", max_digits=16, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     currency = models.CharField("moneda", max_length=3, choices=[("USD", "USD"), ("MXN", "MXN"), ("EUR", "EUR")])
     market = models.CharField("mercado", max_length=2)
     price_type = models.CharField("tipo de precio", max_length=10, choices=PriceType.choices, default=PriceType.ASKING)
@@ -404,6 +422,13 @@ class MarketReference(models.Model):
         verbose_name = "referencia de mercado"
         verbose_name_plural = "referencias de mercado"
         indexes = [models.Index(fields=["equipment_model", "market", "currency", "price_type", "condition", "active"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(active=False) | models.Q(review="approved"),
+                name="market_active_requires_approval",
+            ),
+            models.CheckConstraint(condition=models.Q(price__gt=0), name="market_price_is_positive"),
+        ]
 
     def clean(self):
         errors = {}
@@ -411,9 +436,13 @@ class MarketReference(models.Model):
             errors["active"] = "Sólo una referencia aprobada puede activarse."
         if self.market and (len(self.market) != 2 or not self.market.isalpha()):
             errors["market"] = "El mercado debe usar un código de país ISO de dos letras."
+        if self.year and self.year > timezone.localdate().year + 1:
+            errors["year"] = f"El año no puede ser posterior a {timezone.localdate().year + 1}."
+        if self.retrieved_at and self.retrieved_at > timezone.localdate():
+            errors["retrieved_at"] = "La fecha de consulta no puede estar en el futuro."
         if not isinstance(self.configurations, dict):
             errors["configurations"] = "La configuración debe ser un objeto estructurado."
-        if not self.evidence.strip():
+        if not isinstance(self.evidence, str) or not self.evidence.strip():
             errors["evidence"] = "Registra la evidencia del anuncio fechado."
         if errors:
             raise ValidationError(errors)

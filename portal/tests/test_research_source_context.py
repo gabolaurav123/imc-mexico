@@ -5,8 +5,9 @@ from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 
-from portal.research import (ResearchCandidate, ResearchCandidates, is_validated_web_field,
-                             merge_research, normalize_candidates, research_machine, response_sources)
+from portal.research import (ResearchCandidate, ResearchCandidates, _contains_identifier,
+                             is_validated_web_field, merge_research, normalize_candidates,
+                             research_machine, response_sources)
 
 URL = "https://www.cat.com/equipment/example"
 IDENTITY = {"serial": None, "brand": "Caterpillar", "model": "420F2"}
@@ -104,6 +105,22 @@ class SourceTitleContextTests(SimpleTestCase):
                 self.assertEqual(result["fields"], [])
                 self.assertEqual(result["diagnostics"]["field_rejection_counts"],
                                  {"power": {"model_variant_suffix": 1}})
+
+    def test_decimal_model_requires_its_complete_literal_identifier(self):
+        identity = {**IDENTITY, "model": "307.5"}
+        item = candidate(value="36 kW", matched_model="307.5")
+        title = "Caterpillar 307.5 Specifications"
+        accepted = normalize(body="Caterpillar 307.5: potencia neta 36 kW.", title=title,
+                             item=item, identity=identity)
+        self.assertEqual(accepted["fields"][0]["value"], "36 kW")
+        for evidence in ("Caterpillar 307: potencia neta 36 kW.",
+                         "Caterpillar 307.50: potencia neta 36 kW.",
+                         "Caterpillar 307.5D: potencia neta 36 kW.",
+                         "Caterpillar 308: potencia neta 36 kW."):
+            with self.subTest(evidence=evidence):
+                self.assertFalse(_contains_identifier(evidence, "307.5"))
+                result = normalize(body=evidence, title=title, item=item, identity=identity)
+                self.assertEqual(result["fields"], [])
 
     def test_shared_model_document_requires_explicit_base_model_in_its_own_passage(self):
         for title in ("CAT 420F2/420F2 IT", "Caterpillar 420F2 and 420F2 IT", "CAT 420F2/IT"):

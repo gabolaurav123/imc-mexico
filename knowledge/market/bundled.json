@@ -4,6 +4,10 @@
     {
       "path": "caterpillar_320d_l_listings_2026-09-22.json",
       "sha256": "ddfab3383aa1df82e2ca1249ec5a52f1d6ba9863fe0e96f6f589943b9638ba42"
+    },
+    {
+      "path": "toyota_50_8fgcu25_listings_2026-09-22.json",
+      "sha256": "718ed70ab129560552660b7432361b77c98f77e402118dade959f475e1911b74"
     }
   ]
 }

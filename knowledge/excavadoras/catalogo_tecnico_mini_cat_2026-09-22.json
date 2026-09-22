@@ -1,0 +1,55 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "306 CR",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/mini-excavators/100084.html?doBuildAndPrice=Y",
+      "source_title": "306 CR Mini Excavator | Cat | Caterpillar",
+      "source_version": "US product page; current 306 CR",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Ficha de Caterpillar para Estados Unidos. El peso operativo máximo publicado usa orugas de acero con almohadillas, contrapeso adicional, operador, tanque lleno, brazo largo, hoja fija y sin cucharón; la profundidad se publica para la configuración mostrada. No acredita la configuración ni el año de una unidad."},
+      "specs": {
+        "power": {"value": "41.7 kW", "evidence": "Caterpillar 306 CR: Net Power 41.7 kW."},
+        "weight": {"value": "7150 kg", "evidence": "Caterpillar 306 CR: Operating Weight 7150 kg."},
+        "digging_depth": {"value": "4110 mm", "evidence": "Caterpillar 306 CR: Dig Depth 4110 mm."}
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "307.5",
+      "variant": "Tier 4 / Stage V",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/mini-excavators/15969612.html",
+      "source_title": "307.5 Mini Excavator | Cat | Caterpillar",
+      "source_version": "US product page; Tier 4 / Stage V",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Ficha de Caterpillar para Estados Unidos y variante Tier 4 / Stage V. El peso operativo publicado es el máximo con cabina, orugas de acero con almohadillas, contrapeso, operador, tanque lleno, brazo largo, hoja y sin cucharón; la profundidad es con brazo largo. No acredita la configuración ni el año de una unidad."},
+      "specs": {
+        "power": {"value": "40.9 kW", "evidence": "Caterpillar 307.5 Tier 4 / Stage V: Net Power 40.9 kW."},
+        "weight": {"value": "8120 kg", "evidence": "Caterpillar 307.5 Tier 4 / Stage V: Operating Weight 8120 kg."},
+        "digging_depth": {"value": "4642 mm", "evidence": "Caterpillar 307.5 Tier 4 / Stage V, long stick: Dig Depth 4642 mm."}
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "310",
+      "variant": "Tier 4 / Stage V",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/mini-excavators/302717362099907.html",
+      "source_title": "310 Mini Excavator | Cat | Caterpillar",
+      "source_version": "US product page; Tier 4 / Stage V",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Ficha de Caterpillar para Estados Unidos y variante Tier 4 / Stage V. El peso máximo de cabina publicado usa orugas de acero con almohadillas, contrapeso, operador, tanque lleno, brazo largo, hoja y sin cucharón; la profundidad es la cifra resumida por el fabricante. No acredita la configuración ni el año de una unidad."},
+      "specs": {
+        "power": {"value": "51.8 kW", "evidence": "Caterpillar 310 Tier 4 / Stage V: Net Power 51.8 kW."},
+        "weight": {"value": "10432 kg", "evidence": "Caterpillar 310 Tier 4 / Stage V: Operating Weight 10432 kg."},
+        "digging_depth": {"value": "5211 mm", "evidence": "Caterpillar 310 Tier 4 / Stage V: Dig Depth 5211 mm."}
+      }
+    }
+  ]
+}

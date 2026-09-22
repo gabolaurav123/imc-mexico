@@ -43,23 +43,30 @@ class Command(BaseCommand):
         for item in records:
             validate_record(item)
             slug = item.get("category_slug")
-            category = Category.objects.filter(slug=slug).first()
-            if category is None:
+            try:
+                # Serialize imports of one category so concurrent runs cannot
+                # both create the same logical reference before either sees it.
+                category = Category.objects.select_for_update().get(slug=slug)
+            except Category.DoesNotExist:
                 raise CommandError(f"Categoría inexistente: {slug!r}. Ejecuta seed antes de importar.")
             required = ("brand", "model", "source", "source_title", "retrieved_at")
             if any(not item.get(key) for key in required):
                 raise CommandError(f"{slug}: faltan campos obligatorios: {', '.join(required)}.")
             try:
-                retrieved_at = date.fromisoformat(str(item["retrieved_at"]))
+                retrieved_at = date.fromisoformat(item["retrieved_at"])
             except ValueError as exc:
                 raise CommandError(f"{slug}: retrieved_at debe usar AAAA-MM-DD.") from exc
             lookup = {"category": category, "brand": str(item["brand"]).strip(), "model": str(item["model"]).strip(),
                       "variant": str(item.get("variant", "")).strip(), "generation": str(item.get("generation", "")).strip(),
-                      "market": str(item.get("market", "")).strip(), "source": item["source"]}
+                      "market": str(item.get("market", "")).strip(), "source": str(item["source"]).strip()}
             values = {"period_from": item.get("period_from"), "period_to": item.get("period_to"),
                       "specs": item.get("specs", {}), "provenance": item.get("provenance", {}),
                       "source_title": item["source_title"], "source_version": item.get("source_version", ""),
                       "retrieved_at": retrieved_at}
+            identity = (category.pk, lookup["brand"], lookup["model"], lookup["variant"],
+                        lookup["generation"], lookup["market"], lookup["source"])
+            if identity in seen:
+                raise CommandError(f"{slug}: la misma referencia aparece más de una vez en la importación.")
             reference, is_created = TechnicalReference.objects.get_or_create(**lookup, defaults=values)
             if is_created:
                 link_catalogue(reference)
@@ -84,7 +91,7 @@ class Command(BaseCommand):
                     link_catalogue(reference)
                     reference.full_clean()
                     reference.save(update_fields=["equipment_model", "updated_at"])
-            seen.add((category.pk, lookup["brand"], lookup["model"], lookup["variant"], lookup["generation"], lookup["market"], lookup["source"]))
+            seen.add(identity)
             categories.add(category.pk)
         if options["deactivate_missing"]:
             for reference in TechnicalReference.objects.filter(category_id__in=categories, active=True):

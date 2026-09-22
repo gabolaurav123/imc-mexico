@@ -1,11 +1,13 @@
 """Private browsing views for the reviewed technical-reference library."""
 import json
+from collections import defaultdict
+from statistics import median
 from urllib.parse import urlparse
 
 from django.core.paginator import Paginator
 from datetime import timedelta
 
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
@@ -13,6 +15,8 @@ from django.views.decorators.http import require_GET
 from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
 from .models import Category, MarketReference, TechnicalReference
 from .market_catalogue import MAX_REFERENCE_AGE_DAYS
+from .market_observations import latest_market_observations
+from .valuation import configuration_signature
 from .research import LABELS as DISPLAY_LABELS
 from .security import operator_required
 
@@ -26,9 +30,16 @@ def _library_filters(request):
     query = request.GET.get("q", "").strip()[:100]
     status = _selected_choice(request.GET.get("status", ""), TechnicalReference.Review.choices)
     market = request.GET.get("market", "").strip()[:80]
-    category = request.GET.get("category", "").strip()
+    category = request.GET.get("category", "").strip()[:20]
+    if not category.isdigit() or len(category) > 18:
+        category = ""
+    availability = _selected_choice(request.GET.get("availability", ""), AVAILABILITY_CHOICES)
 
-    references = TechnicalReference.objects.select_related("category")
+    today = timezone.localdate()
+    current_market = MarketReference.objects.filter(equipment_model_id=OuterRef("equipment_model_id"),
+        review=MarketReference.Review.APPROVED, active=True, price__gt=0,
+        retrieved_at__range=(today - timedelta(days=MAX_REFERENCE_AGE_DAYS), today))
+    references = TechnicalReference.objects.select_related("category").annotate(has_current_market=Exists(current_market))
     if query:
         references = references.filter(
             Q(category__name__icontains=query)
@@ -43,8 +54,61 @@ def _library_filters(request):
         references = references.filter(market=market)
     if category.isdigit():
         references = references.filter(category_id=category)
+    period = Q(period_from__isnull=False) | Q(period_to__isnull=False)
+    if availability == "with_period":
+        references = references.filter(period)
+    elif availability == "without_period":
+        references = references.exclude(period)
+    elif availability == "with_market":
+        references = references.filter(has_current_market=True)
+    elif availability == "without_market":
+        references = references.filter(has_current_market=False)
 
-    return references, {"q": query, "status": status, "market": market, "category": category}
+    return references, {"q": query, "status": status, "market": market, "category": category, "availability": availability}
+
+
+AVAILABILITY_CHOICES = (
+    ("with_period", "Con periodo documentado"), ("without_period", "Sin periodo documentado"),
+    ("with_market", "Con anuncios vigentes"), ("without_market", "Sin anuncios vigentes"),
+)
+
+
+def _market_overview(model_ids):
+    """Share the worker's newest-unit selection; never mix market or condition."""
+    if not model_ids:
+        return {}
+    today = timezone.localdate()
+    cutoff = today - timedelta(days=MAX_REFERENCE_AGE_DAYS)
+    queryset = MarketReference.objects.filter(equipment_model_id__in=model_ids,
+        review=MarketReference.Review.APPROVED, active=True)
+    result = defaultdict(lambda: {"ranges": [], "listings": [], "historical": []})
+    groups = defaultdict(list)
+    for row in latest_market_observations(queryset, today=today):
+        row.source_href = _source_href(row.source)
+        overview = result[row.equipment_model_id]
+        if row.retrieved_at < cutoff:
+            overview["historical"].append(row)
+            continue
+        overview["listings"].append(row)
+        if (row.price > 0 and row.condition in {"new", "used", "refurbished", "for_repair"}
+                and row.price_type in {"asking", "sold"} and row.currency in {"USD", "MXN", "EUR"}
+                and isinstance(row.configurations, dict) and isinstance(row.evidence, str)
+                and row.evidence.strip() and row.source_href):
+            groups[(row.equipment_model_id, row.market, row.currency, row.price_type, row.condition,
+                    configuration_signature(row.configurations))].append(row)
+    for (model_id, market, currency, price_type, condition, _configuration), rows in sorted(groups.items()):
+        if len(rows) < 2:
+            continue
+        prices = [row.price for row in rows]
+        result[model_id]["ranges"].append({
+            "market": market, "currency": currency, "price_type": price_type, "condition": condition,
+            "price_type_label": dict(MarketReference.PriceType.choices).get(price_type, price_type),
+            "condition_label": dict(MarketReference.Condition.choices).get(condition, condition),
+            "configuration": ", ".join(f"{_display_label(key)}: {value}" for key, value in rows[0].configurations.items()),
+            "count": len(rows), "minimum": min(prices), "maximum": max(prices), "median": median(prices),
+            "oldest": min(row.retrieved_at for row in rows), "newest": max(row.retrieved_at for row in rows),
+        })
+    return result
 
 
 def _source_href(value):
@@ -99,11 +163,22 @@ def technical_library(request):
         "brands": references.values("brand").distinct().count(),
         "models": references.values("brand", "model").distinct().count(),
     }
+    completeness = {
+        "periods": references.filter(Q(period_from__isnull=False) | Q(period_to__isnull=False)).values("brand", "model").distinct().count(),
+        "market_models": references.filter(has_current_market=True).values("brand", "model").distinct().count(),
+    }
     page = Paginator(references, 20).get_page(request.GET.get("page"))
+    overview = _market_overview({ref.equipment_model_id for ref in page if ref.equipment_model_id})
+    for reference in page:
+        reference.specification_count = len(_display_specs(reference.specs))
+        reference.market_overview = overview.get(reference.equipment_model_id, {})
     return render(request, "portal/knowledge_library.html", {
         "references": page,
         "page_obj": page,
         "coverage": coverage,
+        "completeness": completeness,
+        "availability_choices": AVAILABILITY_CHOICES,
+        "market_reference_age_days": MAX_REFERENCE_AGE_DAYS,
         "categories": Category.objects.filter(technical_references__isnull=False).distinct().order_by("name"),
         "markets": TechnicalReference.objects.exclude(market="").order_by("market").values_list("market", flat=True).distinct(),
         "review_choices": TechnicalReference.Review.choices,
@@ -116,24 +191,11 @@ def technical_library(request):
 def technical_reference_detail(request, pk):
     reference = get_object_or_404(TechnicalReference.objects.select_related("category"), pk=pk)
     provenance = reference.provenance if isinstance(reference.provenance, dict) else {}
-    all_listings = MarketReference.objects.filter(equipment_model=reference.equipment_model,
-                                                  review=MarketReference.Review.APPROVED, active=True).order_by('-retrieved_at', '-pk') if reference.equipment_model_id else []
-    # Keep one observation per disclosed unit, preferring its newest dated record.
-    seen_units, listings = set(), []
-    for listing in all_listings:
-        unit = listing.unit_key or listing.source
-        if unit in seen_units: continue
-        seen_units.add(unit); listings.append(listing)
-    fresh_after = timezone.localdate() - timedelta(days=MAX_REFERENCE_AGE_DAYS)
-    fresh_ids = [listing.pk for listing in listings if fresh_after <= listing.retrieved_at <= timezone.localdate()]
-    market_ranges = (MarketReference.objects.filter(pk__in=fresh_ids)
-                     .values("market", "currency", "price_type", "condition")
-                     .annotate(count=Count("id"), minimum=Min("price"), maximum=Max("price"),
-                               oldest=Min("retrieved_at"), newest=Max("retrieved_at"))
-                     .filter(count__gte=2).order_by("market", "currency", "price_type", "condition"))
-    market_ranges = [{**item,
-                      "price_type_label": dict(MarketReference.PriceType.choices).get(item["price_type"], item["price_type"]),
-                      "condition_label": dict(MarketReference.Condition.choices).get(item["condition"], item["condition"])} for item in market_ranges]
+    overview = _market_overview([reference.equipment_model_id]).get(reference.equipment_model_id, {}) if reference.equipment_model_id else {}
+    siblings = TechnicalReference.objects.filter(equipment_model_id=reference.equipment_model_id,
+        category_id=reference.category_id, review=TechnicalReference.Review.APPROVED, active=True).exclude(pk=pk) if reference.equipment_model_id else []
+    related = [{"reference": item, "specifications": _display_specs(item.specs), "source_href": _source_href(item.source)}
+               for item in siblings]
     return render(request, "portal/knowledge_detail.html", {
         "reference": reference,
         "specifications": _display_specs(reference.specs),
@@ -142,8 +204,9 @@ def technical_reference_detail(request, pk):
         "market_scope": reference.market or ("Global" if provenance.get("market_scope") == "global" else "No especificado"),
         "provenance_note": provenance.get("note", ""),
         "authority": provenance.get("authority", ""),
-        "market_ranges": market_ranges,
-        "market_listings": [listing for listing in listings if listing.pk in fresh_ids],
-        "historical_market_listings": [listing for listing in listings if listing.pk not in fresh_ids],
+        "market_ranges": overview.get("ranges", []),
+        "market_listings": overview.get("listings", []),
+        "historical_market_listings": overview.get("historical", []),
+        "related_references": related,
         "market_reference_age_days": MAX_REFERENCE_AGE_DAYS,
     })

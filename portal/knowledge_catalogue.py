@@ -33,6 +33,15 @@ def validate_record(item):
     for key in ("period_from", "period_to"):
         if item.get(key) is not None and type(item[key]) is not int:
             raise CommandError(f"{key}: debe ser un año numérico o null.")
+    retrieved_at = item["retrieved_at"]
+    try:
+        parsed_date = date.fromisoformat(retrieved_at)
+    except ValueError as exc:
+        raise CommandError("retrieved_at: debe usar AAAA-MM-DD.") from exc
+    if parsed_date.isoformat() != retrieved_at:
+        raise CommandError("retrieved_at: debe usar AAAA-MM-DD.")
+    if parsed_date > timezone.localdate():
+        raise CommandError("retrieved_at: la fecha de consulta no puede estar en el futuro.")
 
 
 def bundled_records(root=None):
@@ -59,13 +68,28 @@ def bundled_records(root=None):
 
 
 def link_catalogue(reference):
-    """Link model documentation to suggestions without modifying existing rows."""
-    brand = Brand.objects.filter(name__iexact=reference.brand).first()
-    if brand is None:
+    """Link only one unambiguous catalogue model; never merge staff entries."""
+    from .research import _brand_key, identifier_key
+
+    brands = [brand for brand in Brand.objects.all()
+              if _brand_key(brand.name) == _brand_key(reference.brand)]
+    if not brands:
         brand = Brand.objects.create(name=reference.brand)
-    model = EquipmentModel.objects.filter(brand=brand, name__iexact=reference.model).first()
-    if model is None:
+    elif len(brands) == 1:
+        brand = brands[0]
+    else:
+        # Case or alias collisions require an explicit staff decision. Choosing
+        # one could attach a source to the wrong product family.
+        return reference
+
+    models = [model for model in EquipmentModel.objects.filter(brand=brand)
+              if identifier_key(model.name) == identifier_key(reference.model)]
+    if not models:
         model = EquipmentModel.objects.create(brand=brand, name=reference.model, category=reference.category)
+    elif len(models) == 1:
+        model = models[0]
+    else:
+        return reference
     # A staff reclassification must never be reversed by a seed or an import.
     if model.category_id == reference.category_id:
         reference.equipment_model = model
@@ -77,7 +101,10 @@ def install_bundled_knowledge(root=None):
     created = 0
     for item in bundled_records(root):
         try:
-            category = Category.objects.get(slug=item["category_slug"])
+            # The category row is the serialization point for a logical
+            # reference identity. There is no safe unique index that includes
+            # a 1000-character URL on every supported database backend.
+            category = Category.objects.select_for_update().get(slug=item["category_slug"])
             lookup = {"category": category, **{key: str(item.get(key, "")).strip()
                       for key in ("brand", "model", "variant", "generation", "market", "source")}}
             existing = TechnicalReference.objects.filter(**lookup).first()
@@ -88,8 +115,8 @@ def install_bundled_knowledge(root=None):
                     existing.save(update_fields=["equipment_model", "updated_at"])
                 continue
             reference = TechnicalReference(**lookup, **{key: item.get(key) for key in ("period_from", "period_to")},
-                specs=item["specs"], provenance=item["provenance"], source_title=item["source_title"],
-                source_version=item.get("source_version", ""), retrieved_at=date.fromisoformat(item["retrieved_at"]),
+                specs=item["specs"], provenance=item["provenance"], source_title=item["source_title"].strip(),
+                source_version=item.get("source_version", "").strip(), retrieved_at=date.fromisoformat(item["retrieved_at"]),
                 review=TechnicalReference.Review.APPROVED, active=True, reviewed_at=timezone.now())
             link_catalogue(reference)
             reference.full_clean()

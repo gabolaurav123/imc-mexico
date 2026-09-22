@@ -1,0 +1,55 @@
+{
+  "references": [
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "BPU 2540A US",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/reversible-vibratory-plates/0-300-kg/technical-data/tab",
+      "source_title": "Lightweight reversible vibratory plates | Wacker Neuson",
+      "source_version": "US technical-data tab; BPU 2540A US",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Tabla técnica US que agrupa modelos BPU. Se conserva únicamente la columna de BPU 2540A US; peso, fuerza y ancho son especificaciones del modelo, no de una unidad."},
+      "specs": {
+        "weight": {"value": "145 kg", "evidence": "Wacker Neuson BPU 2540A US: Operating weight 145 kg."},
+        "centrifugal_force": {"value": "25 kN", "evidence": "Wacker Neuson BPU 2540A US: Centrifugal force 25 kN."},
+        "working_width": {"value": "400 mm", "evidence": "Wacker Neuson BPU 2540A US: Width Baseplate 400 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "BPU 3050A US",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/reversible-vibratory-plates/0-300-kg/technical-data/tab",
+      "source_title": "Lightweight reversible vibratory plates | Wacker Neuson",
+      "source_version": "US technical-data tab; BPU 3050A US",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Tabla técnica US que agrupa modelos BPU. Se conserva únicamente la columna de BPU 3050A US; peso, fuerza y ancho son especificaciones del modelo, no de una unidad."},
+      "specs": {
+        "weight": {"value": "166 kg", "evidence": "Wacker Neuson BPU 3050A US: Operating weight 166 kg."},
+        "centrifugal_force": {"value": "30 kN", "evidence": "Wacker Neuson BPU 3050A US: Centrifugal force 30 kN."},
+        "working_width": {"value": "500 mm", "evidence": "Wacker Neuson BPU 3050A US: Width Baseplate 500 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "BPU3750Ats",
+      "variant": "",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/reversible-vibratory-plates/0-300-kg/technical-data/tab",
+      "source_title": "Lightweight reversible vibratory plates | Wacker Neuson",
+      "source_version": "US technical-data tab; BPU3750Ats",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Tabla técnica US que agrupa modelos BPU. Se conserva únicamente la columna de BPU3750Ats; peso, fuerza y ancho son especificaciones del modelo, no de una unidad."},
+      "specs": {
+        "weight": {"value": "240 kg", "evidence": "Wacker Neuson BPU3750Ats: Operating weight 240 kg."},
+        "centrifugal_force": {"value": "37 kN", "evidence": "Wacker Neuson BPU3750Ats: Centrifugal force 37 kN."},
+        "working_width": {"value": "500 mm", "evidence": "Wacker Neuson BPU3750Ats: Width Baseplate 500 mm."}
+      }
+    }
+  ]
+}

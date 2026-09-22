@@ -1,0 +1,42 @@
+{
+  "subject": {"brand": "Toyota", "model": "50-8FGCU25", "category_slug": "montacargas"},
+  "retrieved_at": "2026-09-22",
+  "purpose": "Observed asking prices only; not technical specifications, realized sales, or a valuation.",
+  "listings": [
+    {
+      "source": "Eliftruck",
+      "title": "2022 Toyota 50-8FGCU25 | Eliftruck",
+      "url": "https://www.eliftruck.com/details/932594-2251/year-2022-fuel-lp-gas-make-toyota-model-50-8fgcu25/type-cushion-tire-4-wheel-sit-down-%28indoor-warehouse%29-capacity-5000-condition-used",
+      "unit_key": "eliftruck:3462l",
+      "observed_at": "2026-09-22",
+      "year": 2022,
+      "hours": 1179,
+      "price": 32500,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "configurations": {"fuel": "LP Gas", "tire_type": "Cushion", "mast_type": "Three Stage", "capacity": "5000 lbs"},
+      "evidence": "Eliftruck individual listing: 2022 Toyota 50-8FGCU25; $32,500 USD; condition Used; hour meter 1,179; unit location California 94545, United States; stock 3462L; post date 4/28/2026. The listing identifies LP Gas, Cushion Tire, Three Stage mast and 5,000 lb capacity."
+    },
+    {
+      "source": "Eliftruck",
+      "title": "2021 Toyota 50-8FGCU25 | Eliftruck",
+      "url": "https://www.eliftruck.com/details/1024521-2669/year-2021-fuel-lp-gas-make-toyota-model-50-8fgcu25/type-cushion-tire-4-wheel-sit-down-%28indoor-warehouse%29-capacity-5000-condition-used",
+      "unit_key": "eliftruck:u11268",
+      "observed_at": "2026-09-22",
+      "year": 2021,
+      "hours": 5806,
+      "price": 18950,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "configurations": {"fuel": "LP Gas", "tire_type": "Cushion", "mast_type": "Three Stage", "capacity": "5000 lbs"},
+      "evidence": "Eliftruck individual listing: 2021 Toyota 50-8FGCU25; $18,950 USD; condition Used; hour meter 5,806; unit location Ohio 44117, United States; stock U11268; post date 6/16/2026. The listing identifies LP Gas, Cushion Tire, Three Stage mast and 5,000 lb capacity."
+    }
+  ],
+  "limitations": "Both are separate individual asking-price listings for the exact Toyota 50-8FGCU25 model, used condition, US market and USD currency. California and Ohio are stated unit locations; they establish the US market but do not prove country of manufacture. Both declare LP Gas, Cushion Tire, Three Stage mast and 5,000 lb capacity. The distinct stock keys prevent deduplication as one unit. Seller claims about year, hours, condition and configuration remain unverified."
+}
