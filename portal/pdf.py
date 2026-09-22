@@ -16,7 +16,7 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import (CondPageBreak, Flowable, LongTable, PageBreak, Paragraph,
+from reportlab.platypus import (CondPageBreak, Flowable, KeepInFrame, LongTable, PageBreak, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
 from .services import (PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
                        public_valuation, valuations_for_provenance)
@@ -358,7 +358,17 @@ def build_pdf(machine, data, assets, public=False, version=None):
         cells = [[para(LABELS[key].upper(), "Label"), para(_display_value(key, values[key]), "Value")]
                  for key in highlights]
         story.extend([Spacer(1, 2 * mm), panel(cells, [width / len(cells)] * len(cells))])
-    cover_reference = []
+    cover_reference, reference_continuations = [], []
+
+    def cover_note(cell, label, value):
+        clean = _pdf_text(value)
+        if not clean:
+            return
+        summary = shorten(clean, width=300, placeholder="…")
+        cell.append(para(f"{label}: {summary}", "Small"))
+        if summary != " ".join(clean.split()):
+            reference_continuations.append(para(f"{label}: {clean}"))
+
     if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):
         if _present(values.get("estimated_year_from")) and _present(values.get("estimated_year_to")):
             year_value = f"{values['estimated_year_from']}–{values['estimated_year_to']}"
@@ -366,13 +376,21 @@ def build_pdf(machine, data, assets, public=False, version=None):
             year_value = f"Desde {values['estimated_year_from']}"
         else:
             year_value = f"Hasta {values['estimated_year_to']}"
-        cover_reference.append([para("AÑO APROXIMADO", "Label"), para(year_value, "Value")])
+        age_cell = [para("Año aproximado", "TableLabel"), para(year_value, "Value")]
+        cover_note(age_cell, AGE_LABELS["estimated_year_basis"], values.get("estimated_year_basis"))
+        cover_reference.append(age_cell)
     if _present(values.get("estimate_min")) or _present(values.get("estimate_max")) or _present(values.get("estimate_suggested_price")):
         if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
             estimate_value = _estimate_range(values["estimate_min"], values["estimate_max"], values.get("estimate_currency"))
         else:
             estimate_value = _estimate_price(next(values[key] for key in ("estimate_min", "estimate_max", "estimate_suggested_price") if _present(values.get(key))), values.get("estimate_currency"))
-        cover_reference.append([para("VALOR ESTIMADO", "Label"), para(estimate_value, "Value")])
+        estimate_cell = [para("Valor estimado", "TableLabel"), para(estimate_value, "Value")]
+        comparable_types = {item.get("price_type") for item in valuation.get("comparables", [])
+                            if isinstance(item, dict) and item.get("price_type")}
+        market_label = "Precios anunciados de referencia" if comparable_types == {"asking"} else "Referencia de mercado"
+        cover_note(estimate_cell, market_label, values.get("estimate_market"))
+        cover_note(estimate_cell, ESTIMATE_LABELS["estimate_basis"], values.get("estimate_basis"))
+        cover_reference.append(estimate_cell)
     if cover_reference:
         story.extend([Spacer(1, 2 * mm), panel(cover_reference, [width / len(cover_reference)] * len(cover_reference))])
     description = _description_text(values.get("description"), provenance.get("description"))
@@ -380,6 +398,9 @@ def build_pdf(machine, data, assets, public=False, version=None):
     # condition block beyond page 2. The complete text remains below when needed.
     short_description = shorten(description, width=600, placeholder="…")
     section("Descripción del equipo", [para(short_description)] if short_description else [])
+    # Keep the photo, estimates and short description on the actual first page.
+    # Bounded cover copy limits scaling; complete long notes remain below.
+    story = [KeepInFrame(width, document.height - 12, story, mode="shrink", hAlign="LEFT")]
     category_fields = getattr(category, "fields", []) or []
     custom_labels = {f.get("key"): f.get("label", f.get("key")) for f in category_fields if isinstance(f, dict)}
     if any(_present(values.get(key)) for key in VISUAL_LABELS):
@@ -387,43 +408,11 @@ def build_pdf(machine, data, assets, public=False, version=None):
         # page prevents its heading or first rows from being stranded on page 1.
         story.append(PageBreak())
         specification_table("Estado aparente, componentes y aplicaciones", list(VISUAL_LABELS))
-    estimate_values = ("estimate_min", "estimate_max", "estimate_suggested_price")
-    if any(_present(values.get(key)) for key in estimate_values):
-        items = []
-        if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
-            items.append(para(_estimate_range(values["estimate_min"], values["estimate_max"], values.get("estimate_currency")), "Value"))
-        else:
-            for key in estimate_values:
-                if _present(values.get(key)):
-                    items.append(para(_estimate_price(values[key], values.get("estimate_currency")), "Value"))
-                    break
-        comparable_types = {item.get("price_type") for item in valuation.get("comparables", []) if isinstance(item, dict) and item.get("price_type")}
-        market_label = "Precios anunciados de referencia" if comparable_types == {"asking"} else "Referencia de mercado"
-        market = _pdf_text(values.get("estimate_market"))
-        if market:
-            items.append(para(f"{market_label}: {market}"))
-        for key in ("estimate_currency", "estimate_basis"):
-            value = _pdf_text(values.get(key))
-            if value:
-                items.append(para(f"{ESTIMATE_LABELS[key]}: {value}"))
-        section("Valor estimado", items)
+    section("Información complementaria", reference_continuations)
     if short_description != " ".join(description.split()):
         section("Descripción ampliada", [para(description)])
     specification_table("Identificación del equipo", [key for key in ("brand", "model", "hours", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])
-    if any(_present(values.get(key)) for key in ("estimated_year_from", "estimated_year_to")):
-        age_items = []
-        if _present(values.get("estimated_year_from")) and _present(values.get("estimated_year_to")):
-            age_items.append(para(f"{values['estimated_year_from']}–{values['estimated_year_to']}", "Value"))
-        else:
-            for key in ("estimated_year_from", "estimated_year_to"):
-                if _present(values.get(key)):
-                    prefix = "Desde" if key == "estimated_year_from" else "Hasta"
-                    age_items.append(para(f"{prefix} {values[key]}", "Value"))
-        age_basis = _pdf_text(values.get("estimated_year_basis"))
-        if age_basis:
-            age_items.append(para(f"{AGE_LABELS['estimated_year_basis']}: {age_basis}"))
-        section("Año aproximado", age_items)
     specification_table("Especificaciones técnicas", [key for key in ("power", "weight", "capacity", "dimensions", "engine", "transmission", "fuel",
                                                                        "vibration_frequency", "centrifugal_force", "compaction_depth", "digging_depth", "hydraulic_system",
                                                                        "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",

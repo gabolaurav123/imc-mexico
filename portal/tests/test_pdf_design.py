@@ -15,7 +15,7 @@ from portal.pdf import _price, build_pdf
 
 
 class PdfDesignTests(SimpleTestCase):
-    def build(self, data, *, public=False, provenance=None, category=None, snapshot_data=None):
+    def build(self, data, *, public=False, provenance=None, category=None, snapshot_data=None, assets=()):
         values = deepcopy(data)
         version_id = uuid4()
         machine = SimpleNamespace(title="PRUEBA de documentación técnica", folio="IMC-PRUEBA", revision=1,
@@ -23,9 +23,10 @@ class PdfDesignTests(SimpleTestCase):
             approved_version_id=version_id)
         snapshot = {"title": machine.title, "data": deepcopy(snapshot_data if snapshot_data is not None else values),
                     "provenance": deepcopy(provenance or {}), "category_name": "",
-                    "web_research": {}, "asset_ids": [], "public_asset_ids": [], "contact_authorized": False}
+                    "web_research": {}, "asset_ids": [str(asset.pk) for asset in assets],
+                    "public_asset_ids": [str(asset.pk) for asset in assets], "contact_authorized": False}
         version = SimpleNamespace(pk=version_id, number=1, created_at=timezone.now(), data=snapshot)
-        document = PdfReader(BytesIO(build_pdf(machine, values, [], public=public, version=version)))
+        document = PdfReader(BytesIO(build_pdf(machine, values, assets, public=public, version=version)))
         return document, "\n".join(page.extract_text() for page in document.pages)
 
     def test_plate_specifications_render_without_category_and_do_not_become_location(self):
@@ -72,11 +73,18 @@ class PdfDesignTests(SimpleTestCase):
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
         self.assertIn("IMC MÉXICO", second_page)
         self.assertIn("Excavadora CAT 320D L.", first_page)
-        self.assertLess(first_page.index("VALOR ESTIMADO"), first_page.index("Descripción del equipo"))
+        self.assertLess(first_page.index("Valor estimado"), first_page.index("Descripción del equipo"))
+        self.assertLess(first_page.index("Año aproximado"), first_page.index("Descripción del equipo"))
+        for heading in ("Valor estimado", "Año aproximado"):
+            self.assertEqual(text.count(heading), 1)
+            self.assertNotIn(heading, second_page)
+        for expected in ("1,000–2,000 USD", "2004–2009", "Referencia de mercado: Mercado de prueba",
+                         "Comparables de mercado para equipos similares", "Periodos publicados 2004–2009"):
+            self.assertIn(expected, " ".join(first_page.split()))
         self.assertNotIn("Descripción del equipo", second_page)
         for expected in ("Año aproximado", "2004–2009", "Valor estimado", "1,000–2,000 USD",
                          "Referencia de mercado: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
-            self.assertIn(expected, text)
+            self.assertIn(expected, " ".join(text.split()))
         self.assertIn("Excavadora CAT 320D L.", text)
         self.assertNotIn("(por", text)
         for forbidden in ("por revisar", "sujeto a verificaci", "pendiente de revisar", "confirm", "verific", "comprob", "inspección pendiente", "sin estimar", "sin conversi", "no acreditan una venta cerrada", "uso interno",
@@ -127,6 +135,37 @@ class PdfDesignTests(SimpleTestCase):
         self.assertNotIn("FIN-DESCRIPCION", first_page)
         self.assertIn("Descripción ampliada", text)
         self.assertIn("FIN-DESCRIPCION", text)
+
+    def test_cover_estimates_stay_on_page_one_with_photo_and_long_notes(self):
+        values = {
+            "brand": "PRUEBA", "model": "MODELO DE PORTADA", "year": 2010, "hours": "5000 h",
+            "price": "75000", "currency": "USD", "location": "Almacén de prueba",
+            "power": "100 kW", "weight": "20000 kg", "capacity": "1.2 m³",
+            "estimated_year_from": 2008, "estimated_year_to": 2012,
+            "estimated_year_basis": "PERIODO-INICIO " + "Documentación histórica del modelo. " * 35 + " PERIODO-FIN",
+            "estimate_min": "60000", "estimate_max": "80000", "estimate_currency": "USD",
+            "estimate_market": "Estados Unidos",
+            "estimate_basis": "MERCADO-INICIO " + "Precios de maquinaria comparable. " * 35 + " MERCADO-FIN",
+            "description": "DESCRIPCION-INICIO " + "Características documentadas del equipo. " * 35 + " DESCRIPCION-FIN",
+            "visible_defects": "Desgaste superficial.", "visible_components": "Brazo y cucharón.",
+            "applications": "Excavación de tierra.",
+        }
+        with TemporaryDirectory(prefix="imc-cover-layout-") as directory:
+            photo = Path(directory) / "machine.png"
+            Image.new("RGB", (600, 900), "navy").save(photo)
+            asset = SimpleNamespace(pk=uuid4(), kind="image", purpose="general", processing_status="ready",
+                                    public_authorized=True, preview=photo, is_cover=True, position=0)
+            document, text = self.build(values, assets=[asset])
+        first_page, second_page = (" ".join(page.extract_text().split()) for page in document.pages[:2])
+        for expected in ("Año aproximado", "2008–2012", "Valor estimado", "60,000–80,000 USD",
+                         "PERIODO-INICIO", "MERCADO-INICIO", "DESCRIPCION-INICIO"):
+            self.assertIn(expected, first_page)
+        self.assertIn((600, 900), [image.image.size for image in document.pages[0].images])
+        self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
+        self.assertNotIn("Valor estimado", second_page)
+        self.assertNotIn("Año aproximado", second_page)
+        for expected in ("PERIODO-FIN", "MERCADO-FIN", "DESCRIPCION-FIN"):
+            self.assertIn(expected, text)
 
     def test_snapshot_values_take_precedence_over_live_machine_values(self):
         _, text = self.build({"power": "PRIVATE-DRAFT", "country_of_origin": "PRIVATE-DRAFT"}, public=True,

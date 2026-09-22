@@ -259,7 +259,7 @@ class CommercialSheetTests(TestCase):
                     if not public:
                         expected_basis = (fixture["data"]["estimated_year_basis"].rstrip(".")
                                           if output == html else "Indicios documentales de la familia")
-                        self.assertIn(expected_basis, output)
+                        self.assertIn(expected_basis, " ".join(output.split()) if output == text else output)
                     self.assertNotIn("BORRADOR-ACTUAL-NO-AUTORIZADO", output)
                 self.assertIn('id="sheet-age"', html)
                 technical = html.split('id="sheet-technical"', 1)[1].split('</section>', 1)[0]
@@ -290,7 +290,7 @@ class CommercialSheetTests(TestCase):
         html, _, text = self.render(fixture)
         self.assertIn('&lt;img', html)
         self.assertNotIn('<img src=x', html)
-        self.assertIn('<img src=x onerror=alert(1)> Indicio de prueba', text)
+        self.assertIn('<img src=x onerror=alert(1)> Indicio de prueba', " ".join(text.split()))
         fixture["data"]["estimated_year_basis"] = "Consulta privada " + fixture["data"]["serial"]
         html, _, text = self.render(fixture, public=True)
         for output in (html, text):
