@@ -358,6 +358,70 @@ class TechnicalReference(models.Model):
         return f"{self.category.name} · {label}"
 
 
+class MarketReference(models.Model):
+    """A dated market listing. It is never a technical specification source."""
+    class Review(models.TextChoices):
+        PENDING = "pending", "Pendiente"
+        APPROVED = "approved", "Aprobada"
+        REJECTED = "rejected", "Rechazada"
+
+    class PriceType(models.TextChoices):
+        ASKING = "asking", "Precio anunciado"
+        SOLD = "sold", "Precio de venta"
+
+    class Condition(models.TextChoices):
+        NEW = "new", "Nueva"
+        USED = "used", "Usada"
+        REFURBISHED = "refurbished", "Reacondicionada"
+        FOR_REPAIR = "for_repair", "Para reparación"
+        UNKNOWN = "unknown", "Sin confirmar"
+
+    equipment_model = models.ForeignKey(EquipmentModel, on_delete=models.PROTECT, related_name="market_references",
+                                        verbose_name="modelo del catálogo")
+    source = models.URLField("URL de fuente", max_length=1000, unique=True)
+    source_title = models.CharField("título de fuente", max_length=300)
+    price = models.DecimalField("precio", max_digits=16, decimal_places=2, validators=[MinValueValidator(0)])
+    currency = models.CharField("moneda", max_length=3, choices=[("USD", "USD"), ("MXN", "MXN"), ("EUR", "EUR")])
+    market = models.CharField("mercado", max_length=2)
+    price_type = models.CharField("tipo de precio", max_length=10, choices=PriceType.choices, default=PriceType.ASKING)
+    condition = models.CharField("condición", max_length=16, choices=Condition.choices, default=Condition.UNKNOWN)
+    year = models.PositiveSmallIntegerField("año", null=True, blank=True, validators=[MinValueValidator(1800), MaxValueValidator(2200)])
+    hours = models.DecimalField("horas", max_digits=12, decimal_places=1, null=True, blank=True, validators=[MinValueValidator(0)])
+    retrieved_at = models.DateField("consultada el")
+    evidence = models.TextField("evidencia")
+    configurations = models.JSONField("configuración", default=dict, blank=True)
+    unit_key = models.CharField("clave de unidad", max_length=128, blank=True)
+    review = models.CharField("revisión", max_length=12, choices=Review.choices, default=Review.PENDING, db_index=True)
+    active = models.BooleanField("activa", default=False, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name="reviewed_market_references", verbose_name="revisada por")
+    reviewed_at = models.DateTimeField("revisada el", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["equipment_model__brand__name", "equipment_model__name", "-retrieved_at"]
+        verbose_name = "referencia de mercado"
+        verbose_name_plural = "referencias de mercado"
+        indexes = [models.Index(fields=["equipment_model", "market", "currency", "price_type", "condition", "active"])]
+
+    def clean(self):
+        errors = {}
+        if self.active and self.review != self.Review.APPROVED:
+            errors["active"] = "Sólo una referencia aprobada puede activarse."
+        if self.market and (len(self.market) != 2 or not self.market.isalpha()):
+            errors["market"] = "El mercado debe usar un código de país ISO de dos letras."
+        if not isinstance(self.configurations, dict):
+            errors["configurations"] = "La configuración debe ser un objeto estructurado."
+        if not self.evidence.strip():
+            errors["evidence"] = "Registra la evidencia del anuncio fechado."
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f"{self.equipment_model} · {self.price} {self.currency} · {self.market}"
+
+
 def private_asset_path(instance, filename):
     extension = Path(filename).suffix.lower()[:12]
     return f"machines/{instance.machine_id}/{instance.id}/{uuid.uuid4().hex}{extension}"

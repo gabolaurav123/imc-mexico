@@ -135,6 +135,7 @@ def machine_create(request):
     categories = Category.objects.filter(active=True)
     if request.method=='POST':
         category_id=request.POST.get('category')
+        serial=request.POST.get('serial','').strip()[:150]
         category=None
         if category_id not in (None, '', 'unsure'):
             try:
@@ -142,8 +143,11 @@ def machine_create(request):
             except (Category.DoesNotExist, ValueError, TypeError):
                 return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
                     'error':'Selecciona un tipo disponible o «No estoy seguro».'},status=400)
-        machine=Machine.objects.create(owner=request.user,category=category,
-            provenance={'category':{'source':'user','review':'confirmed'}} if category else {})
+        provenance={'category':{'source':'user','review':'confirmed'}} if category else {}
+        data={'serial':serial} if serial else {}
+        if serial: provenance['serial']={'source':'user','review':'confirmed'}
+        machine=Machine.objects.create(owner=request.user,category=category,data=data,
+            provenance=provenance)
         event(request,'draft_started',machine)
         return redirect(f'/panel/maquinarias/{machine.pk}/')
     return render(request,'portal/start.html',{'categories_json':category_catalog(categories)})

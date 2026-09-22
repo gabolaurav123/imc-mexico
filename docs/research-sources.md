@@ -76,6 +76,49 @@ Se encontró el [catálogo brasileño Hessen / ADA](https://hessen.com.br/produt
 
 La ausencia de resultados en esta búsqueda no demuestra que los manuales no existan. Una página del fabricante, manual legible o documento del importador que identifique de forma explícita el modelo permitiría evaluar una fuente nueva; no se completa el catálogo con dominios supuestos.
 
+## Compactadores: referencias primarias curadas
+
+Verificación: **22 de septiembre de 2026**. `knowledge/compactadores/catalogo_tecnico_2026-09-22.json` conserva sólo valores literales de estas fuentes del fabricante:
+
+| Marca | Fuente | Modelo/configuración retenida | Mercado y límite |
+| --- | --- | --- | --- |
+| Wacker Neuson | [tabla VP US](https://www.wackerneuson.com/us/products/vibratory-plates/single-direction-vibratory-plates/vp/technical-data/tab) | VP1550A, VP1550Aw, VP2050A y VP2050Aw | US; la tabla agrupa variantes y cada ficha conserva sólo su fila literal. |
+| BOMAG | [BW 120 AD-5](https://www.bomag.com/apac-en/machinery/categories/asphalt-rollers/light-tandem-rollers/bw-120-ad-5-88057/) | BW 120 AD-5 Stage V / Tier 4f | APAC; el fabricante indica que datos y opciones pueden variar. |
+| HAMM | [HD 12 P VV H312](https://www.hamm.eu/ocs/en-de/hamm/hd-12-p-vv-342719-p/) | HD 12 P VV H312 | DE; peso con ROPS, no una configuración genérica. |
+| Dynapac | [ILG140EN4](https://dynadocweb.dynapac.com/idc/groups/product_doc/documents/product_documentation/ilg140en.pdf) | LG200 Honda GX200 con arranque de retroceso | El documento no declara mercado ni periodo; no se amplía a cobertura global ni se infiere año. |
+
+Ninguna de estas páginas acredita el año de fabricación, procedencia, condición,
+horas o equipamiento de una unidad individual. Cuando no hubo un periodo de
+producción literal en la fuente primaria, no se guardó un rango estimado.
+
+### Precios observados, fuera de la base técnica
+
+`docs/market-listings-bomag-bw120ad5-2026-09-22.md` separa dos anuncios
+compatibles del BW 120 AD-5 que publican año, horas, importe, moneda y país.
+Son ofertas, no ventas realizadas ni especificaciones del fabricante. No se
+usan para poblar `TechnicalReference`, no prueban una configuración ni forman
+un valor de mercado por sí mismos.
+
+## Caterpillar 320D L: variante histórica exacta
+
+Verificación: **22 de septiembre de 2026**. La [ficha histórica oficial Cat
+320D L](https://h-cpc-stage.cat.com/cmms/v2?cid=406&f=product&gid=329&it=product&lid=en&nc=1&pid=16875557&sc=US)
+identifica literalmente `320D L (Phase 2) - 2007 - Tier 3 - NACD` y la marca
+como no vigente. La ficha publica 110 kW ISO 9249, 21.570 kg de peso operativo
+con tren largo y 1,99 m³ de capacidad máxima de cucharón. El [registro exacto
+de LECTURA](https://www.lectura-specs.com/en/model/construction-machinery/crawler-excavators-caterpillar/320d-l-1036102)
+publica literalmente `Years of manufacture 2006—2014`. `knowledge/excavadoras/caterpillar_320d_l_2007_nacd.json`
+mantiene ambas evidencias separadas: las cifras son de Cat US/NACD 2007; el
+rango 2006–2014 es una cobertura orientativa de catálogo externo, sin mercado
+ni variante de emisiones declarados.
+
+Esta evidencia no cubre 320D sin sufijo L, 320D2 L ni el 320 actual. Tampoco
+confirma que una máquina anunciada sea Phase 2, Tier 3, NACD o tenga ese tren,
+cucharón o peso. Los dos anuncios con precio de 320D L se guardan aparte en
+`knowledge/market/caterpillar_320d_l_listings_2026-09-22.json` y se describen
+en `docs/market-listings-caterpillar-320d-l-2026-09-22.md`; no se incorporan a
+la ficha técnica ni forman una tasación.
+
 ## Contrato para integración
 
 ```python

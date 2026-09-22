@@ -99,7 +99,7 @@ class WebSearchStatusTests(SimpleTestCase):
             self.assertEqual(stage['web_call_status_counts'], {'completed': 1, 'failed': 1})
             self.assertEqual(stage['response_status'], 'completed')
         for request in client.responses.create.call_args_list:
-            self.assertEqual(request.kwargs['max_tool_calls'], 2)
+            self.assertEqual(request.kwargs['max_tool_calls'], 1)
         self.assertNotIn(OTHER, {source['url'] for source in value['sources']})
 
     def test_optional_search_stops_to_preserve_final_extraction_headroom(self):
@@ -193,7 +193,7 @@ class WebSearchStatusTests(SimpleTestCase):
         self.assertEqual(usage.estimated_tokens, 16000)
         self.assertEqual(value['diagnostics']['phases'][0]['completed_search_calls'], 1)
         self.assertEqual(value['diagnostics']['phases'][0]['web_call_status_counts'], {'completed': 1, 'failed': 1})
-        self.assertEqual(client.responses.create.call_args.kwargs['max_tool_calls'], 2)
+        self.assertEqual(client.responses.create.call_args.kwargs['max_tool_calls'], 1)
 
     def test_no_completed_search_never_buys_normalization_or_fetches_listings(self):
         client = provider()

@@ -3,12 +3,16 @@ import json
 from urllib.parse import urlparse
 
 from django.core.paginator import Paginator
-from django.db.models import Q
+from datetime import timedelta
+
+from django.db.models import Count, Max, Min, Q
+from django.utils import timezone
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET
 
 from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
-from .models import Category, TechnicalReference
+from .models import Category, MarketReference, TechnicalReference
+from .market_catalogue import MAX_REFERENCE_AGE_DAYS
 from .research import LABELS as DISPLAY_LABELS
 from .security import operator_required
 
@@ -112,6 +116,24 @@ def technical_library(request):
 def technical_reference_detail(request, pk):
     reference = get_object_or_404(TechnicalReference.objects.select_related("category"), pk=pk)
     provenance = reference.provenance if isinstance(reference.provenance, dict) else {}
+    all_listings = MarketReference.objects.filter(equipment_model=reference.equipment_model,
+                                                  review=MarketReference.Review.APPROVED, active=True).order_by('-retrieved_at', '-pk') if reference.equipment_model_id else []
+    # Keep one observation per disclosed unit, preferring its newest dated record.
+    seen_units, listings = set(), []
+    for listing in all_listings:
+        unit = listing.unit_key or listing.source
+        if unit in seen_units: continue
+        seen_units.add(unit); listings.append(listing)
+    fresh_after = timezone.localdate() - timedelta(days=MAX_REFERENCE_AGE_DAYS)
+    fresh_ids = [listing.pk for listing in listings if fresh_after <= listing.retrieved_at <= timezone.localdate()]
+    market_ranges = (MarketReference.objects.filter(pk__in=fresh_ids)
+                     .values("market", "currency", "price_type", "condition")
+                     .annotate(count=Count("id"), minimum=Min("price"), maximum=Max("price"),
+                               oldest=Min("retrieved_at"), newest=Max("retrieved_at"))
+                     .filter(count__gte=2).order_by("market", "currency", "price_type", "condition"))
+    market_ranges = [{**item,
+                      "price_type_label": dict(MarketReference.PriceType.choices).get(item["price_type"], item["price_type"]),
+                      "condition_label": dict(MarketReference.Condition.choices).get(item["condition"], item["condition"])} for item in market_ranges]
     return render(request, "portal/knowledge_detail.html", {
         "reference": reference,
         "specifications": _display_specs(reference.specs),
@@ -120,4 +142,8 @@ def technical_reference_detail(request, pk):
         "market_scope": reference.market or ("Global" if provenance.get("market_scope") == "global" else "No especificado"),
         "provenance_note": provenance.get("note", ""),
         "authority": provenance.get("authority", ""),
+        "market_ranges": market_ranges,
+        "market_listings": [listing for listing in listings if listing.pk in fresh_ids],
+        "historical_market_listings": [listing for listing in listings if listing.pk not in fresh_ids],
+        "market_reference_age_days": MAX_REFERENCE_AGE_DAYS,
     })

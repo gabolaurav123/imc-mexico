@@ -1,9 +1,10 @@
 from django.contrib.auth.models import Permission
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django_otp import DEVICE_ID_SESSION_KEY
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
-from portal.models import Category, TechnicalReference, User
+from portal.models import Brand, Category, EquipmentModel, MarketReference, TechnicalReference, User
 
 
 @override_settings(STAFF_MFA_REQUIRED=True, SECURE_SSL_REDIRECT=False,
@@ -18,6 +19,10 @@ class TechnicalLibraryTests(TestCase):
             period_from=2019, period_to=2023,
             specs={"power": {"value": "110 kW", "evidence": "Potencia neta documentada."}},
         )
+        brand = Brand.objects.create(name="Caterpillar")
+        self.equipment_model = EquipmentModel.objects.create(brand=brand, name="320", category=self.category)
+        self.reference.equipment_model = self.equipment_model
+        self.reference.save()
         self.staff = User.objects.create_user(email="technical-reader@example.invalid", is_staff=True)
         self.no_permission = User.objects.create_user(email="technical-no-access@example.invalid", is_staff=True)
 
@@ -96,3 +101,30 @@ class TechnicalLibraryTests(TestCase):
         session[DEVICE_ID_SESSION_KEY] = device.persistent_id
         session.save()
         self.assertEqual(self.client.get("/operaciones/base-tecnica/").status_code, 200)
+
+    def test_market_ranges_are_separate_from_specs_and_require_two_approved_listings(self):
+        values = {"equipment_model": self.equipment_model, "currency": "USD", "market": "NL",
+                  "price_type": "asking", "condition": "used", "retrieved_at": "2026-09-01",
+                  "evidence": "Precio y condición visibles en el anuncio.", "review": "approved", "active": True}
+        MarketReference.objects.create(**values, source="https://market.example.invalid/listing-1", source_title="Anuncio 1", price="45000.00")
+        self.login_with_permission()
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertContains(response, "Aún no hay al menos dos anuncios aprobados")
+        later_values = {**values, "retrieved_at": "2026-09-09"}
+        MarketReference.objects.create(**later_values, source="https://market.example.invalid/listing-2", source_title="Anuncio 2", price="50000.00")
+        response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
+        self.assertContains(response, "45000")
+        self.assertContains(response, "50000")
+        self.assertContains(response, "Precio anunciado")
+        self.assertContains(response, "Usada")
+        self.assertContains(response, "Anuncio 1")
+
+    def test_market_reference_is_pending_and_inactive_by_default_and_rejects_bad_configuration(self):
+        reference = MarketReference(equipment_model=self.equipment_model, source="https://market.example.invalid/pending",
+                                    source_title="Anuncio pendiente", price="1", currency="MXN", market="MX",
+                                    retrieved_at="2026-09-01", evidence="Importado para revisar.")
+        reference.full_clean(); reference.save()
+        self.assertEqual(reference.review, MarketReference.Review.PENDING)
+        self.assertFalse(reference.active)
+        reference.configurations = []
+        with self.assertRaises(ValidationError): reference.full_clean()

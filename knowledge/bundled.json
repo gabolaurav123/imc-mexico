@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-18",
+  "version": "2026-09-22",
   "files": [
     {
       "path": "excavadoras/caterpillar_320.json",
@@ -8,6 +8,14 @@
     {
       "path": "excavadoras/catalogo_tecnico_us_2026-09-18.json",
       "sha256": "7d0cb4aaf1685dec7ca34cac6d5c72b1c26f7c131656be2e264a7f144a1962e1"
+    },
+    {
+      "path": "excavadoras/caterpillar_320d_l_2007_nacd.json",
+      "sha256": "3b58d70e381c217a3d1fea8fcf0416aecb22fd123178743729b1026d13302321"
+    },
+    {
+      "path": "compactadores/catalogo_tecnico_2026-09-22.json",
+      "sha256": "946013ee29c85a339cb336f16cfe6458bac6e9fed3d85b64ad673112373ebb4b"
     }
   ]
 }

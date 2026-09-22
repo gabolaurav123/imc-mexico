@@ -1,0 +1,38 @@
+{
+  "subject": {"brand": "Caterpillar", "model": "320D L", "category_slug": "excavadoras"},
+  "retrieved_at": "2026-09-22",
+  "purpose": "Observed asking prices only; not technical specifications, realized sales, or a valuation.",
+  "listings": [
+    {
+      "source": "MyLittleSalesman",
+      "url": "https://www.mylittlesalesman.com/2008-caterpillar-320-dl-excavator-11849932",
+      "unit_key": "mls:11849932",
+      "observed_at": "2026-09-22",
+      "year": 2008,
+      "hours": 14000,
+      "price": 75900,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "2008 Caterpillar 320 Dl Excavator; Manufacturer Caterpillar; Model 320DL; Condition Used; Usage 14,000 Hours; $75,900 USD; Located in Wayne, MI, US."
+    },
+    {
+      "source": "MyLittleSalesman",
+      "url": "https://www.mylittlesalesman.com/2012-caterpillar-320dl-excavator-13806302",
+      "unit_key": "mls:13806302",
+      "observed_at": "2026-09-22",
+      "year": 2012,
+      "hours": 9000,
+      "price": 66900,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "2012 Caterpillar 320DL Excavator; Manufacturer Caterpillar; Model 320DL; Condition Used; Usage 9,000 Hours; $66,900 USD; Located in Wayne, MI, US."
+    }
+  ],
+  "limitations": "Both open individual offers identify 320DL, a spacing variant retained here only as a model-name alias for 320D L; neither is treated as 320D2 L or current 320. The distinct MyLittleSalesman unit keys prevent treating two listings from one seller as the same unit. The sample has two used US/USD asking prices only and has no adjustments. Price, hour meter and year are seller/listing claims. No serial numbers, contact details or photos are retained."
+}

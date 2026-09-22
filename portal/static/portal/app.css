@@ -102,6 +102,7 @@
 .quick-intake .quick-serial .form-field{margin-bottom:0}
 .quick-intake .quick-serial input{max-width:100%}
 .quick-intake .quick-serial .field-help{font-size:12px;line-height:1.6;display:block;margin-top:8px}
+.intake-question{margin-top:24px;padding:22px;border:1px solid var(--line);border-radius:var(--radius);background:var(--paper);text-align:left}.intake-question h2{font-size:25px;margin:6px 0 10px}.intake-question .button-row{margin-top:18px}.intake-question .form-field{margin:18px 0 0}.intake-finish{margin-top:18px}.analysis-loading{padding:56px 24px;text-align:center;background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}.analysis-loading h2{font-size:29px;margin:10px 0}.analysis-loading p:not(.eyebrow){max-width:560px;margin:0 auto;line-height:1.7}.analysis-loading-mark{display:grid;place-items:center;width:48px;height:48px;border-radius:50%;background:#eef7fc;color:var(--blue);font-size:25px;margin:0 auto 16px;animation:intake-pulse 1.4s ease-in-out infinite}.wizard-step.is-analysis-loading>:not(.analysis-loading){display:none}@keyframes intake-pulse{50%{transform:scale(1.12);opacity:.62}}
 @media(max-width:600px){.quick-intake .quick-serial{padding:16px 15px}.quick-intake .quick-serial label{line-height:1.6}}
 
 /* Download the saved internal sheet alongside the preview. */

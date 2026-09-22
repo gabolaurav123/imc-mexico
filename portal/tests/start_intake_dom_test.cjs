@@ -1,0 +1,28 @@
+const {JSDOM}=require('jsdom');
+const fs=require('fs'),assert=require('node:assert/strict'),path=require('node:path');
+const base=path.join(__dirname,'..');
+const html=fs.readFileSync(path.join(base,'templates/portal/start.html'),'utf8').replace(/{%[\s\S]*?%}/g,'').replace(/{{[\s\S]*?}}/g,'');
+const catalogue=[{id:1,name:'Excavadoras',slug:'excavadoras',aliases:['excavadora'],fields:[],profile:{}}];
+const dom=new JSDOM(html+`<script id="category-data" type="application/json">${JSON.stringify(catalogue)}</script>`,{runScripts:'outside-only'});
+const {window}=dom,{document}=window;
+window.HTMLElement.prototype.scrollIntoView=function(){};
+for (const name of ['category-picker.js','start-intake.js']) window.eval(fs.readFileSync(path.join(base,'static/portal',name),'utf8'));
+const $=selector=>document.querySelector(selector),form=$('#start-machine-form');
+function submit(button){const event=new window.SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:button});form.dispatchEvent(event);return event.defaultPrevented;}
+assert.equal($('#identifier-question').hidden,true);
+assert.equal(submit($('#identifier-yes .intake-finish')),true,'implicit Enter on hidden default button never creates a draft');
+assert.equal($('#identifier-question').hidden,false);
+const search=$('#start-category-search'); search.value='excavadora'; search.dispatchEvent(new window.Event('input',{bubbles:true}));
+$('#start-category-results button').click(); $('#start-category-next').click();
+assert.equal($('#start-category').value,'1');
+$('[data-identifier-answer="no"]').click();
+assert.equal($('#identifier-no').hidden,false); assert.equal($('#identifier-yes').hidden,true);
+assert.equal(submit($('#identifier-no .intake-finish')),false);
+assert.equal($('#start-serial').value,'');
+$('#identifier-no [data-identifier-back]').click(); $('[data-identifier-answer="yes"]').click();
+assert.equal(submit($('#identifier-yes .intake-finish')),true,'yes must choose plate or typed input before uploading');
+$('[data-identifier-choice="typed"]').click(); $('#typed-serial').value='  SERIAL-QA-001  ';
+assert.equal(submit($('#identifier-yes .intake-finish')),false); assert.equal($('#start-serial').value,'SERIAL-QA-001');
+$('#identifier-yes [data-identifier-back]').click(); $('[data-identifier-answer="no"]').click();
+assert.equal($('#typed-serial').value,''); assert.equal(submit($('#identifier-no .intake-finish')),false); assert.equal($('#start-serial').value,'');
+dom.window.close();console.log('Start intake DOM PASS: category, serial question, photo invitation, typed series, back and implicit Enter guards.');

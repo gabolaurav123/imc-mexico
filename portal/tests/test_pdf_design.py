@@ -39,8 +39,6 @@ class PdfDesignTests(SimpleTestCase):
                 for value in data.values():
                     self.assertIn(value, text)
                 self.assertIn("País de fabricación", " ".join(text.split()))
-                if not public:
-                    self.assertIn("Lectura de placa", text)
                 self.assertNotIn("Lectura clara", text)
                 self.assertNotIn("Confirmado por el anunciante", text)
 
@@ -53,8 +51,60 @@ class PdfDesignTests(SimpleTestCase):
         self.assertNotIn("PRIVATE-", public)
         self.assertNotIn("private@example.invalid", public)
         _, internal = self.build(values, provenance=provenance)
-        for value in ("PRIVATE-SERIAL", "PRIVATE-TRANSCRIPTION", "PRIVATE-NOTE", "PRIVATE-EVIDENCE"):
+        for value in ("PRIVATE-SERIAL", "PRIVATE-TRANSCRIPTION", "PRIVATE-NOTE"):
             self.assertIn(value, internal)
+        self.assertNotIn("PRIVATE-EVIDENCE", internal)
+
+    def test_downloadable_pdf_uses_plain_estimate_labels_and_starts_visual_block_on_page_two(self):
+        values = {
+            "brand": "PRUEBA", "model": "MODELO PDF", "description": "Equipo por revisar; sujeto a verificación. Pendiente de confirmar.",
+            "estimated_year_from": 2004, "estimated_year_to": 2009,
+            "estimated_year_basis": "Periodos publicados 2004–2009; año de esta unidad por confirmar.",
+            "estimate_min": "1000", "estimate_max": "2000", "estimate_currency": "USD",
+            "estimate_market": "Mercado de prueba", "estimate_basis": "Estimación orientativa, editable y sujeta a confirmación. Precios publicados no acreditan una venta cerrada. Sin conversión disponible. Comparables de mercado para equipos similares.",
+            "visible_defects": "Rayones visibles en el bastidor.", "visible_components": "Mástil y horquillas.",
+            "applications": "Manipulación de cargas.",
+        }
+        document, text = self.build(values)
+        self.assertGreaterEqual(len(document.pages), 2)
+        first_page, second_page = (page.extract_text() or "" for page in document.pages[:2])
+        self.assertNotIn("Estado aparente, componentes y aplicaciones", first_page)
+        self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
+        for expected in ("Año aproximado", "2004–2009", "Valor estimado", "1,000–2,000 USD",
+                         "Mercado de referencia: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
+            self.assertIn(expected, text)
+        for forbidden in ("por revisar", "sujeto a verificaci", "pendiente de revisar", "confirm", "sin estimar", "sin conversi", "no acreditan una venta cerrada", "uso interno",
+                          "Trazabilidad de la información", "PDF INTERNO"):
+            self.assertNotIn(forbidden.lower(), text.lower())
+
+    def test_pending_operating_status_is_omitted_and_owner_declaration_stays_readable(self):
+        _, pending = self.build({"operating_status": "Pendiente de confirmar", "visible_defects": "Fuga visible."})
+        self.assertNotIn("Estado de funcionamiento", pending)
+        self.assertIn("Fuga visible.", pending)
+        _, declared = self.build({"operating_status": "Confirmado por el propietario"})
+        self.assertIn("Funcionamiento declarado por el propietario", declared)
+        self.assertNotIn("Confirmado", declared)
+
+    def test_long_description_and_many_specs_do_not_push_visual_condition_past_page_two(self):
+        values = {
+            "brand": "PRUEBA", "model": "MODELO EXTENSO", "description": "INICIO-DESCRIPCION " + ("Detalle técnico documentado. " * 72) + "FIN-DESCRIPCION",
+            "power": "100 kW", "weight": "20,000 kg", "capacity": "1.2 m³", "dimensions": "6 x 3 x 3 m",
+            "engine": "Diésel", "transmission": "Hidrostática", "fuel": "Diésel", "vibration_frequency": "4,000 VPM",
+            "centrifugal_force": "20 kN", "compaction_depth": "30 cm", "digging_depth": "5 m", "hydraulic_system": "Variable",
+            "front_tire_size": "12.5/80-18", "rear_tire_size": "16.9-28", "mast_tilt": "6°", "load_tire_tread": "Neumático",
+            "voltage": "48 V", "lift_height": "4.5 m", "load_center": "500 mm", "battery_weight": "700 kg",
+            "battery_capacity": "600 Ah", "fork_length": "1.2 m", "hours": "5,000 h", "kilometers": "2,000 km",
+            "condition": "En uso", "usage_condition": "Usada", "preservation_condition": "Aceptable",
+            "visible_defects": "Desgaste objetivo visible.", "visible_components": "Componentes principales visibles.",
+            "applications": "Carga y excavación.",
+        }
+        document, text = self.build(values)
+        self.assertGreaterEqual(len(document.pages), 3)
+        first_page, second_page = (page.extract_text() or "" for page in document.pages[:2])
+        self.assertNotIn("Estado aparente, componentes y aplicaciones", first_page)
+        self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
+        self.assertIn("Desgaste objetivo visible.", second_page)
+        self.assertIn("FIN-DESCRIPCION", text)
 
     def test_snapshot_values_take_precedence_over_live_machine_values(self):
         _, text = self.build({"power": "PRIVATE-DRAFT", "country_of_origin": "PRIVATE-DRAFT"}, public=True,

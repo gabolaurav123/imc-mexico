@@ -29,6 +29,8 @@ PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "ce
                           "manufacturer": "Fabricante", "manufacturer_address": "Dirección del fabricante",
                           "voltage": "Voltaje", "lift_height": "Altura de elevación", "load_center": "Centro de carga",
                           "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería", "fork_length": "Longitud de horquillas"}
+PLATE_TECHNICAL_LABELS.update(working_width="Ancho de trabajo", maximum_weight="Peso operativo máximo",
+                              drum_type="Tipo de tambor", emissions="Etapa de emisiones")
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
@@ -277,7 +279,9 @@ def public_valuation(snapshot):
         safe = {key: deepcopy(valuation[key]) for key in ("status", "fields", "suggested_price", "label") if key in valuation}
         safe["fields"] = {key: data[key] for key in ESTIMATE_LABELS if data.get(key) not in (None, "")
                           and not any(serial in _reference_text(data[key]) for serial in serials)}
-        safe["suggested_price"] = data.get("price") if provenance.get("price", {}).get("source") == "valuation" else None
+        # The suggested amount has its own editable field. The owner's asking
+        # price and currency are independent and must never replace it.
+        safe["suggested_price"] = data.get("estimate_suggested_price")
         safe["edited"] = any(_human_provenance_value(provenance.get(key)) for key in ESTIMATE_LABELS if data.get(key) not in (None, ""))
         safe["comparables"] = []
         for item in valuation.get("comparables", []):

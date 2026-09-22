@@ -36,6 +36,7 @@ WEB_KEYS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel
             "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer",
             "manufacturer_address", "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity",
             "fork_length", "digging_depth", "hydraulic_system", *MODEL_YEAR_KEYS}
+WEB_KEYS |= {"working_width", "maximum_weight", "drum_type", "emissions"}
 LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
           "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
           "engine": "Motor", "transmission": "Transmisión", "year": "Año",
@@ -47,6 +48,7 @@ LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "P
           "load_center": "Centro de carga", "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería",
           "fork_length": "Longitud de horquillas", "digging_depth": "Profundidad máxima de excavación",
           "hydraulic_system": "Sistema hidráulico", "estimated_year_from": "Periodo del modelo: desde",
+          "working_width": "Ancho de trabajo", "maximum_weight": "Peso operativo máximo", "drum_type": "Tipo de tambor", "emissions": "Etapa de emisiones",
           "estimated_year_to": "Periodo del modelo: hasta", "estimated_year_basis": "Base del periodo documentado"}
 # Conservative authority recognition: unsupported manufacturers cannot supply a
 # year automatically. These manufacturer domains were checked against their own sites.

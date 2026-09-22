@@ -390,6 +390,11 @@
   pdfDownload.addEventListener('click',event => openDocument(event,'pdf'));
   sheetLinks.forEach(link => link.addEventListener('click',event => openDocument(event,'screen')));
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
+  function setAnalysisLoading(active,message='') {
+    const panel=$('[data-step-panel="2"]',wizard), loading=$('#analysis-loading'), copy=$('#analysis-loading-message');
+    panel.classList.toggle('is-analysis-loading',Boolean(active)); loading.hidden=!active;
+    if (message) copy.textContent=message;
+  }
   function processingMessage(job) {
     const progress = job.processing_progress;
     if (!progress || typeof progress !== 'object') return null;
@@ -440,7 +445,7 @@
     const relevance = relevanceOf(job);
     if (!relevance || !['unrelated','uncertain'].includes(relevance.status)) return false;
     const readings = incompleteReadingsOf(job), incomplete = hasIncompleteReadings(job,readings);
-    renderRelevance(relevance,readings); analysisOutcome = incomplete ? 'partial' : relevance.status;
+    setAnalysisLoading(false); renderRelevance(relevance,readings); analysisOutcome = incomplete ? 'partial' : relevance.status;
     const message = incomplete ? incompleteReadingMessage(readings) : relevance.status === 'unrelated'
       ? 'Estas fotos no corresponden a maquinaria ni a una placa de equipo. Agrega una foto de la máquina o de su placa para preparar la ficha. Tus archivos y datos se conservan.'
       : 'No pudimos identificar maquinaria o una placa con claridad en estas fotos. Agrega una foto del equipo o una placa más legible. Tus archivos y datos se conservan.';
@@ -479,6 +484,7 @@
       try { await save(); if (deleting) return; const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
+    setAnalysisLoading(false);
     analysisOutcome = incomplete ? 'partial' : 'completed';
     renderResults(job);
     const relevance = relevanceOf(job); renderRelevance(relevance,readings);
@@ -507,17 +513,19 @@
       const job = await api(`/api/analisis/${id}/`);
       analysisOutcome = job.status;
       if (job.status === 'completed') { jobPending = false; await completedJob(job); }
-      else if (job.status === 'failed') { jobPending = false; await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
+      else if (job.status === 'failed') { jobPending = false; setAnalysisLoading(false); await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
       else {
         jobPending = true;
-        analysisStatus(job.status === 'running' ? (processingMessage(job) || 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.') : 'Tus fotos están guardadas. La ficha espera su turno de preparación.',job.status);
-        if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; jobPending = false; analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
+        const message=job.status === 'running' ? (processingMessage(job) || 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.') : 'Tus fotos están guardadas. La ficha espera su turno de preparación.';
+        setAnalysisLoading(true,message); analysisStatus(message,job.status);
+        if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; $('#analysis-loading-continue').hidden=false; jobPending = false; setAnalysisLoading(false); analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
-    } catch (error) { jobPending = false; analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
+    } catch (error) { jobPending = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
     finally { polling = false; prepareLabel(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
+  $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
     if (!editable || preparing || jobPending || polling || submitting || downloading || deleting) return;
     preparing = true; clearProblem(); prepareLabel();
@@ -528,8 +536,8 @@
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
-      displayStep(2); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
-    } catch (error) { analysisOutcome = 'failed'; renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
+      displayStep(2); setAnalysisLoading(true,'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.'); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
+    } catch (error) { analysisOutcome = 'failed'; setAnalysisLoading(false); renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
     finally { preparing = false; prepareLabel(); }
   });
   function researchHypothesesOf(research) {

@@ -15,7 +15,7 @@ PERIOD_ORIGIN = 'lectura_catalogue_metadata_v1'
 PERIOD_KEYS = ('estimated_year_from', 'estimated_year_to', 'estimated_year_basis')
 MAX_PERIOD_RECORDS = 4
 _TITLE = re.compile(
-    r'(?P<identity>[^\r\n]{1,120}) Specifications & Technical Data '
+    r'(?P<identity>[^\r\n]{1,120}) (?:Specifications & Technical Data|excavator specs & dimensions) '
     r'\((?P<start>\d{4})\s*[-–—]\s*(?P<end>\d{4})\) \| LECTURA Specs')
 _PATH = re.compile(r'/en/model/(?:[a-z0-9]+(?:-[a-z0-9]+)*/){1,5}'
                    r'(?P<model>[a-z0-9]+(?:-[a-z0-9]+)*)-(?P<id>[1-9]\d*)')

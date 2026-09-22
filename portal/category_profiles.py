@@ -85,17 +85,50 @@ EXCAVATOR_PROFILE = {
     "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
 }
 
-PROFILES = {"excavadoras": EXCAVATOR_PROFILE}
+COMPACTOR_PROFILE = {
+    "key": "compactor",
+    "label": "Compactador",
+    "aliases": ["compactador", "compactadores", "compactadora", "compactadoras", "rodillo compactador", "placa vibratoria"],
+    "classification": {
+        "machine_family": _options(
+            ("vibratory_plate", "Placa vibratoria"), ("tandem_roller", "Rodillo tándem"),
+            ("single_drum_roller", "Rodillo de un tambor"), ("rammer", "Apisonador"),
+            ("other", "Otro compactador documentado"),
+        ),
+    },
+    "fields": [
+        {"key": "variant", "label": "Variante", "kind": "text", "optional": True},
+        {"key": "machine_family", "label": "Familia de máquina", "kind": "choice", "optional": True},
+        {"key": "working_width", "label": "Ancho de trabajo", "kind": "text", "optional": True},
+        {"key": "maximum_weight", "label": "Peso operativo máximo", "kind": "text", "optional": True},
+        {"key": "drum_type", "label": "Tipo de tambor", "kind": "text", "optional": True},
+        {"key": "emissions", "label": "Etapa de emisiones", "kind": "text", "optional": True},
+    ],
+    "photo_guidance": [
+        "Máquina completa y ambos laterales", "Placa de identificación y rótulo de modelo",
+        "Placa base o tambores", "Horómetro y mandos", "Desgaste, daños y accesorios visibles",
+    ],
+    "ai_instructions": "Identifica el tipo de compactador sólo con evidencia. No confundas ancho de placa, tambor o transporte; conserva la variante de emisiones y tipo de tambor sólo si están documentados.",
+    "sources": [
+        {"name": "BOMAG", "url": "https://www.bomag.com/", "kind": "manufacturer"},
+        {"name": "Wacker Neuson", "url": "https://www.wackerneuson.com/", "kind": "manufacturer"},
+        {"name": "HAMM", "url": "https://www.hamm.eu/", "kind": "manufacturer"},
+        {"name": "Dynapac", "url": "https://www.dynapac.com/", "kind": "manufacturer"},
+    ],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
 
-PROFILE_FIELD_LABELS = {item["key"]: item["label"] for item in EXCAVATOR_PROFILE["fields"]}
+PROFILES = {"excavadoras": EXCAVATOR_PROFILE, "compactadores": COMPACTOR_PROFILE}
+
+PROFILE_FIELD_LABELS = {item["key"]: item["label"] for profile in PROFILES.values() for item in profile["fields"]}
 PROFILE_FIELD_LABELS.update(power_type="Tipo de potencia", depth_configuration="Configuración de profundidad")
 
 
 def display_field_value(key, value):
     """Translate controlled values for sheets without changing stored codes."""
-    options = EXCAVATOR_PROFILE["classification"].get(key, [])
+    options = next((profile["classification"].get(key, []) for profile in PROFILES.values() if key in profile["classification"]), [])
     if not options:
-        options = next((item.get("options", []) for item in EXCAVATOR_PROFILE["fields"] if item["key"] == key), [])
+        options = next((item.get("options", []) for profile in PROFILES.values() for item in profile["fields"] if item["key"] == key), [])
     if key == "power_type":
         options = _options(("net", "Potencia neta"), ("gross", "Potencia bruta"),
                            ("rated", "Potencia nominal"), ("other", "Otra"))

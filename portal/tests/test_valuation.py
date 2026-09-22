@@ -396,6 +396,31 @@ class ValuationIdentityAndDocumentsTests(SimpleTestCase):
 
 
 class ValuationPipelineTests(SimpleTestCase):
+    def test_luna_search_overrun_keeps_verified_range_without_a_second_paid_call(self):
+        client = provider()
+        client.responses.create.return_value.usage.input_tokens = 22462
+        client.responses.create.return_value.usage.output_tokens = 917
+        client.responses.create.return_value.output.append({'type': 'web_search_call', 'status': 'completed',
+            'action': {'type': 'open_page', 'url': URLS[0]}})
+        with patch('portal.valuation._fetch_listing', side_effect=[(html(), URLS[0]), (html(quote('USD 16,000')), URLS[1])]):
+            value, usage = estimate_machine(client, 'gpt-5.6-luna', vision(), {})
+        self.assertEqual(value['status'], 'estimated')
+        self.assertEqual(value['fields']['estimate_min'], '12000.00')
+        self.assertEqual(value['fields']['estimate_max'], '16000.00')
+        self.assertEqual(value['diagnostics']['parser'], 'literal_fallback')
+        self.assertEqual(usage.input_tokens, 38462)
+        client.responses.parse.assert_not_called()
+        self.assertTrue(is_validated_estimate(value))
+
+    def test_catalogue_engine_does_not_become_an_undocumented_unit_constraint(self):
+        result = vision()
+        result['data']['engine'] = 'Reference engine'
+        result['provenance']['engine'] = {'source': 'web', 'review': 'needs_review', 'component': 'machine'}
+        with patch('portal.valuation.is_validated_web_field', return_value=True):
+            self.assertNotIn('engine', _identity(result, {})['configurations'])
+        owner = {'data': {'engine': 'Owner engine'}, 'provenance': {'engine': {'source': 'user'}}}
+        self.assertEqual(_identity(result, owner)['configurations']['engine'], 'Owner engine')
+
     def test_missing_identity_is_signed_and_never_calls_provider(self):
         client = Mock()
         result, usage = estimate_machine(client, 'gpt-4.1-mini', {'data': {}}, {})
@@ -417,7 +442,7 @@ class ValuationPipelineTests(SimpleTestCase):
         self.assertEqual(client.responses.parse.call_count, 1)
         request = client.responses.create.call_args.kwargs
         self.assertFalse(request['store'])
-        self.assertEqual(request['max_tool_calls'], 2)
+        self.assertEqual(request['max_tool_calls'], 1)
         self.assertEqual(request['tool_choice'], 'required')
         payload = client.responses.parse.call_args.kwargs['input']
         self.assertNotIn('invented', payload)

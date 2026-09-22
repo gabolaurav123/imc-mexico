@@ -1,0 +1,59 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "320D L",
+      "variant": "Phase 2 / 2007 / Tier 3 / NACD",
+      "market": "US",
+      "period_from": 2007,
+      "source": "https://h-cpc-stage.cat.com/cmms/v2?cid=406&f=product&gid=329&it=product&lid=en&nc=1&pid=16875557&sc=US",
+      "source_title": "Cat 320D L Medium Excavators | Caterpillar",
+      "source_version": "320D L (Phase 2) - 2007 - Tier 3 - NACD; Non-Current",
+      "retrieved_at": "2026-09-22",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "period_evidence": "Caterpillar 320D L: 320D L (Phase 2) - 2007 - Tier 3 - NACD.",
+        "note": "Ficha oficial NACD/US para 320D L Phase 2 de 2007, no para 320D sin L, 320D2 L ni 320 actual. Cat no publica un año final en esta ficha; period_from marca únicamente el año literal de esta versión, no el año de fabricación de una unidad. Peso y capacidad dependen de configuración; se conservan los valores identificados por la página para tren largo."
+      },
+      "specs": {
+        "power": {
+          "value": "110 kW",
+          "evidence": "Caterpillar 320D L Phase 2 / 2007 / Tier 3 / NACD: Net Power - ISO 9249 110 kW."
+        },
+        "weight": {
+          "value": "21570 kg",
+          "evidence": "Caterpillar 320D L Phase 2 / 2007 / Tier 3 / NACD: Operating Weight - Long Undercarriage 21570 kg."
+        },
+        "capacity": {
+          "value": "1.99 m³",
+          "evidence": "Caterpillar 320D L Phase 2 / 2007 / Tier 3 / NACD: Maximum Bucket Capacity 1.99 m³."
+        },
+        "engine": {
+          "value": "Cat C6.4 ACERT",
+          "evidence": "Caterpillar 320D L Phase 2 / 2007 / Tier 3 / NACD: Engine Model Cat C6.4 ACERT."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "320D L",
+      "period_from": 2006,
+      "period_to": 2014,
+      "source": "https://www.lectura-specs.com/en/model/construction-machinery/crawler-excavators-caterpillar/320d-l-1036102",
+      "source_title": "Caterpillar 320D L excavator specs & dimensions (2006 - 2014) | LECTURA Specs",
+      "source_version": "English model record 1036102",
+      "retrieved_at": "2026-09-22",
+      "provenance": {
+        "authority": "technical_catalog",
+        "scope": "model",
+        "market_scope": "global",
+        "period_evidence": "Caterpillar 320D L: Years of manufacture 2006—2014.",
+        "note": "Catálogo técnico externo, no fabricante. El registro nombra literalmente 320D L y publica el intervalo 2006—2014. No declara una región de comercialización única ni una variante de emisiones; market se deja vacío y este intervalo sólo orienta el periodo de modelo. No confirma año, generación, configuración ni serie de una unidad."
+      },
+      "specs": {}
+    }
+  ]
+}

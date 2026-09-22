@@ -28,6 +28,7 @@
     input.value = item ? item.name : '';
     selection.textContent = message || (item ? `Seleccionaste: ${item.name}.` : 'No seleccionaste un tipo; podremos sugerirlo con las fotografías.');
     results.replaceChildren(); results.hidden = true; input.setAttribute('aria-expanded', 'false');
+    root.dispatchEvent(new CustomEvent('categoryselected', {bubbles:true, detail:{category:item}}));
   }
   function show() {
     const query = normalize(input.value);

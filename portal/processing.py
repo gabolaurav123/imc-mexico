@@ -50,6 +50,7 @@ MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
 AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity", "digging_depth", "hydraulic_system",
            "dimensions", "fuel", "kilometers", "engine", "transmission",
            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
+           "working_width", "maximum_weight", "drum_type", "emissions",
            "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
            "manufacturer", "manufacturer_address", "voltage", "lift_height", "load_center",
            "battery_weight", "battery_capacity", "fork_length"}
@@ -1714,7 +1715,8 @@ def process_analysis(job):
                     machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
                 return bool(consent and consent.granted and consent.version == CONSENT_VERSION)
 
-            valuation, valuation_usage = estimate_machine(client, job.model, result, snapshot, allowed=valuation_allowed)
+            valuation, valuation_usage = estimate_machine(client, job.model, result, snapshot,
+                allowed=valuation_allowed, category=job.machine.category)
             usage.add(valuation_usage)
             usage.estimated_tokens += valuation_usage.estimated_tokens
             usage.web_search_calls += valuation_usage.web_search_calls

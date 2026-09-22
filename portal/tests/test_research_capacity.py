@@ -21,6 +21,16 @@ def normalized(body, value):
 
 
 class ResearchCapacityTests(SimpleTestCase):
+    def test_current_lectura_title_retains_exact_model_period(self):
+        from portal.research_model_periods import lectura_catalogue_period_fields
+        url = 'https://www.lectura-specs.com/en/model/construction-machinery/crawler-excavators-caterpillar/320d-l-1036102'
+        title = 'Caterpillar 320D L excavator specs & dimensions (2006 - 2014) | LECTURA Specs'
+        sources = [{'url': url, 'title': title}]
+        fields = lectura_catalogue_period_fields({'brand': 'CAT', 'model': '320D L'}, sources, {url: title})
+        self.assertEqual({f['key']: f['value'] for f in fields if f['key'] != 'estimated_year_basis'},
+                         {'estimated_year_from': '2006', 'estimated_year_to': '2014'})
+        self.assertFalse(lectura_catalogue_period_fields({'brand': 'CAT', 'model': '320D'}, sources, {url: title}))
+
     def assert_catalogue_fields(self, result, *, capacity=None):
         fields = {item["key"]: item for item in result["fields"]}
         period_keys = {"estimated_year_from", "estimated_year_to", "estimated_year_basis"}

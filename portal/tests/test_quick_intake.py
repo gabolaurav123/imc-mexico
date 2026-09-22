@@ -102,6 +102,22 @@ class QuickIntakeTests(TestCase):
         self.assertFalse(AnalysisJob.objects.exists())
         self.assertFalse(Submission.objects.exists())
 
+    def test_intake_asks_about_identification_before_upload_and_keeps_it_optional(self):
+        response=self.client.get('/panel/maquinarias/nueva/')
+        self.assertContains(response,'¿Tienes el número de serie o una foto de la placa?')
+        self.assertContains(response,'¿Puedes agregar fotos generales del equipo?')
+        self.assertContains(response,'id="typed-serial"')
+        self.assertContains(response,'portal/start-intake.js')
+        response=self.client.post('/panel/maquinarias/nueva/',{'serial':'SERIE-PRUEBA-01'})
+        self.assertEqual(response.status_code,302)
+        created=Machine.objects.filter(owner=self.owner).order_by('-created_at').first()
+        self.assertEqual(created.data['serial'],'SERIE-PRUEBA-01')
+        self.assertEqual(created.provenance['serial'],{'source':'user','review':'confirmed'})
+        response=self.client.get(f'/panel/maquinarias/{created.pk}/')
+        self.assertContains(response,'id="analysis-loading"')
+        self.assertNotContains(response,'¿Tienes una foto de la placa de identificación o conoces el número de serie?')
+        self.assertContains(response,'Añadir placa o nueva información')
+
     def test_editable_commercial_estimator_stays_inside_the_single_preview_sheet(self):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')
         self.assertEqual(response.status_code,200)

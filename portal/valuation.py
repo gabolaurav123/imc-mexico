@@ -76,7 +76,7 @@ respaldar país del mercado, condición y tipo de precio cuando quedaron fuera d
 ventana del precio, pero nunca combines páginas ni tarjetas relacionadas. price_literal copia la expresión monetaria exacta, sin
 convertir ni reformatear. El encabezado real de esa misma página puede identificar marca
 y modelo, pero nunca aportar un precio ausente. Rechaza otras variantes/modelos y anuncios
-de accesorios, piezas, renta o financiación. market usa MX, US, ES, DE, FR, IT, CA o GB
+de accesorios, piezas, renta o financiación. market usa MX, US, ES, DE, FR, IT, CA, GB o NL
 sólo cuando la ubicación del anuncio lo declara. condition usa new, used, refurbished o
 for_repair sólo si el texto lo afirma. Copia configurations y compatibility sólo cuando estén expresas en
 la MISMA evidence; compatibility puede incluir variante, año, horas o configuración y sirve sólo para
@@ -104,7 +104,7 @@ class ComparableCandidate(BaseModel):
     evidence: str
     price_literal: str
     currency: Literal['MXN', 'USD', 'EUR']
-    market: Literal['MX', 'US', 'ES', 'DE', 'FR', 'IT', 'CA', 'GB']
+    market: Literal['MX', 'US', 'ES', 'DE', 'FR', 'IT', 'CA', 'GB', 'NL']
     price_type: Literal['asking', 'sold']
     condition: Literal['new', 'used', 'refurbished', 'for_repair']
     configurations: list[Configuration] = Field(default_factory=list)
@@ -145,8 +145,12 @@ def _identity(result, snapshot):
         provenance = meta.get(key, {})
         if not accepted and provenance.get('component') == 'machine':
             accepted = (provenance.get('source') in {'plate', 'image'} and provenance.get('review') == 'clear')
-            if provenance.get('source') == 'web':
+            if provenance.get('source') == 'web' and key in {'brand', 'model'}:
                 accepted = is_validated_web_field(result, key, data.get(key), provenance)
+            elif provenance.get('source') == 'web':
+                # A catalogue engine/capacity is a model reference. Requiring
+                # every advert to repeat it would discard compatible units.
+                accepted = False
             value = data.get(key)
         if accepted and isinstance(value, (str, int, float)) and not isinstance(value, bool):
             value = _identifier(str(value)) if key in {'brand', 'model'} else _plain(value)[:120]
@@ -200,6 +204,7 @@ def _market_hint(value):
         'espana': 'ES', 'spain': 'ES', 'alemania': 'DE', 'germany': 'DE', 'deutschland': 'DE',
         'francia': 'FR', 'france': 'FR', 'italia': 'IT', 'italy': 'IT',
         'canada': 'CA', 'reino unido': 'GB', 'united kingdom': 'GB',
+        'paises bajos': 'NL', 'netherlands': 'NL',
     }
     return names.get(_fold(value))
 
@@ -411,9 +416,9 @@ _CONDITIONS = {'new': r'new|nuevo|nueva', 'used': r'used|usado|usada|de segunda 
                'for_repair': r'for repair|para reparaci[oó]n|non[- ]running|no funciona'}
 _MARKETS = {'MX': r'M[eé]xico|Mexico', 'US': r'United States(?: of America)?|Estados Unidos|USA',
             'ES': r'Espa[ñn]a|Spain', 'DE': r'Germany|Alemania|Deutschland', 'FR': r'France|Francia',
-            'IT': r'Italy|Italia', 'CA': r'Canada|Canad[aá]', 'GB': r'United Kingdom|Reino Unido'}
+            'IT': r'Italy|Italia', 'CA': r'Canada|Canad[aá]', 'GB': r'United Kingdom|Reino Unido', 'NL': r'Netherlands|Pa[ií]ses Bajos'}
 _MARKET_NAMES = {'MX': 'México', 'US': 'Estados Unidos', 'ES': 'España', 'DE': 'Alemania',
-                 'FR': 'Francia', 'IT': 'Italia', 'CA': 'Canadá', 'GB': 'Reino Unido'}
+                 'FR': 'Francia', 'IT': 'Italia', 'CA': 'Canadá', 'GB': 'Reino Unido', 'NL': 'Países Bajos'}
 
 
 def _condition_matches(evidence, condition, identity=None):
@@ -595,6 +600,21 @@ def _normalize(parsed, passages, identity):
             reject('duplicate_listing_or_unit', candidate_index, passage)
             continue
         accepted.append(comparable)
+    outcome = range_from_comparables(accepted, identity)
+    if not identity['condition'] and outcome['status'] != 'conditional_reference':
+        outcome['fields']['estimate_missing_info'] = CONDITION_MISSING
+    elif rejected['configuration_missing_or_different'] and outcome['status'] not in {'estimated', 'conditional_reference'}:
+        outcome['fields']['estimate_missing_info'] = 'Faltan comparables que documenten la misma configuración: ' + ', '.join(identity['configurations']) + '.'
+    elif len(outcome['comparables']) == 1:
+        outcome['fields']['estimate_missing_info'] = 'Sólo hay un comparable verificable; falta una segunda unidad independiente del mismo mercado, moneda, condición y tipo de precio.'
+    outcome['diagnostics'] = {'candidate_count': min(len(parsed.fields), 20), 'accepted_comparable_count': len(accepted),
+                              'rejections': dict(rejected), 'rejected_candidates': rejected_candidates}
+    return _seal(outcome)
+
+
+def range_from_comparables(accepted, identity):
+    """Group verified observations without combining markets or sale types."""
+    outcome = _empty(identity, 'Faltan al menos dos anuncios independientes verificables del mismo modelo, configuración y condición.')
     groups = defaultdict(list)
     for comp in accepted:
         groups[(comp['currency'], comp['market'], comp['price_type'], comp['condition'])].append(comp)
@@ -649,18 +669,50 @@ def _normalize(parsed, passages, identity):
                 outcome['fields']['estimate_basis'] += ' La clasificación usada es aparente; no confirma funcionamiento.'
             if identity.get('preservation'):
                 outcome['fields']['estimate_basis'] += f' Conservación aparente: {identity["preservation"]}; no se aplicó un descuento o aumento por apariencia.'
-    if not identity['condition'] and outcome['status'] != 'conditional_reference':
-        outcome['fields']['estimate_missing_info'] = CONDITION_MISSING
-    elif rejected['configuration_missing_or_different'] and outcome['status'] not in {'estimated', 'conditional_reference'}:
-        outcome['fields']['estimate_missing_info'] = 'Faltan comparables que documenten la misma configuración: ' + ', '.join(identity['configurations']) + '.'
-    elif len(outcome['comparables']) == 1:
-        outcome['fields']['estimate_missing_info'] = 'Sólo hay un comparable verificable; falta una segunda unidad independiente del mismo mercado, moneda, condición y tipo de precio.'
-    outcome['diagnostics'] = {'candidate_count': min(len(parsed.fields), 20), 'accepted_comparable_count': len(accepted),
-                              'rejections': dict(rejected), 'rejected_candidates': rejected_candidates}
-    return _seal(outcome)
+    return outcome
 
 
-def estimate_machine(client, model, result, snapshot=None, allowed=None):
+def literal_candidates(passages, identity):
+    """Select explicit local price rows; normalization remains the trust boundary.
+
+    This deliberately proposes candidates, not accepted prices. Conflicting
+    sale types, currency, condition, model, configuration and duplicate units
+    are still rejected by ``_normalize``.
+    """
+    candidates = []
+    for index, passage in enumerate(passages[:MAX_PASSAGES]):
+        evidence = _plain(passage.get('text'))
+        if not evidence:
+            continue
+        if len(evidence) > 1000:
+            first_price = _MONEY.search(evidence)
+            if first_price is None:
+                continue
+            evidence = evidence[max(0, first_price.start() - 350):first_price.end() + 450]
+        facts = passage.get('_listing_facts', [])
+        context = evidence + ' ' + ' '.join(map(_plain, facts))
+        markets = [key for key, pattern in _MARKETS.items() if re.search(
+            r'\b(?:location|located in|ubicaci[oó]n|pa[ií]s|country|mercado)\s*[:=-]?\s*(?:[\w., -]{0,60}\s)?(?:'
+            + pattern + r')\b', context, re.I)]
+        conditions = [key for key in _CONDITIONS if _condition_matches(context, key, identity)]
+        amounts = list(_MONEY.finditer(evidence))
+        if len(markets) != 1 or len(conditions) != 1 or len(amounts) != 1:
+            continue
+        literal = amounts[0].group().rstrip('.,')
+        currencies = [currency for currency in ('USD', 'MXN', 'EUR') if _money(literal, currency) is not None]
+        if len(currencies) != 1:
+            continue
+        configs = [Configuration(key=key, value=str(value)) for key, value in identity.get('configurations', {}).items()
+                   if str(value) in evidence]
+        sold = bool(re.search(r'(?:sold for|winning bid|hammer price|precio final de venta|vendid[oa] por)\s*[:=-]?', context, re.I))
+        candidates.append(ComparableCandidate(passage_index=index, evidence=evidence,
+            price_literal=literal, currency=currencies[0], market=markets[0],
+            price_type='sold' if sold else 'asking', condition=conditions[0],
+            configurations=configs))
+    return ComparableCandidates(fields=candidates)
+
+
+def estimate_machine(client, model, result, snapshot=None, allowed=None, category=None):
     """One search + parse with model-aware request timeouts and reservations.
 
     The 27000 search allocation includes measured tokens and the existing 8000
@@ -693,12 +745,17 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         return finish(_empty(identity, 'Falta identificar ' + ' y '.join(missing) + '. Un acercamiento del rótulo del equipo o la placa ayudaría a buscar comparables de esta máquina.', 'not_run'))
     if allowed is not None and not allowed():
         return finish(_empty(identity, 'La autorización de estimación no está vigente.', 'not_run'))
+    if category is not None:
+        from .market_catalogue import valuation_from_library
+        reference = valuation_from_library(identity, category)
+        if reference is not None:
+            return finish(reference)
     received = False
     phase = 'search'
     try:
         response = client.responses.create(model=model, store=False, timeout=request_timeout(model, 60),
             max_output_tokens=output_limit(model, 3000), **model_options(model),
-            max_tool_calls=2, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
+            max_tool_calls=1, tools=[{'type': 'web_search', 'search_context_size': 'low'}],
             tool_choice='required', include=['web_search_call.action.sources'], instructions=SEARCH_INSTRUCTIONS,
             input=json.dumps({'brand': identity['brand'], 'model': identity['model'], 'condition': identity['condition'],
                 'configuration': identity['configurations'], 'compatibility': identity.get('compatibility', {}),
@@ -750,8 +807,12 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None):
         if allowed is not None and not allowed():
             return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
         if usage.input_tokens + usage.output_tokens + token_reservation(model, PARSE_RESERVATION) > valuation_reservation(model):
-            value = _empty(identity, 'No se pudo completar la verificación de los precios. Faltan comparables verificables antes de proponer un importe.')
+            # A search can still return more context than its reservation.
+            # Literal extraction costs no tokens and uses the very same
+            # evidence checks as model parsing; never discard readable prices.
+            value = _normalize(literal_candidates(passages, identity), passages, identity)
             value['diagnostics']['stop_reason'] = 'parse_reservation_unavailable'
+            value['diagnostics']['parser'] = 'literal_fallback'
             return finish(value)
         # Bound the entire parser input in bytes, not only passage count. This
         # is conservative even for scripts whose tokenizer uses many tokens.

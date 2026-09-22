@@ -65,10 +65,10 @@ class BundledKnowledgeTests(TestCase):
     def test_manual_import_is_linked_but_never_active(self):
         Category.objects.create(slug='excavadoras', name='Excavadoras')
         call_command('import_technical_knowledge', path=str(KNOWLEDGE_ROOT/'excavadoras'), stdout=StringIO())
-        self.assertFalse(TechnicalReference.objects.filter(active=True).exists())
+        self.assertFalse(TechnicalReference.objects.filter(category__slug='excavadoras', active=True).exists())
         self.assertFalse(TechnicalReference.objects.filter(equipment_model__isnull=True).exists())
         self.seed()
-        self.assertFalse(TechnicalReference.objects.filter(active=True).exists())
+        self.assertFalse(TechnicalReference.objects.filter(category__slug='excavadoras', active=True).exists())
 
     def test_modified_release_bundle_is_not_silently_approved(self):
         with TemporaryDirectory() as directory:
@@ -144,6 +144,16 @@ class BundledKnowledgeTests(TestCase):
         self.assertNotIn('weight', fields)
         self.assertNotIn('power', fields)
         self.assertNotIn('country_of_origin', fields)
+
+    def test_cat_320d_l_catalogue_period_matches_without_variant_or_market(self):
+        self.seed()
+        category = Category.objects.get(slug='excavadoras')
+        snapshot = {'data': {'brand': 'Caterpillar', 'model': '320D L'}, 'provenance': {}}
+        result = research_from_knowledge({}, snapshot, category)
+        fields = {field['key']: field['value'] for field in result['fields']}
+        self.assertEqual(fields['estimated_year_from'], '2006')
+        self.assertEqual(fields['estimated_year_to'], '2014')
+        self.assertNotIn('year', fields)
 
     def test_mixed_imperial_depth_is_numeric_but_configuration_ranges_are_not_invented(self):
         self.assertEqual(str(normalize_structured_data({'digging_depth':'18 ft 8 in'})['digging_depth_m']), '5.6896')

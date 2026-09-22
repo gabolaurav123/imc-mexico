@@ -29,7 +29,7 @@ SEARCH_INSTRUCTIONS = (
     "No añadas la serie recibida a frases de fuentes que no la contienen. No conviertas unidades ni traduzcas valores. "
     "Copia las etiquetas y los valores de tablas técnicas; distingue potencia neta/bruta y variantes. "
     "Incluye marca, modelo, potencia, peso, capacidad, dimensiones, combustible, motor, transmisión, profundidad de excavación, sistema hidráulico, "
-    "frecuencia de vibración, fuerza centrífuga, profundidad de compactación y país de fabricación documentados. "
+    "frecuencia de vibración, fuerza centrífuga, profundidad de compactación, ancho de trabajo, peso operativo máximo, tipo de tambor, etapa de emisiones y país de fabricación documentados. "
     "En montacargas busca capacidad de carga, altura de elevación, centro de carga, voltaje, neumáticos, "
     "inclinación del mástil, trocha, peso/capacidad de batería y longitud de horquillas; conserva los calificadores "
     "con/sin batería, mínimo/máximo y configuración. No deduzcas capacidad de carga a partir del código del modelo. "
@@ -60,7 +60,7 @@ NORMALIZE_INSTRUCTIONS = (
     "Sólo keys brand,model,power,weight,capacity,dimensions,fuel,engine,transmission,year,"
     "vibration_frequency,centrifugal_force,compaction_depth,country_of_origin,front_tire_size,rear_tire_size,"
     "mast_tilt,load_tire_tread,manufacturer,manufacturer_address,voltage,lift_height,load_center,"
-    "battery_weight,battery_capacity,fork_length,digging_depth,hydraulic_system,estimated_year_from,estimated_year_to,estimated_year_basis. "
+    "battery_weight,battery_capacity,fork_length,digging_depth,hydraulic_system,working_width,maximum_weight,drum_type,emissions,estimated_year_from,estimated_year_to,estimated_year_basis. "
     "Conserva condiciones técnicas con/sin batería y mínimo/máximo. manufacturer_address es dirección del fabricante "
     "expresamente identificado, nunca ubicación actual ni país de fabricación; no copies direcciones de vendedores. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
@@ -270,7 +270,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         if stage == "catalogs" and (not identity.get("brand") or not identity.get("model")):
             payload, domains = _stage_request(identity, "manuals", result, category)
             stage = "manuals"
-        tool = {"type": "web_search", "search_context_size": "medium"}
+        tool = {"type": "web_search", "search_context_size": "low"}
         if domains:
             if model.startswith("gpt-4.1"):
                 sites = " OR ".join("site:" + domain for domain in domains)
@@ -286,7 +286,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             response = client.responses.create(
                 model=model, store=False, timeout=request_timeout(model, 65),
                 max_output_tokens=output_limit(model, 3000),
-                max_tool_calls=2 if is_reasoning_model(model) else 1, **model_options(model),
+                max_tool_calls=1, **model_options(model),
                 tools=[tool], tool_choice="required", include=["web_search_call.action.sources"],
                 instructions=SEARCH_INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False),
             )

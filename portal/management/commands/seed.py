@@ -32,6 +32,8 @@ class Command(BaseCommand):
             Category.objects.get_or_create(slug=slug, defaults={"name": name, "fields": fields})
         from portal.knowledge_catalogue import install_bundled_knowledge
         install_bundled_knowledge()
+        from portal.market_catalogue import install_bundled_market
+        install_bundled_market()
         for item in reference['models']:
             # Preserve staff choices, including inactive records and capitalization.
             brand=Brand.objects.filter(name__iexact=item['brand']).first()

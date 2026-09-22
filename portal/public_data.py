@@ -18,6 +18,7 @@ PUBLIC_KEYS = frozenset({
     "mast_tilt", "load_tire_tread", "manufacturer", "manufacturer_address", "fuel",
     "hydraulic_system", "dimensions", "transmission", "engine", "power", "capacity",
     "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
+    "working_width", "maximum_weight", "drum_type", "emissions",
     "machine_family", "boom_configuration", "stick_configuration", "size_class",
     "application", "power_type", "depth_configuration",
 })

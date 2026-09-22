@@ -1,0 +1,123 @@
+{
+  "references": [
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "VP1550A",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/single-direction-vibratory-plates/vp/technical-data/tab",
+      "source_title": "VP single-direction vibratory plate series | Wacker Neuson",
+      "source_version": "US technical-data tab; VP1550A",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Placa vibratoria de avance, ficha US. La página agrupa variantes VP: estos valores son sólo de VP1550A, sin placa adicional."},
+      "specs": {
+        "weight": {"value": "93.0 kg", "evidence": "Wacker Neuson VP1550A: Operating weight 93.0 kg."},
+        "power": {"value": "3.6 kW", "evidence": "Wacker Neuson VP1550A: Effective power 3.6 kW."},
+        "centrifugal_force": {"value": "15 kN", "evidence": "Wacker Neuson VP1550A: Centrifugal force 15 kN."},
+        "working_width": {"value": "386.0 mm", "evidence": "Wacker Neuson VP1550A: Width baseplate 386.0 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "VP1550Aw",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/single-direction-vibratory-plates/vp/technical-data/tab",
+      "source_title": "VP single-direction vibratory plate series | Wacker Neuson",
+      "source_version": "US technical-data tab; VP1550Aw",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Placa vibratoria de avance, ficha US. La página agrupa variantes VP: estos valores son sólo de VP1550Aw, sin placa adicional."},
+      "specs": {
+        "weight": {"value": "102.0 kg", "evidence": "Wacker Neuson VP1550Aw: Operating weight 102.0 kg."},
+        "power": {"value": "3.6 kW", "evidence": "Wacker Neuson VP1550Aw: Effective power 3.6 kW."},
+        "centrifugal_force": {"value": "15 kN", "evidence": "Wacker Neuson VP1550Aw: Centrifugal force 15 kN."},
+        "working_width": {"value": "503.0 mm", "evidence": "Wacker Neuson VP1550Aw: Width baseplate 503.0 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "VP2050A",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/single-direction-vibratory-plates/vp/technical-data/tab",
+      "source_title": "VP single-direction vibratory plate series | Wacker Neuson",
+      "source_version": "US technical-data tab; VP2050A",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Placa vibratoria de avance, ficha US. La página agrupa variantes VP: estos valores son sólo de VP2050A, sin placa adicional."},
+      "specs": {
+        "weight": {"value": "100.0 kg", "evidence": "Wacker Neuson VP2050A: Operating weight 100.0 kg."},
+        "power": {"value": "3.6 kW", "evidence": "Wacker Neuson VP2050A: Effective power 3.6 kW."},
+        "centrifugal_force": {"value": "20 kN", "evidence": "Wacker Neuson VP2050A: Centrifugal force 20 kN."},
+        "working_width": {"value": "503.0 mm", "evidence": "Wacker Neuson VP2050A: Width baseplate 503.0 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Wacker Neuson",
+      "model": "VP2050Aw",
+      "market": "US",
+      "source": "https://www.wackerneuson.com/us/products/vibratory-plates/single-direction-vibratory-plates/vp/technical-data/tab",
+      "source_title": "VP single-direction vibratory plate series | Wacker Neuson",
+      "source_version": "US technical-data tab; VP2050Aw",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "note": "Placa vibratoria de avance, ficha US. La página agrupa variantes VP: estos valores son sólo de VP2050Aw, sin placa adicional."},
+      "specs": {
+        "weight": {"value": "110.0 kg", "evidence": "Wacker Neuson VP2050Aw: Operating weight 110.0 kg."},
+        "power": {"value": "3.6 kW", "evidence": "Wacker Neuson VP2050Aw: Effective power 3.6 kW."},
+        "centrifugal_force": {"value": "20 kN", "evidence": "Wacker Neuson VP2050Aw: Centrifugal force 20 kN."},
+        "working_width": {"value": "583.0 mm", "evidence": "Wacker Neuson VP2050Aw: Width baseplate 583.0 mm."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "BOMAG",
+      "model": "BW 120 AD-5",
+      "variant": "Stage V / Tier 4f",
+      "source": "https://www.bomag.com/apac-en/machinery/categories/asphalt-rollers/light-tandem-rollers/bw-120-ad-5-88057/",
+      "source_title": "Light articulated tandem roller BW 120 AD-5 for asphalt compaction | BOMAG",
+      "source_version": "APAC product page; Stage V / Tier 4f",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "note": "Rodillo tándem articulado. La página se consultó en portal APAC, pero no declara que los valores sean exclusivos de un mercado; por ello se registra alcance documental global, no disponibilidad comercial. La fuente avisa que los datos pueden cambiar y las ilustraciones pueden incluir opciones; no verifica la variante, emisiones ni accesorios de una unidad."},
+      "specs": {
+        "weight": {"value": "2750 kg", "evidence": "BOMAG BW 120 AD-5 Stage V / Tier 4f: Weight 2,750 kg."},
+        "power": {"value": "24.6 kW", "evidence": "BOMAG BW 120 AD-5 Stage V / Tier 4f: Performance 24.6 kW."},
+        "working_width": {"value": "1200 mm", "evidence": "BOMAG BW 120 AD-5 Stage V / Tier 4f: Working width 1,200 mm."},
+        "emissions": {"value": "Stage V / Tier 4f", "evidence": "BOMAG BW 120 AD-5: Emission stage Stage V / TIER4f."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "HAMM",
+      "model": "HD 12 P VV",
+      "variant": "H312",
+      "source": "https://www.hamm.eu/ocs/en-de/hamm/hd-12-p-vv-342719-p/",
+      "source_title": "HD 12 P VV | Tandem rollers | HAMM",
+      "source_version": "H312 product page",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "note": "Rodillo tándem de dos tambores vibratorios. La página ofrece documentos para múltiples países y no limita las cifras H312 a un mercado; se registra alcance documental global, no disponibilidad comercial. El peso es con ROPS, según la ficha."},
+      "specs": {
+        "weight": {"value": "2695 kg", "evidence": "HAMM HD 12 P VV H312: Operating weight with ROPS 2,695 kg."},
+        "maximum_weight": {"value": "3410 kg", "evidence": "HAMM HD 12 P VV H312: Max. operating weight 3,410 kg."},
+        "working_width": {"value": "1250 mm", "evidence": "HAMM HD 12 P VV H312: Maximum working width 1,250 mm."},
+        "drum_type": {"value": "Smooth/non-split", "evidence": "HAMM HD 12 P VV H312: Drum type, front Smooth/non-split; Drum type, rear Smooth/non-split."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Dynapac",
+      "model": "LG200",
+      "variant": "Honda GX200 recoil start",
+      "source": "https://dynadocweb.dynapac.com/idc/groups/product_doc/documents/product_documentation/ilg140en.pdf",
+      "source_title": "LG140/160/200 Technical Data | Dynapac",
+      "source_version": "ILG140EN4; LG200 Honda configuration",
+      "retrieved_at": "2026-09-22",
+      "provenance": {"authority": "manufacturer", "scope": "model", "market_scope": "global", "note": "Ficha de fabricante para LG200, con tres configuraciones de motor. El documento no declara mercado ni periodo de producción; se usa como referencia global de modelo por carecer de limitación regional explícita, no como prueba de disponibilidad comercial ni del año de una unidad. Estos valores son exclusivamente para Honda GX200 con arranque de retroceso."},
+      "specs": {
+        "weight": {"value": "222 kg", "evidence": "Dynapac LG200 Honda GX200 recoil start: Operating weight 222 kg."},
+        "power": {"value": "4.8 kW", "evidence": "Dynapac LG200 Honda GX200 recoil start: Output 4.8 kW (6.4 hp)."},
+        "centrifugal_force": {"value": "36 kN", "evidence": "Dynapac LG200 Honda GX200 recoil start: Centrifugal force 36 kN."},
+        "working_width": {"value": "500 mm", "evidence": "Dynapac LG200: dimension B 500 mm."}
+      }
+    }
+  ]
+}

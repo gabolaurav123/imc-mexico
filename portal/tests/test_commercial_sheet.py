@@ -113,16 +113,18 @@ class CommercialSheetTests(TestCase):
         for public in (False, True):
             with self.subTest(public=public):
                 html, document, text = self.render(fixture, public=public)
-                for output in (html, " ".join(text.split())):
-                    if not public:
-                        self.assertIn("Referencia de mercado condicional", output)
-                        self.assertIn("no confirma la condición de esta unidad", output)
-                        self.assertIn("No se completó un precio de anuncio sugerido", output)
-                        self.assertIn("BASE FIRMADA", output)
-                    else:
-                        self.assertNotIn("Referencia de mercado condicional", output)
-                        self.assertNotIn("BASE FIRMADA", output)
-                    self.assertNotIn("PRECIO SUGERIDO", output)
+                pdf_text = " ".join(text.split())
+                if not public:
+                    self.assertIn("Referencia de mercado condicional", html)
+                    self.assertIn("no confirma la condición de esta unidad", html)
+                    self.assertIn("No se completó un precio de anuncio sugerido", html)
+                    self.assertIn("BASE FIRMADA", html)
+                    self.assertIn("Valor estimado", pdf_text)
+                    self.assertIn("BASE FIRMADA", pdf_text)
+                else:
+                    self.assertNotIn("Referencia de mercado condicional", html)
+                    self.assertNotIn("BASE FIRMADA", html)
+                self.assertNotIn("PRECIO SUGERIDO", pdf_text)
 
     def test_visual_fields_estimate_and_asking_vs_sold_are_present_in_both_documents(self):
         fixture = commercial_snapshot()
@@ -135,7 +137,7 @@ class CommercialSheetTests(TestCase):
                         continue
                     self.assertIn(fixture["data"][key], html)
                     expected = str(fixture["data"][key]).rstrip(".")
-                    if not public:
+                    if not public and key not in {"operating_status", "applications"}:
                         self.assertIn(expected, " ".join(text.split()))
                 if not public:
                     for key in ESTIMATE_LABELS:
@@ -148,7 +150,7 @@ class CommercialSheetTests(TestCase):
                 self.assertNotIn("99999999", html)
                 pdf_text = " ".join(text.split())
                 if not public:
-                    self.assertIn(ESTIMATE_LABEL, pdf_text)
+                    self.assertIn("Valor estimado", pdf_text)
                 else:
                     self.assertNotIn(ESTIMATE_LABEL, pdf_text)
                 self.assertNotIn("Precio de anuncio", pdf_text)
@@ -246,13 +248,18 @@ class CommercialSheetTests(TestCase):
         for public in (False, True):
             with self.subTest(public=public):
                 html, _, text = self.render(fixture, public=public)
+                self.assertIn("Año aproximado · por confirmar", html)
+                self.assertIn("2004–2009", html)
+                self.assertIn("Rango orientativo; no sustituye el año exacto de fabricación.", html)
+                self.assertIn("Año aproximado", text)
+                self.assertNotIn("por confirmar", text)
                 for output in (html, text):
-                    self.assertIn("Año aproximado · por confirmar", output)
                     self.assertIn("2004–2009", output)
                     self.assertIn("2007", output)
-                    self.assertIn("Rango orientativo; no sustituye el año exacto de fabricación.", output)
                     if not public:
-                        self.assertIn(fixture["data"]["estimated_year_basis"].rstrip("."), output)
+                        expected_basis = (fixture["data"]["estimated_year_basis"].rstrip(".")
+                                          if output == html else "Indicios documentales de la familia")
+                        self.assertIn(expected_basis, output)
                     self.assertNotIn("BORRADOR-ACTUAL-NO-AUTORIZADO", output)
                 self.assertIn('id="sheet-age"', html)
                 technical = html.split('id="sheet-technical"', 1)[1].split('</section>', 1)[0]
@@ -272,7 +279,7 @@ class CommercialSheetTests(TestCase):
                     self.assertIn(expected, text)
                 else:
                     self.assertNotIn('id="sheet-age"', html)
-                    self.assertNotIn("Año aproximado · por confirmar", text)
+                    self.assertNotIn("Año aproximado", text)
                     self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", html)
                     self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", text)
 
@@ -308,9 +315,10 @@ class CommercialSheetTests(TestCase):
                 self.assertEqual([source["source_url"] for source in refs[0]["sources"]], [s["url"] for s in sources])
                 self.assertEqual([source["period"] for source in refs[0]["sources"]], ["1996–2002", "2003–2007"])
                 html, document, text = self.render(fixture, public=public)
-                for output in (html, " ".join(text.split())):
-                    for expected in ("1996–2007", "no sustituye el año exacto de fabricación"):
-                        self.assertIn(expected, output)
+                self.assertIn("1996–2007", html)
+                self.assertIn("no sustituye el año exacto de fabricación", html)
+                self.assertIn("1996–2007", " ".join(text.split()))
+                self.assertNotIn("no sustituye el año exacto de fabricación", " ".join(text.split()))
                 self.assertEqual(pdf_links(document), [])
                 for source in sources:
                     self.assertNotIn(source["url"], html)

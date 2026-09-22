@@ -186,6 +186,13 @@ class CommercialAutofillTests(TestCase):
         self.assertEqual(public["fields"]["estimate_max"], 19000)
         self.assertTrue(public["edited"])
 
+    def test_suggested_price_is_not_replaced_by_owner_asking_price_or_currency(self):
+        self.apply(self.job(self.estimate_result()))
+        self.edit(price="99000", currency="MXN")
+        public = public_valuation(snapshot(self.machine, self.user).data)
+        self.assertEqual(str(public["suggested_price"]), "15000")
+        self.assertEqual(public["fields"]["estimate_currency"], "USD")
+
     def test_new_insufficient_estimate_clears_old_ai_range_but_preserves_owner_price(self):
         self.machine.data.update(brand="Caterpillar", model="2EC25")
         self.machine.save()
