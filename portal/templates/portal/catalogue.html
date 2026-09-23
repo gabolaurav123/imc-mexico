@@ -1,8 +1,8 @@
 {% extends 'portal/base.html' %}
 {% block title %}Maquinaria disponible · IMC México{% endblock %}
 {% block content %}
-<main class="wrap catalogue-page">
-  <h1>Maquinaria disponible</h1>
+<section class="wrap catalogue-page" aria-labelledby="catalogue-heading">
+  <h1 id="catalogue-heading">Maquinaria disponible</h1>
   <form method="get" role="search" class="catalogue-filters">
     <div><label for="category">Categoría</label><select id="category" name="category"><option value="">Cualquiera</option>{% for category in categories %}<option value="{{ category.id }}" {% if filters.category == category.id|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></div>
     <div><label for="brand">Marca</label><input id="brand" name="brand" value="{{ filters.brand }}" placeholder="Marca"></div>
@@ -10,13 +10,14 @@
     <div><label for="variant">Variante</label><input id="variant" name="variant" value="{{ filters.variant }}" placeholder="Variante"></div>
     <div><label for="undercarriage">Tren de rodaje</label><select id="undercarriage" name="undercarriage"><option value="">Cualquiera</option>{% for value,label in undercarriage_labels %}<option value="{{ value }}" {% if filters.undercarriage == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label for="currency">Moneda del precio</label><select id="currency" name="currency"><option value="">Cualquiera</option>{% for currency in currencies %}<option value="{{ currency }}" {% if filters.currency == currency %}selected{% endif %}>{{ currency }}</option>{% endfor %}</select></div>
+    <div><label for="availability">Disponibilidad</label><select id="availability" name="availability">{% for value,label in availability_choices %}<option value="{{ value }}" {% if filters.availability == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label for="preservation_condition">Conservación</label><select id="preservation_condition" name="preservation_condition"><option value="">Cualquiera</option>{% for value,label in preservation_choices %}<option value="{{ value }}" {% if filters.preservation_condition == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div><label for="location_country">País</label><input id="location_country" name="location_country" value="{{ filters.location_country }}" placeholder="País"></div>
     <div><label for="location_region">Estado o provincia</label><input id="location_region" name="location_region" value="{{ filters.location_region }}" placeholder="Estado o provincia"></div>
     <div><label for="location_city">Ciudad</label><input id="location_city" name="location_city" value="{{ filters.location_city }}" placeholder="Ciudad"></div>
     <details class="catalogue-ranges"><summary>Rangos y año</summary><div class="catalogue-range">
       <label>Horas mín.<input type="number" min="0" step="any" name="hours_min" value="{{ filters.hours_min }}"></label><label>Horas máx.<input type="number" min="0" step="any" name="hours_max" value="{{ filters.hours_max }}"></label>
-      <label>Año<input type="number" min="1800" max="2200" name="year" value="{{ filters.year }}"></label><label>Tipo de año<select name="year_mode"><option value="exact" {% if filters.year_mode == 'exact' %}selected{% endif %}>Año exacto</option><option value="approx" {% if filters.year_mode == 'approx' %}selected{% endif %}>Rango aproximado</option></select></label>
+      <label>Año específico<input type="number" min="1800" max="2200" step="1" name="year" value="{{ filters.year }}"></label><label>Año desde<input type="number" min="1800" max="2200" step="1" name="year_min" value="{{ filters.year_min }}"></label><label>Año hasta<input type="number" min="1800" max="2200" step="1" name="year_max" value="{{ filters.year_max }}"></label><label>Tipo de año<select name="year_mode"><option value="exact" {% if filters.year_mode == 'exact' %}selected{% endif %}>Año exacto</option><option value="approx" {% if filters.year_mode == 'approx' %}selected{% endif %}>Rango aproximado</option></select></label>
       <label>Precio mín.<input type="number" min="0" step="any" name="price_min" value="{{ filters.price_min }}"></label><label>Precio máx.<input type="number" min="0" step="any" name="price_max" value="{{ filters.price_max }}"></label>
       <label>Peso mín. kg<input type="number" min="0" step="any" name="weight_min" value="{{ filters.weight_min }}"></label><label>Peso máx. kg<input type="number" min="0" step="any" name="weight_max" value="{{ filters.weight_max }}"></label>
       <label>Profundidad mín. m<input type="number" min="0" step="any" name="depth_min" value="{{ filters.depth_min }}"></label><label>Profundidad máx. m<input type="number" min="0" step="any" name="depth_max" value="{{ filters.depth_max }}"></label>
@@ -24,8 +25,9 @@
     <div><label for="sort">Ordenar</label><select id="sort" name="sort">{% for value,label in sort_options %}<option value="{{ value }}" {% if filters.sort == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <button class="button button-red" type="submit">Buscar</button>
   </form>
+  {% if filter_warnings %}<div class="notice" role="alert"><div><strong>Revisa los filtros</strong>{% for warning in filter_warnings %}<p>{{ warning }}</p>{% endfor %}</div></div>{% endif %}
   <p class="catalogue-result-count" aria-live="polite">{{ result_count }} resultado{{ result_count|pluralize:'s' }}</p>
-  <section class="catalogue-grid">{% for card in cards %}<article class="machine-card"><a href="{{ card.url }}">{% if card.asset_ids %}<img src="/ficha/{{ card.publication.token }}/archivo/{{ card.asset_ids.0 }}/" alt="Fotografía del equipo" loading="lazy">{% endif %}<h2>{{ card.title }}</h2>{% if card.summary %}<p>{{ card.summary }}</p>{% endif %}{% if card.data.price and card.data.currency %}<p>{{ card.data.price }} {{ card.data.currency }}</p>{% endif %}{% if card.data.location_city or card.data.location_region or card.data.location_country %}<p>{{ card.data.location_city }} {{ card.data.location_region }} {{ card.data.location_country }}</p>{% endif %}</a></article>{% empty %}<p>No hay maquinaria publicada con esos filtros.</p>{% endfor %}</section>
+  <section class="catalogue-grid">{% for card in cards %}<article class="machine-card"><a href="{{ card.url }}">{% if card.asset_ids %}<img src="/ficha/{{ card.publication.token }}/archivo/{{ card.asset_ids.0 }}/" alt="Fotografía del equipo" loading="lazy">{% endif %}<h2>{{ card.title }}</h2>{% if card.year is not None %}<p>Año {{ card.year }}</p>{% endif %}{% if card.summary %}<p>{{ card.summary }}</p>{% endif %}{% if card.data.price and card.data.currency %}<p>{{ card.data.price }} {{ card.data.currency }}</p>{% endif %}{% if card.availability != 'available' %}<p>{{ card.availability_label }}</p>{% endif %}{% if card.data.location_city or card.data.location_region or card.data.location_country %}<p>{{ card.data.location_city }} {{ card.data.location_region }} {{ card.data.location_country }}</p>{% endif %}</a></article>{% empty %}<p>No hay maquinaria publicada con esos filtros.</p>{% endfor %}</section>
   <nav aria-label="Paginación">{% if page_obj.has_previous %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}{% if page_obj.has_next %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}</nav>
-</main>
+</section>
 {% endblock %}

@@ -2,6 +2,10 @@
 
 ## Adaptación vigente — 23 de septiembre de 2026
 
+El [análisis del principal y adaptación del módulo](audit-and-adaptation-2026-09-23.md)
+recoge la revisión funcional detallada, correcciones de catálogo, consulta privada
+de fichas y etapas de incorporación futura al principal.
+
 El [informe de integración](main-integration-2026-09-23.md) documenta el diagnóstico,
 el mapeo comprobado, las entregas con identidad estable y sus acuses, pruebas y
 bloqueos. El módulo ya dispone de `/operaciones/integracion/`, pero **no hay una
@@ -50,6 +54,7 @@ evitar sobrescribir cambios, y mostrar los errores 400/401/403/404/409 al usuari
 | Operación | Ruta |
 | --- | --- |
 | Crear borrador | `POST /api/maquinarias/` |
+| Recuperar ficha privada y revisión | `GET /api/maquinarias/{id}/` |
 | Guardar correcciones | `POST /api/maquinarias/{id}/guardar/` |
 | Cargar fotografía | `POST /api/maquinarias/{id}/archivos/` |
 | Solicitar análisis | `POST /api/maquinarias/{id}/analizar/` |
@@ -59,7 +64,8 @@ evitar sobrescribir cambios, y mostrar los errores 400/401/403/404/409 al usuari
 | Ficha privada / PDF | `GET /panel/maquinarias/{id}/ficha/` y `/pdf/` |
 
 No crear nuevas llamadas a IA al abrir páginas, consultar resultados o descargar
-PDF. Luna es el modelo activo; Astra está bloqueado. La prueba de integración
+PDF. Se conserva la configuración de Terra para visión y Luna para investigación
+y texto; Astra está bloqueado. La prueba de integración
 automática debe simular el proveedor para evitar costes.
 
 ### Investigación y ficha unificada (v31)
@@ -98,6 +104,27 @@ automática debe simular el proveedor para evitar costes.
 
 Reabrir una ficha anterior no repite llamadas de pago. Para usar v31 con fotos ya
 analizadas, solicitar explícitamente un nuevo análisis en el flujo de fotos.
+
+## API privada de lectura de ficha
+
+`GET /api/maquinarias/{uuid}/` entrega `private-machine-v1` para un frontal que
+use la lógica del módulo sin copiar sus plantillas. Requiere una sesión activa:
+la cuenta propietaria puede leer su maquinaria activa; el personal requiere
+`operate_platform`, `view_machine` y MFA cuando está configurado. Una ficha fuera
+de ese alcance, incluida una enviada a papelera, devuelve 404; una solicitud sin
+sesión devuelve JSON 401. El endpoint es sólo de lectura, no inicia análisis ni
+modifica la revisión.
+
+La respuesta contiene UUID, folio local, título, creación/actualización,
+revisión, estado, disponibilidad, categoría mínima, versión aprobada si existe,
+`data`, procedencia y enlaces de aplicación a los archivos privados. Esos datos
+pueden incluir serie, placa o notas para el propietario y el personal autorizado,
+igual que la ficha interna.
+No entrega nombres ni rutas de almacenamiento, credenciales, publicaciones,
+acuses ni identificadores externos. Lleva `Cache-Control: private, no-store` y
+`Vary: Cookie`; el frontal debe conservar la sesión y usar los endpoints POST
+existentes para cambios con su revisión actual.
+Otros métodos devuelven JSON 405 con las mismas cabeceras privadas.
 
 ## Antes de migrar
 

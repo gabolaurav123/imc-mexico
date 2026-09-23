@@ -75,6 +75,72 @@ class PublicCatalogueTests(TestCase):
         self.assertContains(self.client.get("/maquinaria/?year=2018&year_mode=exact"), "CAT 320")
         self.assertContains(self.client.get("/maquinaria/?year=2018&year_mode=approx"), "CAT 320")
 
+    def test_year_range_filters_use_explicit_exact_or_approximate_semantics(self):
+        self.assertContains(self.client.get("/maquinaria/?year_min=2018&year_max=2018"), "CAT 320")
+        self.assertNotContains(self.client.get("/maquinaria/?year_min=2019&year_max=2020"), "CAT 320")
+        # The declared 2017-2019 approximate period overlaps 2019, but not 2020.
+        self.assertContains(self.client.get("/maquinaria/?year_min=2019&year_max=2020&year_mode=approx"), "CAT 320")
+        self.assertNotContains(self.client.get("/maquinaria/?year_min=2020&year_max=2021&year_mode=approx"), "CAT 320")
+
+    def test_invalid_year_ranges_and_price_without_currency_are_visible_and_safe(self):
+        response = self.client.get("/maquinaria/?year=1650.5")
+        self.assertContains(response, "El año debe ser un número entero.")
+        self.assertNotContains(response, "CAT 320")
+        response = self.client.get("/maquinaria/?year_min=2020&year_max=2019")
+        self.assertContains(response, "El año desde no puede ser posterior al año hasta.")
+        self.assertNotContains(response, "CAT 320")
+        response = self.client.get("/maquinaria/?price_min=100000")
+        self.assertContains(response, "Para filtrar por precio, elige una moneda.")
+        self.assertNotContains(response, "CAT 320")
+        response = self.client.get("/maquinaria/?hours_min=2&hours_max=1")
+        self.assertContains(response, "El mínimo de horas no puede superar el máximo.")
+        self.assertNotContains(response, "CAT 320")
+        response = self.client.get("/maquinaria/?hours_min=-1")
+        self.assertContains(response, "El mínimo de horas no puede ser negativo.")
+        self.assertNotContains(response, "CAT 320")
+        response = self.client.get("/maquinaria/?year=1e999999999")
+        self.assertContains(response, "El año debe estar entre 1800 y 2200.")
+        self.assertNotContains(response, "CAT 320")
+
+    def test_enormous_numeric_exponents_return_a_warning_without_decimalfield_overflow(self):
+        fields = (("hours_min", "horas"), ("price_min", "precio"),
+                  ("weight_min", "peso"), ("depth_min", "profundidad"))
+        for field, label in fields:
+            with self.subTest(field=field):
+                response = self.client.get("/maquinaria/", {field: "1e999999999", "currency": "USD"})
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, f"El mínimo de {label} excede el límite permitido.")
+                self.assertEqual(response.context["result_count"], 0)
+
+    def test_catalogue_defaults_to_available_and_exposes_other_states_only_on_request(self):
+        self.machine.availability = "sold"
+        self.machine.save(update_fields=["availability"])
+        default_response = self.client.get("/maquinaria/")
+        self.assertNotContains(default_response, "CAT 320")
+        self.assertContains(default_response, '<option value="available" selected>Disponibles</option>', html=True)
+        self.assertContains(self.client.get("/maquinaria/?availability=sold"), "CAT 320")
+        response = self.client.get("/maquinaria/?availability=all")
+        self.assertContains(response, "CAT 320")
+
+    def test_explicit_reserved_state_has_a_card_label_and_invalid_availability_defaults_safely(self):
+        self.machine.availability = "reserved"
+        self.machine.save(update_fields=["availability"])
+        reserved = self.client.get("/maquinaria/?availability=reserved")
+        self.assertEqual([card["publication"].pk for card in reserved.context["cards"]], [self.publication.pk])
+        self.assertContains(reserved, "Reservada")
+        invalid = self.client.get("/maquinaria/?availability=unknown")
+        self.assertEqual(invalid.context["filters"]["availability"], "available")
+        self.assertContains(invalid, "La disponibilidad solicitada no es válida")
+        self.assertNotContains(invalid, "CAT 320")
+
+    def test_price_currency_and_sort_fallback_warnings_are_visible(self):
+        unknown_currency = self.client.get("/maquinaria/?currency=GBP&price_min=100000")
+        self.assertContains(unknown_currency, "La moneda solicitada no es válida.")
+        self.assertNotContains(unknown_currency, "CAT 320")
+        no_currency_sort = self.client.get("/maquinaria/?sort=price_asc")
+        self.assertEqual(no_currency_sort.context["filters"]["sort"], "latest")
+        self.assertContains(no_currency_sort, "Para ordenar por precio, elige una moneda.")
+
     def test_catalogue_renders_canonical_selects_and_preserves_normalized_filters(self):
         response = self.client.get(f"/maquinaria/?category={self.category.pk}&currency=usd&preservation_condition=Buena&location_country=MX&location_region=Quintana%20Roo")
         self.assertContains(response, f'<option value="{self.category.pk}" selected>Excavadoras</option>', html=True)
