@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_http_methods, require_GET
@@ -51,7 +51,8 @@ class CatalogueCheckForm(forms.Form):
 @operator_required('portal.publish_machine')
 @require_GET
 def integration_index(request):
-    machines = Machine.objects.filter(approved_version__isnull=False).select_related('owner', 'approved_version').prefetch_related('publications')
+    machines = Machine.objects.filter(approved_version__isnull=False).select_related('owner', 'approved_version').prefetch_related(
+        Prefetch('publications', queryset=Publication.objects.filter(destination='main')))
     q = request.GET.get('q', '').strip()[:180]
     if q:
         machines = machines.filter(Q(title__icontains=q) | Q(publications__external_id__icontains=q) |

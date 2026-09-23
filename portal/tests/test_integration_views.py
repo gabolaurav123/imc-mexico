@@ -61,6 +61,8 @@ class IntegrationViewTests(TestCase):
                 'status': 'acknowledged', **changes}
 
     def test_operator_pages_are_read_only_and_access_is_restricted(self):
+        Publication.objects.create(machine=self.machine, destination='share', version=self.version)
+        self.assertContains(self.client.get('/operaciones/integracion/'), 'Pendiente de entrega')
         for path in ['/operaciones/integracion/', self.url]:
             self.assertEqual(self.client.get(path).status_code, 200)
         self.assertEqual(IntegrationDelivery.objects.count(), 0)
