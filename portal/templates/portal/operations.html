@@ -3,6 +3,7 @@
 {% block panel_content %}
 <div class="page-heading"><div><p class="eyebrow">{% if user.is_superuser %}SUPERADMINISTRADOR{% else %}EQUIPO IMC MÉXICO{% endif %}</p><h1>Panel administrativo</h1><p>Gestiona las solicitudes, los contactos y los accesos de la plataforma.</p></div><a class="button button-outline" href="/admin/">Todas las herramientas ↗</a></div>
 <nav class="management-actions" aria-label="Accesos de gestión">
+  {% if perms.portal.publish_machine %}<a href="/operaciones/integracion/"><span class="management-action-icon" aria-hidden="true">↗</span><b>Integración IMC</b><span>Consulta entregas, correspondencias y acuses del sistema principal.</span></a>{% endif %}
   {% if can_view_submissions %}<a href="#solicitudes"><span class="management-action-icon" aria-hidden="true">↗</span><b>Solicitudes</b><span>Revisa las fichas enviadas y da seguimiento.</span></a>{% endif %}
   {% if can_view_leads %}<a href="/admin/portal/lead/"><span class="management-action-icon" aria-hidden="true">◎</span><b>Leads y seguimiento</b><span>Atiende contactos, asigna responsables y próximas acciones.</span></a>{% endif %}
   {% if can_view_machines %}<a href="#fichas"><span class="management-action-icon" aria-hidden="true">▤</span><b>Fichas y borradores</b><span>Abre las fichas, revisa sus datos y contacta al anunciante.</span></a>{% endif %}

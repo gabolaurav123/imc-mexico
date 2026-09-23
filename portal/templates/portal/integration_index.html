@@ -1,0 +1,13 @@
+{% extends 'portal/panel_base.html' %}
+{% block title %}Integración con IMC México{% endblock %}
+{% block panel_content %}
+<a class="back-link" href="/operaciones/">← Panel administrativo</a>
+<div class="page-heading"><div><p class="eyebrow">WEB PRINCIPAL</p><h1>Integración con IMC México</h1><p>Entregas de versiones aprobadas y confirmaciones del sistema principal.</p></div></div>
+<div class="notice"><b>Conexión automática pendiente.</b> El módulo prepara archivos y registra acuses comprobados por un operador. No hay un conector activo al servidor principal. Una descarga no crea ni publica registros allí.</div>
+<form class="filter-bar" method="get"><label for="integration-q">Buscar ficha, identificador o referencia</label><input id="integration-q" name="q" value="{{ q }}" maxlength="180"><button class="button button-outline">Buscar</button></form>
+<div class="table-wrap"><table><thead><tr><th>Ficha local</th><th>Disponibilidad</th><th>Vinculación principal</th><th>Acciones</th></tr></thead><tbody>
+{% for machine in page_obj %}<tr><td><b>{{ machine.title }}</b><small>{{ machine.folio }} · versión {{ machine.approved_version.number }}</small></td><td>{{ machine.get_availability_display }}</td><td>{% for pub in machine.publications.all %}{% if pub.destination == 'main' %}{{ pub.get_integration_state_display }}<small>{{ pub.get_status_display }}</small>{% if pub.external_reference %}<small>Referencia: {{ pub.external_reference }}</small>{% endif %}{% endif %}{% empty %}Pendiente de entrega{% endfor %}</td><td><a href="{% url 'integration_detail' machine.pk %}">Consultar entrega →</a></td></tr>
+{% empty %}<tr><td colspan="4">Las fichas aparecerán aquí después de aprobarse.</td></tr>{% endfor %}
+</tbody></table></div>
+{% include 'portal/pagination.html' %}
+{% endblock %}

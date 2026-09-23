@@ -3,11 +3,15 @@ from django.urls import path
 from portal import views as v, auth_views as a, knowledge_views
 from portal.analytics import preferences as analytics_preferences
 from portal import catalog_views
+from portal import integration_views
 
 admin.site.site_header='IMC México · Administración'
 admin.site.site_title='IMC México'
 admin.site.index_title='Operación de la plataforma'
 urlpatterns=[
+ path('operaciones/integracion/',integration_views.integration_index,name='integration_index'),
+ path('operaciones/integracion/<uuid:pk>/',integration_views.integration_detail,name='integration_detail'),
+ path('panel/vinculos/imc/',integration_views.main_record_return,name='main_record_return'),
  path('administracion/',a.administration_sign_in,name='administration_login'),
  path('operaciones/notificaciones/nueva/',v.notification_compose,name='notification_compose'),
  path('panel/notificaciones/',v.notification_list,name='notification_list'),

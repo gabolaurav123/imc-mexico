@@ -509,12 +509,27 @@ class Publication(models.Model):
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     enabled = models.BooleanField("habilitada", default=False)
     external_id = models.CharField("identificador externo", max_length=200, blank=True)
+    external_reference = models.CharField("referencia visible externa", max_length=200, blank=True)
     external_url = models.URLField("enlace externo", blank=True)
+    integration_state = models.CharField("estado de integración", max_length=16,
+                                         choices=[("pending", "Pendiente"), ("acknowledged", "Acusada")],
+                                         default="pending")
+    acknowledged_at = models.DateTimeField("acuse registrado", null=True, blank=True)
+    acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                        null=True, blank=True, related_name="acknowledged_publications",
+                                        verbose_name="acuse registrado por")
+    current_delivery = models.ForeignKey("IntegrationDelivery", on_delete=models.PROTECT, null=True, blank=True,
+                                         related_name="+", verbose_name="entrega activa")
     last_error = models.TextField("último error", blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=["machine", "destination"], name="unique_publication_destination")]
+        constraints = [
+            models.UniqueConstraint(fields=["machine", "destination"], name="unique_publication_destination"),
+            models.UniqueConstraint(fields=["destination", "external_id"],
+                                    condition=models.Q(destination="main") & ~models.Q(external_id=""),
+                                    name="unique_main_external_id"),
+        ]
         verbose_name = "publicación"
         verbose_name_plural = "publicaciones"
 
@@ -525,9 +540,63 @@ class Publication(models.Model):
             raise ValidationError("La versión no pertenece a esta maquinaria.")
         if self.enabled and (not self.version_id or self.machine.approved_version_id != self.version_id or self.machine.owner.advertiser_status != "approved"):
             raise ValidationError("Se requiere una versión y un anunciante aprobados.")
+        if self.current_delivery_id and self.current_delivery.publication_id != self.pk:
+            raise ValidationError("La entrega activa no pertenece a esta publicación.")
 
     def __str__(self):
         return f"{self.machine.folio} · {self.get_destination_display()}"
+
+
+class IntegrationDelivery(models.Model):
+    """Local, auditable handoff record. It never performs a remote request."""
+    class State(models.TextChoices):
+        PREPARED = "prepared", "Preparada"
+        ACKNOWLEDGED = "acknowledged", "Acusada"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    publication = models.ForeignKey(Publication, on_delete=models.PROTECT, related_name="deliveries")
+    version = models.ForeignKey(MachineVersion, on_delete=models.PROTECT, related_name="integration_deliveries")
+    source_machine_id = models.UUIDField("identificador estable de maquinaria", editable=False)
+    payload = models.JSONField("carga preparada", default=dict)
+    payload_sha256 = models.CharField("huella de carga", max_length=64)
+    state = models.CharField("estado", max_length=16, choices=State.choices, default=State.PREPARED, db_index=True)
+    receipt = models.JSONField("acuse remoto declarado", default=dict, blank=True)
+    evidence = models.TextField("evidencia independiente", blank=True)
+    acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                        related_name="acknowledged_deliveries")
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(fields=["publication", "version", "payload_sha256"],
+                                               name="unique_delivery_payload_version")]
+        verbose_name = "entrega de integración"
+        verbose_name_plural = "entregas de integración"
+
+    def clean(self):
+        if self.publication_id and self.version_id and self.publication.machine_id != self.version.machine_id:
+            raise ValidationError("La versión de la entrega no pertenece a la publicación.")
+        if self.publication_id and self.source_machine_id and self.publication.machine_id != self.source_machine_id:
+            raise ValidationError("La correlación estable no corresponde a la publicación.")
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "publication_id", "version_id", "source_machine_id", "payload", "payload_sha256", "state",
+                "receipt", "evidence").first()
+            if previous:
+                immutable = ("publication_id", "version_id", "source_machine_id", "payload", "payload_sha256")
+                if any(previous[name] != getattr(self, name) for name in immutable):
+                    raise ValidationError("La carga y los vínculos de una entrega son inmutables.")
+                if previous["state"] == self.State.ACKNOWLEDGED and (
+                        previous["receipt"] != self.receipt or previous["evidence"] != self.evidence):
+                    raise ValidationError("El acuse de una entrega ya confirmada es inmutable.")
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.publication} · {self.get_state_display()}"
 
 
 class Message(models.Model):

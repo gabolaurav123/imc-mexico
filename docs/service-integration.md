@@ -1,5 +1,13 @@
 # Servicio de publicación: integración con la web principal
 
+## Adaptación vigente — 23 de septiembre de 2026
+
+El [informe de integración](main-integration-2026-09-23.md) documenta el diagnóstico,
+el mapeo comprobado, las entregas con identidad estable y sus acuses, pruebas y
+bloqueos. El módulo ya dispone de `/operaciones/integracion/`, pero **no hay una
+conexión automática al servidor principal**. El acuse manual queda atribuido al
+operador que lo comprobó; no equivale a una verificación HTTP del receptor.
+
 La portada de este repositorio es una entrada al servicio. La web principal de
 IMC México conserva su diseño; no necesita copiar las plantillas ni las hojas de
 estilo para utilizar la lógica del portal.

@@ -14,7 +14,7 @@ import csv
 
 from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEvent, Brand, EquipmentModel, Unit, Category,
                      Consent, Lead, Machine, MachineVersion, Message, Notification,
-                     PlatformSettings, Publication, SiteContent, Submission, User, NotificationTemplate)
+                     PlatformSettings, Publication, SiteContent, Submission, User, NotificationTemplate, IntegrationDelivery)
 from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, find_possible_duplicates, send_machine_reminder, _validate_payload
 from . import knowledge_admin  # Register the reviewed technical-reference library.
 
@@ -413,10 +413,11 @@ class VersionAdmin(HistoricalAdmin):
 
 @admin.register(Publication)
 class PublicationAdmin(AuditedAdmin):
-    list_display = ("machine", "destination", "status", "enabled", "updated_at")
-    list_filter = ("destination", "status", "enabled")
+    list_display = ("machine", "destination", "status", "integration_state", "enabled", "updated_at")
+    list_filter = ("destination", "status", "integration_state", "enabled")
     search_fields = ("machine__title", "external_id")
-    readonly_fields = ("machine", "version", "destination", "status", "enabled", "token", "last_error", "updated_at")
+    readonly_fields = ("machine", "version", "destination", "status", "enabled", "token", "last_error", "updated_at",
+                       "external_id", "external_url", "external_reference", "integration_state", "acknowledged_at", "acknowledged_by", "current_delivery")
     actions = ("export_main", "confirm_main_publication", "disable")
 
     def has_add_permission(self, request):
@@ -425,26 +426,21 @@ class PublicationAdmin(AuditedAdmin):
     def has_change_permission(self, request, obj=None):
         return super().has_change_permission(request,obj) and request.user.has_perm("portal.publish_machine")
 
-    @admin.action(description="Confirmar publicación externa verificada (requiere enlace e identificador)")
+    @admin.action(description="Revisar acuse de integración en el panel IMC")
     def confirm_main_publication(self, request, queryset):
         if not request.user.has_perm("portal.publish_machine"):
             raise PermissionDenied
-        for item in queryset.filter(machine__deleted_at__isnull=True):
-            with transaction.atomic():
-                machine=Machine.objects.select_for_update().select_related("owner").get(pk=item.machine_id)
-                obj=Publication.objects.select_for_update().get(pk=item.pk)
-                if obj.destination!="main" or not obj.external_url or not obj.external_id or obj.version_id!=machine.approved_version_id or machine.owner.advertiser_status!="approved" or machine.availability=="withdrawn":
-                    self.message_user(request,f"{machine.folio}: completa enlace e identificador verificables de la versión aprobada antes de confirmar.",messages.ERROR)
-                    continue
-                obj.status="published"
-                obj.enabled=False
-                obj.save(update_fields=["status","enabled","updated_at"])
-                audit(request.user,"publication.external_confirmed",obj,{"external_id":obj.external_id,"external_url":obj.external_url,"version":obj.version_id})
-                self.message_user(request,f"{machine.folio}: confirmación de publicación externa registrada.")
+        records = queryset.filter(destination='main', machine__deleted_at__isnull=True)
+        if records.count() == 1:
+            return redirect('integration_detail', pk=records.get().machine_id)
+        self.message_user(request, 'Selecciona una publicación principal para cotejar su acuse. No se modificó ningún estado.', messages.WARNING)
 
     @admin.action(description="Deshabilitar publicaciones seleccionadas")
     def disable(self, request, queryset):
         for obj in queryset.filter(machine__deleted_at__isnull=True):
+            if obj.destination == 'main':
+                self.message_user(request, f'{obj.machine.folio}: la baja en la web principal debe confirmarse en ese sistema. No se modificó su estado remoto.', messages.WARNING)
+                continue
             set_publication(obj.machine, request.user, False, obj.destination)
 
     @admin.action(description="Exportar fichas aprobadas para el portal principal (JSON)")
@@ -452,26 +448,32 @@ class PublicationAdmin(AuditedAdmin):
         if not request.user.has_perm("portal.publish_machine"):
             raise PermissionDenied
         records = []
-        for obj in queryset.filter(machine__deleted_at__isnull=True).select_related("machine__owner", "version"):
+        from .export_payload import build_export_payload
+        from .integration import prepare_delivery, delivery_metadata
+        for obj in queryset.filter(destination='main', machine__deleted_at__isnull=True).select_related("machine__owner", "version"):
             if not obj.version_id or obj.machine.owner.advertiser_status != "approved" or obj.version_id != obj.machine.approved_version_id:
                 continue
-            snapshot_data = obj.version.data
-            data = dict(snapshot_data.get("data", {}))
-            for key in ("serial", "plate_transcription", "notes"):
-                data.pop(key, None)
-            if not snapshot_data.get("contact_authorized"):
-                data.pop("contact_public", None)
-            records.append({"folio": obj.machine.folio, "version": obj.version.number,
-                "title": snapshot_data.get("title"), "category": snapshot_data.get("category_name"),
-                "data": data, "asset_ids": snapshot_data.get("public_asset_ids", []),
-                "availability": obj.machine.availability})
-            if obj.destination == "main" and obj.status != "published":
-                obj.status = "exported"
-                obj.save(update_fields=["status", "updated_at"])
+            try:
+                payload, _ = build_export_payload(obj.machine, obj.version)
+                delivery = prepare_delivery(obj.machine, request.user, payload)
+                from .integration import mark_delivery_exported
+                mark_delivery_exported(delivery, request.user)
+            except (ValidationError, OSError) as exc:
+                self.message_user(request, f'{obj.machine.folio}: no se pudo preparar la entrega. Comprueba la versión y sus archivos.', messages.ERROR)
+                continue
+            records.append({**payload, 'asset_ids': [item['id'] for item in payload['assets']],
+                            'integration': delivery_metadata(delivery)})
             audit(request.user, "publication.exported", obj, {"version": obj.version.number})
         response = HttpResponse(json.dumps({"schema": "imc-export-v1", "records": records}, ensure_ascii=False, indent=2), content_type="application/json")
         response["Content-Disposition"] = 'attachment; filename="imc-publicaciones.json"'
         return response
+
+
+@admin.register(IntegrationDelivery)
+class IntegrationDeliveryAdmin(HistoricalAdmin):
+    list_display = ('id', 'publication', 'version', 'state', 'created_at', 'acknowledged_at')
+    list_filter = ('state',)
+    search_fields = ('publication__machine__title', 'publication__external_id', 'payload_sha256')
 
 
 class StaffMessageForm(forms.ModelForm):

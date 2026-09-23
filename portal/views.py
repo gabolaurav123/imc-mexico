@@ -421,7 +421,9 @@ def machine_sheet(request,pk):
     machine=owned(request,pk)
     version=get_object_or_404(MachineVersion,machine=machine,pk=request.GET['version']) if request.GET.get('version') else None
     record_event(request,'sheet_reviewed',page='internal_sheet')
-    return render(request,'portal/sheet.html',sheet_context(machine,version))
+    context = sheet_context(machine,version)
+    context['main_record'] = machine.publications.filter(destination='main', acknowledged_at__isnull=False).first()
+    return render(request,'portal/sheet.html',context)
 
 def public_sheet(request,token):
     pub=public_record(token)
@@ -652,6 +654,15 @@ def review(request,pk):
 @operator_required('portal.publish_machine')
 @require_POST
 def export_machine(request,pk):
+    try:
+        return _export_machine(request, pk)
+    except (ValidationError, OSError) as exc:
+        message = ' '.join(exc.messages) if isinstance(exc, ValidationError) else 'No se pudo leer un archivo autorizado. Comprueba su almacenamiento antes de exportar.'
+        flash.error(request, message)
+        return redirect('integration_detail', pk=pk)
+
+
+def _export_machine(request,pk):
     import zipfile
     from io import BytesIO
     from .pdf import build_pdf
@@ -660,30 +671,27 @@ def export_machine(request,pk):
     version=machine.approved_version
     context=sheet_context(machine,version,True)
     output=BytesIO()
-    from .public_data import public_json
-    exported=public_json(version.data,title=context['machine'].title,
-                         category=version.data.get('category_name'),availability=machine.availability)
-    exported.update({'folio':machine.folio,'machine_id':str(machine.pk),'version':version.number,
-                     'assets':[],'destination_status':'exported','exported_at':timezone.now().isoformat()})
+    from .export_payload import build_export_payload
+    from .integration import prepare_delivery, delivery_metadata
+    exported, files = build_export_payload(machine, version)
+    # PDF and media are assembled before persisting an exported status. A
+    # storage/PDF failure must not pretend a package was delivered.
+    pdf_bytes = build_pdf(context['machine'],context['data'],context['assets'],True,version)
+    delivery = prepare_delivery(machine, request.user, exported)
+    envelope = {'schema': 'imc-handoff-v1', **delivery_metadata(delivery),
+                'module_record_url': f'{settings.PUBLIC_URL}/panel/maquinarias/{machine.pk}/ficha/',
+                'remote_record_id': delivery.publication.external_id or None,
+                'connection': 'manual_handoff', 'remote_transport_performed': False,
+                'acknowledgement_recorded': delivery.state == 'acknowledged'}
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('ficha.pdf',build_pdf(context['machine'],context['data'],context['assets'],True,version))
-        for asset in context['assets']:
-            f=asset.preview or asset.original
-            suffix='.mp4' if asset.kind=='video' else '.jpg'
-            path=f'fotografias/{asset.pk}{suffix}'
-            with f.open('rb') as stream:archive.writestr(path,stream.read())
-            exported['assets'].append({'id':str(asset.pk),'path':path,'kind':asset.kind,'cover':asset.is_cover})
+        archive.writestr('ficha.pdf',pdf_bytes)
+        for path, raw in files:
+            archive.writestr(path, raw)
         archive.writestr('publicacion.json',json.dumps(exported,ensure_ascii=False,indent=2))
-        archive.writestr('LEEME.txt','Paquete autorizado para preparación editorial. Exportar NO publica automáticamente en imcmexico.com.mx. Registrar identificador/enlace externo solo tras confirmación verificable.')
-    with transaction.atomic():
-        current=Machine.objects.select_for_update().get(pk=machine.pk)
-        if current.approved_version_id!=version.pk:raise ValidationError('La versión aprobada cambió durante la exportación. Vuelve a intentarlo.')
-        publication,_=Publication.objects.select_for_update().get_or_create(machine=machine,destination='main')
-        already_published=publication.status=='published' and publication.version_id==version.pk
-        publication.version=version
-        if not already_published:publication.status='exported'
-        publication.enabled=False
-        publication.save(update_fields=['version','status','enabled','updated_at'])
+        archive.writestr('integracion.json',json.dumps(envelope,ensure_ascii=False,indent=2))
+        archive.writestr('LEEME.txt','Paquete autorizado para preparación editorial. Exportar NO publica automáticamente en imcmexico.com.mx. El UUID de maquinaria es una correlación local, no la llave ni la referencia del sitio principal. El receptor debe conservar la clave de entrega, comprobar su huella y devolver un acuse; reintentar no debe insertar otro anuncio. No renombrar las imágenes del sistema principal a partir de estos UUID. Registrar identificador/enlace externo solo tras confirmación verificable.')
+    from .integration import mark_delivery_exported
+    mark_delivery_exported(delivery, request.user)
     services.audit(request.user,'publication.exported',machine,{'version':version.number})
     response=HttpResponse(output.getvalue(),content_type='application/zip');response['Content-Disposition']=f'attachment; filename="{machine.folio}-v{version.number}.zip"'
     return response
