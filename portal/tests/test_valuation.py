@@ -9,13 +9,17 @@ from django.test import SimpleTestCase
 
 from portal.valuation import (ComparableCandidate, ComparableCandidates, Compatibility, Configuration,
     LABEL, PARSE_RESERVATION, SEARCH_RESERVATION, VALUATION_RESERVATION,
-    _document_passages, _fetch_listing, _identity, _listing_url, _listing_fact_snippets, _money, _normalize,
+    _ceg_listing_urls, _ceg_index_url, _document_passages, _fetch_listing, _identity, _listing_url,
+    _listing_fact_snippets, _money, _normalize,
     estimate_machine, is_validated_estimate, range_from_comparables)
 from portal.research_fetch import CatalogFetchError
 
 
 IDENTITY = {'brand': 'Caterpillar', 'model': '2EC25', 'condition': 'used', 'configurations': {}}
 URLS = ['https://dealer-one.example.com/equipment/unit-a', 'https://dealer-two.example.org/equipment/unit-b']
+CEG_INDEX = 'https://www.constructionequipmentguide.com/used-excavators-for-sale/caterpillar/model/320d'
+CEG_URLS = ['https://www.constructionequipmentguide.com/used-equipment/caterpillar/excavators/320d/id/88950364',
+            'https://www.constructionequipmentguide.com/used-equipment/caterpillar/excavators/320d/id/88950365']
 
 
 def quote(price='USD 12,000', **options):
@@ -112,7 +116,8 @@ class ValuationGroundingTests(SimpleTestCase):
         self.assertFalse(value['comparables'])
         for literal, currency, expected in [('USD 12,000.50', 'USD', '12000.50'),
                 ('12.000,50 EUR', 'EUR', '12000.50'), ('MXN 240000', 'MXN', '240000'),
-                ('US$ 12,000', 'USD', '12000'), ('$12,000', 'USD', None),
+                ('US$ 12,000', 'USD', '12000'), ('$60,000 USD', 'USD', '60000'),
+                ('$12,000', 'USD', None), ('$60,000 USD', 'MXN', None),
                 ('CAD 12,000', 'USD', None), ('USD 12.000,500', 'USD', None)]:
             with self.subTest(literal=literal):
                 amount = _money(literal, currency)
@@ -413,8 +418,37 @@ class ValuationIdentityAndDocumentsTests(SimpleTestCase):
             with self.subTest(path=path), self.assertRaises(CatalogFetchError):
                 _listing_url('https://www.machinerytrader.com' + path)
 
+    def test_ceg_indexes_are_discovery_only_and_observed_links_are_individual_ads(self):
+        self.assertEqual(_ceg_index_url(CEG_INDEX), CEG_INDEX)
+        with self.assertRaises(CatalogFetchError):
+            _listing_url(CEG_INDEX)
+        page = ('<main><p>Index card price: $60,000 USD</p>'
+                f'<a href="{CEG_URLS[0]}">2011 Caterpillar 320D</a>'
+                f'<a href="{CEG_URLS[1]}">2012 Caterpillar 320D</a>'
+                '<a href="https://elsewhere.example/used-equipment/caterpillar/excavators/320d/id/1">outside</a>'
+                '</main>')
+        self.assertEqual(_ceg_listing_urls(page, CEG_INDEX), CEG_URLS)
+
 
 class ValuationPipelineTests(SimpleTestCase):
+    def test_ceg_index_discovers_and_fetches_only_individual_ads(self):
+        client = provider([CEG_INDEX])
+        index_html = ('<main><p>Index card: $60,000 USD</p>'
+                      f'<a href="{CEG_URLS[0]}">2011 Caterpillar 2EC25</a>'
+                      f'<a href="{CEG_URLS[1]}">2012 Caterpillar 2EC25</a></main>')
+        with patch('portal.valuation._fetch_listing') as direct, \
+                patch('portal.valuation._fetch_ceg_index', return_value=(index_html, CEG_INDEX)) as index_fetch, \
+                patch('portal.valuation._fetch_discovered_ceg_listing', side_effect=[
+                    (html(quote('USD 12,000', extra='Serial number: CEGUNIT0001')), CEG_URLS[0]),
+                    (html(quote('USD 16,000', extra='Serial number: CEGUNIT0002')), CEG_URLS[1])]) as listing_fetch:
+            value, _ = estimate_machine(client, 'gpt-4.1-mini', vision(), {})
+        direct.assert_not_called()
+        index_fetch.assert_called_once()
+        self.assertEqual([call.args[0] for call in listing_fetch.call_args_list], CEG_URLS)
+        self.assertEqual(value['status'], 'estimated')
+        self.assertNotIn('$60,000 USD', client.responses.parse.call_args.kwargs['input'])
+        self.assertEqual(value['fields']['estimate_min'], '12000.00')
+
     def test_luna_search_overrun_keeps_verified_range_without_a_second_paid_call(self):
         client = provider()
         client.responses.create.return_value.usage.input_tokens = 22462

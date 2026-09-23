@@ -1,0 +1,59 @@
+{
+  "subject": {"brand": "Caterpillar", "model": "320D", "category_slug": "excavadoras"},
+  "retrieved_at": "2026-09-22",
+  "purpose": "Observed asking prices only; not technical specifications, realized sales, or a valuation.",
+  "listings": [
+    {
+      "source": "MachineryTrader",
+      "title": "2011 CATERPILLAR 320D | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/259142135/2011-caterpillar-320d-crawler-excavators",
+      "unit_key": "machinerytrader:259142135",
+      "observed_at": "2026-09-22",
+      "year": 2011,
+      "hours": 7949,
+      "price": 60000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "configurations": {},
+      "evidence": "Individual seller listing: 2011 CATERPILLAR 320D; $60,000 USD; Condition Used; Hours 7,949; seller Leslie Equipment Company; seller location Cowen, West Virginia, United States."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2008 CATERPILLAR 320D | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/241193677/2008-caterpillar-320d-crawler-excavators",
+      "unit_key": "machinerytrader:241193677",
+      "observed_at": "2026-09-22",
+      "year": 2008,
+      "hours": 10506,
+      "price": 83500,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "configurations": {"thumb": "hydraulic"},
+      "evidence": "Individual seller listing: 2008 CATERPILLAR 320D; $83,500 USD; Condition Used; Hours 10,506; seller CROWE EQUIPMENT INC; machine location Jasonville, Indiana, United States; description HYD THUMB."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2008 CATERPILLAR 320D | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/255721111/2008-caterpillar-320d-crawler-excavators",
+      "unit_key": "machinerytrader:255721111",
+      "observed_at": "2026-09-22",
+      "year": 2008,
+      "hours": 12377,
+      "price": 70000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "configurations": {},
+      "evidence": "Individual seller listing: 2008 CATERPILLAR 320D; $70,000 USD; Used; Hours 12,377; seller Forest Pro Inc; machine location Scottsville, Virginia, United States; description 2008 Cat 320D track loader, 12,377."
+    }
+  ],
+  "limitations": "Three distinct, open, used-unit asking-price listings for the exact literal model 320D, in the same US/USD market. They are not 320D L, 320DL, 320D2, 320D2 L or current 320 listings. The 2008 Crowe listing explicitly declares a hydraulic thumb, so it is kept in a separate documented configuration group and is not combined with the two configuration-unspecified standard listings. Prices are seller claims and are not realized sales or an appraisal; year, hours, configuration, condition and location are unverified seller/listing statements. The small unadjusted sample is only an orientation range."
+}

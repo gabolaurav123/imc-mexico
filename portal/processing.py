@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v33"
+PROMPT_VERSION = "imc-excavators-2026-09-v34"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -182,6 +182,12 @@ son acercamientos de sus píxeles, no otras máquinas ni otras vistas. Examina
 rotulación pequeña de modelo en carrocería, contrapeso, brazo y cabina antes de
 dejar model vacío. Copia todos los caracteres legibles, incluidos sufijos; no
 completes letras por parecido con un catálogo. Un rótulo parcial queda pendiente.
+Antes de marcar un modelo como clear, revisa el extremo derecho completo del
+rótulo en los recortes: una letra más pequeña, a menor altura o de otro color
+puede ser parte del modelo. Conserva ese sufijo si es legible; no reduzcas una
+variante al modelo base porque los caracteres grandes sean más evidentes.
+Si detectas caracteres finales pero no puedes leerlos, el modelo es parcial:
+usa needs_review y explica el sufijo dudoso; nunca lo marques como lectura clara.
 Analízala de manera independiente: no hay otras fotos en esta solicitud.
 Copia image_001 en fields, plates e image_observations. No uses
 UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una

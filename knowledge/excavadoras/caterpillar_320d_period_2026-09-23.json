@@ -1,0 +1,23 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "320D",
+      "period_from": 2007,
+      "period_to": 2026,
+      "source": "https://www.lectura-specs.com/en/model/construction-machinery/crawler-excavators-caterpillar/320d-11741008",
+      "source_title": "Caterpillar 320D excavator specs & dimensions (2007 - 2026) | Diggers | LECTURA Specs",
+      "source_version": "English model record 11741008",
+      "retrieved_at": "2026-09-22",
+      "provenance": {
+        "authority": "technical_catalog",
+        "scope": "model",
+        "market_scope": "global",
+        "period_evidence": "Caterpillar 320D: Years of manufacture 2007—2026.",
+        "note": "Intervalo amplio publicado por el catálogo para el modelo 320D. Su extremo final coincide con el año de consulta; no prueba la fabricación continua hasta esa fecha ni determina la edad de esta unidad. No corresponde a 320D L, 320D2 ni a otra variante. Se conserva sólo el intervalo; las especificaciones regionales y de configuración no se trasladan a la unidad."
+      },
+      "specs": {}
+    }
+  ]
+}

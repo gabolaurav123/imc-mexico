@@ -32,6 +32,10 @@
     {
       "path": "excavadoras/periodos_produccion_volvo_2026-09-22.json",
       "sha256": "14305fc4c62995f8f15e28a760882fb6727014b68e2f6cd5ef1a09bb171617ba"
+    },
+    {
+      "path": "excavadoras/caterpillar_320d_period_2026-09-23.json",
+      "sha256": "13f7ebb1099d9870976c84ce707d9e3e61675bf08cb31fa7ebdcdc2c16d1958e"
     }
   ]
 }

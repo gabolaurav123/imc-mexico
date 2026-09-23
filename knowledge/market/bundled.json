@@ -8,6 +8,10 @@
     {
       "path": "toyota_50_8fgcu25_listings_2026-09-22.json",
       "sha256": "718ed70ab129560552660b7432361b77c98f77e402118dade959f475e1911b74"
+    },
+    {
+      "path": "cat-320d-2026-09.json",
+      "sha256": "1a7b029342ac4c41e6d685b905b4130ed89c7c4bd56d876fab0da66ad888d51e"
     }
   ]
 }

@@ -39,6 +39,7 @@ LABEL = 'Estimación orientativa, editable y sujeta a confirmación'
 CONDITION_MISSING = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
 SIGNING_SALT = 'portal.valuation.manifest.v1'
 MAX_DOCUMENTS = 6
+MAX_INDEX_DOCUMENTS = 2
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
 CONFIGURATION_KEYS = ('capacity', 'voltage', 'lift_height', 'engine')
@@ -264,9 +265,12 @@ def _listing_url(url):
     # an individual ad in both the singular and plural marketplace URL forms.
     listing_path = re.search(r'/listings?(?:/|$)', parts.path, re.I)
     individual_listing = re.fullmatch(r'/listings?/for-sale/[0-9]+/[^/]+/?', parts.path, re.I)
+    ceg_host = host.removeprefix('www.') == 'constructionequipmentguide.com'
+    ceg_listing = re.fullmatch(r'/used-equipment/[a-z0-9-]+/[a-z0-9-]+/[a-z0-9-]+/id/[0-9]+/?', parts.path, re.I)
     if (parts.scheme != 'https' or parts.port not in {None, 443}
             or host == 'scribd.com' or host.endswith('.scribd.com')
             or (listing_path and not individual_listing)
+            or (ceg_host and not ceg_listing)
             or re.search(r'/(?:search|searches|categories|login|signin)(?:/|$)', parts.path, re.I)):
         raise CatalogFetchError('unsupported_url')
     try:
@@ -278,11 +282,23 @@ def _listing_url(url):
     return _retrieved_url_identity(value)
 
 
-def _fetch_listing(url, retrieved_urls, deadline):
-    """GET only an actual search URL. Pin DNS/TLS, same-site redirects, no auth."""
-    if url not in retrieved_urls:
-        raise CatalogFetchError('not_retrieved')
-    current = _listing_url(url)
+def _ceg_index_url(url):
+    """Accept only CEG result indexes as a bounded source of observed links."""
+    value = safe_public_url(url)
+    if not value:
+        raise CatalogFetchError('unsupported_url')
+    parts = urlsplit(value)
+    host = (parts.hostname or '').removeprefix('www.')
+    if (parts.scheme != 'https' or parts.port not in {None, 443}
+            or host != 'constructionequipmentguide.com'
+            or not re.fullmatch(r'/used-[a-z0-9-]+-for-sale/[a-z0-9-]+/model/[a-z0-9-]+/?', parts.path, re.I)):
+        raise CatalogFetchError('unsupported_url')
+    return _retrieved_url_identity(value)
+
+
+def _fetch_public_document(url, deadline, validator):
+    """Pinned, public same-site GET for one already-authorized URL."""
+    current = validator(url)
     host_key = (urlsplit(current).hostname or '').removeprefix('www.')
     deadline = min(deadline, time.monotonic() + 8)
     for hop in range(3):
@@ -304,7 +320,7 @@ def _fetch_listing(url, retrieved_urls, deadline):
                     location = response.headers.get('Location', '')
                     if hop == 2 or not location or len(location) > 1000:
                         raise CatalogFetchError('invalid_redirect')
-                    current = _listing_url(urljoin(current, location))
+                    current = validator(urljoin(current, location))
                     if (urlsplit(current).hostname or '').removeprefix('www.') != host_key:
                         raise CatalogFetchError('unsupported_redirect')
                     continue
@@ -314,6 +330,55 @@ def _fetch_listing(url, retrieved_urls, deadline):
             finally:
                 response.close()
     raise CatalogFetchError('too_many_redirects')
+
+
+def _fetch_listing(url, retrieved_urls, deadline):
+    """GET only an individual listing returned directly by search."""
+    if url not in retrieved_urls:
+        raise CatalogFetchError('not_retrieved')
+    return _fetch_public_document(url, deadline, _listing_url)
+
+
+def _fetch_ceg_index(url, retrieved_urls, deadline):
+    if url not in retrieved_urls:
+        raise CatalogFetchError('not_retrieved')
+    return _fetch_public_document(url, deadline, _ceg_index_url)
+
+
+def _ceg_listing_urls(html, index_url):
+    """Return only individual CEG ads linked by this exact retrieved index."""
+    index = _ceg_index_url(index_url)
+    index_host = (urlsplit(index).hostname or '').removeprefix('www.')
+    parser = _Document()
+    parser.feed(html)
+    parser.close()
+    urls = []
+    for anchor in parser.root.nodes('a'):
+        href = anchor.attrs.get('href', '')
+        if not href or len(href) > 1000:
+            continue
+        try:
+            candidate = _listing_url(urljoin(index, href))
+        except CatalogFetchError:
+            continue
+        if ((urlsplit(candidate).hostname or '').removeprefix('www.') != index_host
+                or candidate in urls):
+            continue
+        urls.append(candidate)
+        if len(urls) == MAX_DOCUMENTS:
+            break
+    return urls
+
+
+def _fetch_discovered_ceg_listing(url, index_url, observed_urls, deadline):
+    """Fetch a CEG ad only when that index literally linked to it."""
+    index = _ceg_index_url(index_url)
+    listing = _listing_url(url)
+    if (listing not in observed_urls
+            or (urlsplit(listing).hostname or '').removeprefix('www.')
+            != (urlsplit(index).hostname or '').removeprefix('www.')):
+        raise CatalogFetchError('not_observed')
+    return _fetch_public_document(listing, deadline, _listing_url)
 
 
 def _visible(node):
@@ -329,7 +394,7 @@ def _visible(node):
 
 _MONEY_TOKEN = r'(?:USD|MXN|EUR|US\$|MX\$|€)'
 _AMOUNT = r'\d(?:[\d,.]*\d)?(?:\s\d{3})*'
-_MONEY = re.compile(r'(?<!\w)(?:' + _MONEY_TOKEN + r')\s*\$?\s*' + _AMOUNT + r'|' + _AMOUNT + r'\s*(?:USD|MXN|EUR|€)(?!\w)', re.I)
+_MONEY = re.compile(r'(?<!\w)(?:' + _MONEY_TOKEN + r')\s*\$?\s*' + _AMOUNT + r'|\$?\s*' + _AMOUNT + r'\s*(?:USD|MXN|EUR|€)(?!\w)', re.I)
 
 _LISTING_FACT = re.compile(
     r'\b(?:location|located in|location of|ubicaci[oó]n|pa[ií]s|country|mercado|'
@@ -808,6 +873,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
         deadline = time.monotonic() + 24
         passages = []
         candidates = []
+        indexes = []
         for source in sources:
             if _contains_private(source['url'] + ' ' + source['title'], private):
                 continue
@@ -815,7 +881,11 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                 _listing_url(source['url'])
                 candidates.append(source)
             except CatalogFetchError:
-                continue
+                try:
+                    _ceg_index_url(source['url'])
+                    indexes.append(source)
+                except CatalogFetchError:
+                    continue
         for source in candidates[:MAX_DOCUMENTS]:
             if allowed is not None and not allowed():
                 return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
@@ -828,6 +898,40 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                 fetches.append({'status': 'read', 'passages': len(current)})
             except Exception as exc:
                 fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__})
+        # CEG result pages are only a bounded link-discovery source. Their
+        # card prices are never sent to the parser or treated as comparables.
+        # Direct individual search results take all six listing slots first.
+        if len(candidates) < MAX_DOCUMENTS:
+            discovered, discovered_urls = [], set()
+            for source in indexes[:MAX_INDEX_DOCUMENTS]:
+                if allowed is not None and not allowed():
+                    return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
+                if time.monotonic() >= deadline:
+                    break
+                try:
+                    html, final_url = _fetch_ceg_index(source['url'], [entry['url'] for entry in sources], deadline)
+                    observed = _ceg_listing_urls(html, final_url)
+                    fetches.append({'status': 'index_read', 'listings': len(observed)})
+                    for url in observed:
+                        if url not in discovered_urls:
+                            discovered.append((url, final_url, observed))
+                            discovered_urls.add(url)
+                except Exception as exc:
+                    fetches.append({'status': 'index_unavailable', 'error_type': type(exc).__name__})
+            for url, index_url, observed in discovered[:MAX_DOCUMENTS - len(candidates)]:
+                if allowed is not None and not allowed():
+                    return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
+                if time.monotonic() >= deadline:
+                    break
+                try:
+                    # ``url`` is authorized by _ceg_listing_urls above; pass
+                    # that observed set rather than expanding search authority.
+                    html, final_url = _fetch_discovered_ceg_listing(url, index_url, observed, deadline)
+                    current = _document_passages(html, final_url, identity, private)
+                    passages.extend(current[:MAX_PASSAGES - len(passages)])
+                    fetches.append({'status': 'read', 'passages': len(current), 'discovered': True})
+                except Exception as exc:
+                    fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__, 'discovered': True})
         if not passages:
             value = _empty(identity, 'No se pudieron verificar precios con moneda explícita en anuncios individuales del modelo. Hace falta una fuente pública legible.')
             return finish(value)

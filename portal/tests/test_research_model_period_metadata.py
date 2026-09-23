@@ -35,6 +35,31 @@ def meta(field):
 
 
 class CatalogueMetadataPeriodTests(SimpleTestCase):
+    def test_real_320d_diggers_title_normalizes_and_merges_only_for_exact_model(self):
+        url = ('https://www.lectura-specs.com/en/model/construction-machinery/'
+               'crawler-excavators-caterpillar/320d-11741008?utm_source=openai')
+        title = 'Caterpillar 320D excavator specs & dimensions (2007 - 2026) | Diggers | LECTURA Specs'
+        identity = {'brand': 'Caterpillar', 'model': '320D', 'serial': None}
+        source = {'url': url, 'title': title}
+        research = normalize([source], identity=identity)
+        fields = {field['key']: field for field in research['fields']}
+        self.assertEqual({key: fields[key]['value'] for key in MODEL_YEAR_KEYS - {'estimated_year_basis'}},
+                         {'estimated_year_from': '2007', 'estimated_year_to': '2026'})
+        for field in fields.values():
+            self.assertTrue(is_validated_web_field({'research': research}, field['key'], field['value'], meta(field)))
+        merged = merge_research({'data': {}, 'provenance': {}, 'fields': [], 'warnings': []}, research)
+        self.assertEqual((merged['data']['estimated_year_from'], merged['data']['estimated_year_to']), ('2007', '2026'))
+        self.assertEqual(merged['provenance']['estimated_year_from']['period_origin'], PERIOD_ORIGIN)
+
+        self.assertEqual(normalize([source], identity={**identity, 'model': '320D L'})['fields'], [])
+        for invalid_title in (
+            title.replace('320D', '320D L'),
+            title.replace('| Diggers |', '| Earthmovers |'),
+            title.replace('excavator specs & dimensions', 'loader specs & dimensions'),
+        ):
+            with self.subTest(invalid_title=invalid_title):
+                self.assertEqual(normalize([{**source, 'title': invalid_title}], identity=identity)['fields'], [])
+
     def test_real_v23_sources_replay_without_body_or_provider(self):
         research = normalize()
         self.assertEqual(research['status'], 'completed')
