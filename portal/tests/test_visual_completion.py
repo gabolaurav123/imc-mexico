@@ -90,6 +90,39 @@ class VisualCompletionTests(TestCase):
         self.assertIn(VISIBLE, self.machine.data["description"])
         self.assertNotIn("500", self.machine.data["description"])
 
+    def test_closed_visual_profile_classifications_apply_as_unconfirmed_proposals_only(self):
+        self.machine.category = self.category
+        self.machine.save(update_fields=["category"])
+        result = self.result()
+        classifications = {"machine_family": "hydraulic_excavator", "undercarriage": "crawler",
+                           "boom_configuration": "standard", "stick_configuration": "standard",
+                           "application": "general_excavation"}
+        for key, value in classifications.items():
+            meta = {"source": "visual_proposal", "review": "needs_review", "component": "machine",
+                    "asset_id": str(self.asset.pk), "evidence": f"Visible: {key}"}
+            result["data"][key] = value
+            result["provenance"][key] = meta
+            result["fields"].append({"key": key, "value": value, **meta})
+        result["data"].update(model="320D", power="120 kW", size_class="not_a_profile_choice")
+        result["provenance"].update({
+            "model": {"source": "image", "review": "needs_review", "component": "machine", "asset_id": str(self.asset.pk)},
+            "power": {"source": "image", "review": "needs_review", "component": "machine", "asset_id": str(self.asset.pk)},
+            "size_class": {"source": "visual_proposal", "review": "needs_review", "component": "machine",
+                           "asset_id": str(self.asset.pk), "evidence": "Visible: size_class"},
+        })
+        result["fields"].append({"key": "size_class", "value": "not_a_profile_choice", **result["provenance"]["size_class"]})
+
+        summary = self.apply(self.job(result))
+
+        self.assertTrue(set(classifications).issubset(summary["applied_fields"]))
+        for key, value in classifications.items():
+            self.assertEqual(self.machine.data[key], value)
+            self.assertEqual(self.machine.provenance[key]["source"], "visual_proposal")
+            self.assertEqual(self.machine.provenance[key]["review"], "needs_review")
+        for key in ("model", "power", "size_class"):
+            self.assertNotIn(key, self.machine.data)
+            self.assertNotIn(key, summary["applied_fields"])
+
     def test_manually_declared_serial_without_plate_photo_wins_over_ocr(self):
         self.machine = save_draft(self.machine, self.owner, {"data": {"serial": "OWNER-123"}}, self.machine.revision)
         self.assertFalse(self.machine.assets.filter(purpose="plate").exists())

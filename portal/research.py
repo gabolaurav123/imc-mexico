@@ -260,6 +260,57 @@ def research_identity(result, snapshot=None, allowed_categories=None):
     return identity, basis
 
 
+def _accepted_visual_model_hint(result):
+    """Keep one literal, doubtful machine label as a discovery constraint.
+
+    This deliberately does not feed ``research_identity``. It is only useful
+    when an accepted general photograph has a readable model-family prefix but
+    an unclear suffix, so candidate discovery can avoid an unrelated category
+    catalogue. A plate, an engine/component label, a rejected image, or two
+    different readings cannot supply this constraint.
+    """
+    accepted = result.get("relevance", {}).get("accepted_asset_ids", []) if isinstance(result, dict) else []
+    accepted = {asset_id for asset_id in accepted if isinstance(asset_id, str)}
+    machine_images = {item.get("asset_id") for item in result.get("image_observations", [])
+                      if isinstance(item, dict) and item.get("asset_id") in accepted
+                      and item.get("kind") == "machine"
+                      and item.get("relevance") in {"machinery", "related"}}
+    readings = {}
+    for field in result.get("fields", []) if isinstance(result, dict) else []:
+        if not isinstance(field, dict):
+            continue
+        value = _identifier(field.get("value"))
+        asset_id = field.get("asset_id")
+        evidence = " ".join(str(field.get("evidence", "")).split())
+        value_key = identifier_key(value)
+        if (field.get("key") != "model" or field.get("source") != "image"
+                or field.get("review") != "needs_review" or field.get("component") != "machine"
+                or asset_id not in machine_images or not value or len(value_key) < 3
+                or not any(character.isalpha() for character in value_key)
+                or not any(character.isdigit() for character in value_key)
+                or not _contains_identifier(evidence, value)):
+            continue
+        readings.setdefault(value_key, {"key": "model", "value": value, "asset_id": asset_id,
+                                        "source": "image", "review": "needs_review",
+                                        "evidence": evidence[:240]})
+    return next(iter(readings.values())) if len(readings) == 1 else None
+
+
+def _matches_visual_model_hint(model, hint):
+    """A candidate may extend a partial label, but cannot replace its family."""
+    if not isinstance(hint, dict):
+        return True
+    hint_key, candidate_key = identifier_key(hint.get("value")), identifier_key(model)
+    return bool(hint_key and candidate_key and candidate_key.startswith(hint_key))
+
+
+def _filter_visual_model_hypotheses(hypotheses, hint):
+    if not isinstance(hint, dict):
+        return hypotheses
+    return [item for item in hypotheses if isinstance(item, dict)
+            and _matches_visual_model_hint(item.get("model"), hint)]
+
+
 def safe_public_url(value):
     """Syntactic public URL validation only; deliberately never resolve or fetch."""
     if not isinstance(value, str) or len(value) > 1000 or re.search(r"[\x00-\x20\\]", value):
@@ -573,6 +624,8 @@ def _manifest(research):
         result["hypotheses"] = research["hypotheses"]
     if "photo_match" in research:
         result["photo_match"] = research["photo_match"]
+    if "discovery_hint" in research:
+        result["discovery_hint"] = research["discovery_hint"]
     return result
 
 
@@ -1499,7 +1552,7 @@ def _local_pipeline_evidence(local, identity):
     return {"sources": sources, "passages": passages, "titles": source_titles, "direct_fields": direct_fields}
 
 
-def _direct_catalog_context(identity, allowed=None):
+def _direct_catalog_context(identity, allowed=None, discovery_hint=None):
     """Consult supported public manufacturer indexes without paid model calls."""
     from .research_catalog import catalog_listing_candidates
     from .research_sources import lookup_brand
@@ -1508,6 +1561,8 @@ def _direct_catalog_context(identity, allowed=None):
     if not profile or profile.brand != "DEVELON" or identity.get("category") != "Excavadoras":
         return None
     outcome = empty_research("degraded", identity, "category")
+    if discovery_hint is not None:
+        outcome["discovery_hint"] = discovery_hint
     if allowed is not None and not allowed():
         outcome["warnings"].append("La autorización de búsqueda ya no está vigente.")
         return outcome
@@ -1517,7 +1572,9 @@ def _direct_catalog_context(identity, allowed=None):
         return outcome
     if not leads:
         return None
-    outcome["hypotheses"] = leads[:8]
+    outcome["hypotheses"] = _filter_visual_model_hypotheses(leads, discovery_hint)[:8]
+    if not outcome["hypotheses"]:
+        return None
     sources = {}
     for lead in outcome["hypotheses"]:
         sources[lead["source_url"]] = {"url": lead["source_url"], "title": lead["source_title"]}
@@ -1550,11 +1607,14 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
     received = False
     diagnostics = {}
     candidate_mode = bool(identity.get("brand") and not identity.get("model"))
+    discovery_hint = _accepted_visual_model_hint(result) if candidate_mode else None
+    if discovery_hint is not None:
+        outcome["discovery_hint"] = discovery_hint
 
     def direct_catalog_fallback():
         if not candidate_mode:
             return None
-        direct = _direct_catalog_context(identity, allowed)
+        direct = _direct_catalog_context(identity, allowed, discovery_hint)
         if direct is not None:
             # Preserve any bounded search cost already spent before the direct
             # catalogue fallback; the direct reader itself has no provider usage.
@@ -1596,12 +1656,17 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
             "Tractores": "tractor",
         }
         category_term = category_terms.get(identity.get("category"), equipment_category_label(identity.get("category")))
-        query = (f'"{identity["brand"]}" "{category_term}" model product specifications '
-                 "production years")
+        query = (f'"{identity["brand"]}" '
+                 + (f'"{discovery_hint["value"]}" ' if discovery_hint else "")
+                 + f'"{category_term}" model product specifications production years')
         if manufacturer_domains:
             query = "(" + " OR ".join("site:" + domain for domain in manufacturer_domains) + ") " + query
         search_input = {"identifiers": identity, "visual_observations": visual_description,
                         "basis": basis, "objective": "candidate_model_discovery", "query": query}
+        if discovery_hint is not None:
+            # The provider receives the literal prefix only. Provenance stays
+            # in the signed result and is never promoted to identity data.
+            search_input["candidate_model_prefix"] = discovery_hint["value"]
     else:
         search_instructions = (
             "Busca una referencia introductoria de fabricante o documentación técnica sobre la categoría de maquinaria indicada. "
@@ -1722,9 +1787,9 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
                         usage.add(_get(extraction, "usage"))
                     if (_get(extraction, "status") == "completed"
                             and _get(extraction, "output_parsed") is not None):
-                        outcome["hypotheses"] = normalize_model_hypotheses(
+                        outcome["hypotheses"] = _filter_visual_model_hypotheses(normalize_model_hypotheses(
                             _get(extraction, "output_parsed"), identity, outcome["sources"],
-                            search_text, cited_passages, source_titles)
+                            search_text, cited_passages, source_titles), discovery_hint)
                         diagnostics["hypothesis_count"] = len(outcome["hypotheses"])
                 except Exception as exc:
                     diagnostics["hypothesis_error_type"] = type(exc).__name__[:80]

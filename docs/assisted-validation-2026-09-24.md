@@ -5,7 +5,7 @@ Fecha: 24 de septiembre de 2026. Base de trabajo: `5f03e53`.
 ## Resultado y alcance
 
 Se conserva el módulo Django, su base de datos, el formulario editable, el OCR de
-placas, la investigación y las fichas virtual/PDF. Esta entrega corrige cinco
+placas, la investigación y las fichas virtual/PDF. Esta entrega corrige siete
 problemas localizados en el recorrido de las imágenes y los datos. No añade una
 biblioteca, un registro paralelo ni un conector supuesto para la web principal.
 
@@ -26,7 +26,7 @@ etiquetas públicas observadas y campos privados de IMC todavía no comprobados.
 
 El proveedor visual configurado sigue siendo **GPT-5.6 Terra** y el modelo de
 investigación **GPT-5.6 Luna**, conforme a la política existente. No se utiliza
-Astra. La versión del recorrido pasa de `v34` a `v35`, para no reutilizar como
+Astra. La versión del recorrido pasa de `v34` a `v36`, para no reutilizar como
 nuevas lecturas la caché anterior a estas correcciones.
 
 ## 2. Problemas corregidos
@@ -38,6 +38,8 @@ nuevas lecturas la caché anterior a estas correcciones.
 | Una foto aceptada como máquina y relacionada con maquinaria quedaba excluida de la comparación visual del catálogo. | La selección para comparación utiliza los IDs aceptados y la clasificación de máquina. | Placas, documentos y fotos rechazadas permanecen excluidos. |
 | Dos lecturas contradictorias quedaban vacías con un aviso genérico. | El resultado incorpora ambas lecturas acotadas y la interfaz muestra sus valores y fotografías disponibles. | No se escoge ni aplica automáticamente una lectura en conflicto. |
 | Añadir un documento durante el análisis invalidaba resultados de fotos que no dependían de él. | El inventario utilizado para comprobar cambios excluye documentos, también al leer instantáneas antiguas. | Se sigue rechazando la aplicación si cambian o desaparecen las fotografías del análisis. |
+| Las clasificaciones visuales útiles quedaban sólo en el texto. | Se aplican propuestas guardadas de opciones cerradas del perfil, como orugas, familia y brazo, en sus casillas editables. | Se comprueban fotografía, evidencia y opción válida; no se convierte una propuesta en un dato confirmado ni se aplica así un modelo o una potencia dudosa. |
+| La investigación descartaba un modelo parcialmente legible y buscaba otras familias. | Se conserva la pista literal de una foto general aceptada para acotar la consulta y los candidatos. También se permiten recortes nativos de fotos desde 320 px. | La pista no fija identidad ni habilita especificaciones, año o precio. Se excluyen placas, componentes, fotos rechazadas y pistas contradictorias; no se amplían artificialmente los píxeles. |
 
 No se atribuye a estos cambios una mejora porcentual de precisión: los tests
 comprueban comportamiento, asignación y conservación; la precisión requiere
@@ -94,7 +96,7 @@ local o de los dígitos de una URL.
 
 | Clase | Cambio | Impacto y compatibilidad |
 |---|---|---|
-| Módulo: implementado | Cinco correcciones de procesamiento y aplicación. | Conservan pantallas, esquema y funciones anteriores; sin migración de base de datos. |
+| Módulo: implementado | Siete correcciones de procesamiento y aplicación. | Conservan pantallas, esquema y funciones anteriores; sin migración de base de datos. |
 | Principal: indispensable para validar | Corregir activación/acceso y retirar contraseñas de enlaces/correos. | Debe reutilizar sus cuentas existentes; requiere acceso al código o responsable del sitio. No se modificó desde este proyecto. |
 | Principal: indispensable para conectar | Confirmar campos/IDs, permisos, privacidad del guardado y mecanismo de recepción/acuse. | Debe conservar las relaciones y validaciones actuales. Depende del formulario privado y del acceso técnico real. |
 | Opcional | Ampliar referencias, proyectos de compra y documentos. | Se mantienen los requisitos anteriores; se aplaza su ampliación para validar primero una ficha útil. |
@@ -124,9 +126,52 @@ contradicciones, modelos ausentes y preservación de permisos/seriales privados.
 Son pruebas controladas de comportamiento; sus respuestas simuladas no se
 presentan como precisión observada de la IA.
 
-La ejecución completa, la prueba real y el despliegue se registran al cerrar esta
-validación. El entorno local no tiene clave de proveedor configurada: no se ha
-simulado una llamada real. La sesión del módulo en SeeNode sí está disponible.
+### Pruebas reales en SeeNode
+
+Se crearon dos borradores privados en la sesión autorizada que estaba abierta
+en el módulo. Esa sesión corresponde a otro correo que el utilizado para el
+registro en la web principal; no se reasignaron propietarios. Los trabajos de
+análisis pertenecen al propietario de cada borrador. No se publicó ninguno.
+
+La placa del montacargas se probó con la fotografía original proporcionada. La
+primera lectura completó **9 datos legibles**, contrastados con la imagen:
+
+| Campo | Resultado y evaluación |
+|---|---|
+| Marca | CATERPILLAR; correcta. |
+| Modelo | 2EC25; correcto. |
+| Serie | Lectura completa conservada en el borrador privado; correcta. |
+| Neumáticos delanteros | 21 × 7 × 15; correcto. |
+| Neumáticos traseros | 16 × 6 × 10.5; correcto. |
+| Inclinación posterior del mástil | 6°; correcta. |
+| Ancho de vía | 34.5 in; correcto. |
+| Fabricante | Mitsubishi Caterpillar Forklift America Inc.; correcto. |
+| Dirección del fabricante | Houston, USA; correcta como dirección, no como origen de fabricación ni ubicación actual. |
+
+La consulta encontró un anuncio de Smith Machinery que coincide con modelo y
+serie. Incorporó **7 campos de referencia**, comprobados contra esa página:
+peso (7 110 lb sin batería / 10 640 lb con batería), capacidad (5 000 lb), voltaje
+(36 V), altura de elevación (188 in), peso de batería (2 900–3 530 lb), capacidad
+de batería (1 300 Ah) y longitud de horquillas (48 in). Esto comprueba la
+correspondencia con la fuente, no el estado físico actual de la unidad. La
+fuente indica año no disponible y precio por consulta: no permite inventarlos.
+
+La fotografía general de la excavadora se probó sin placa ni serie. La primera
+lectura identificó CAT y dejó el modelo 320D pendiente por un sufijo poco legible.
+Se observaron dos pérdidas reales: cinco clasificaciones visuales no llegaban a
+sus casillas y la búsqueda ignoraba el indicio 320D. Ambas motivaron las dos
+correcciones adicionales descritas arriba. El número de textos o campos
+administrativos generados no se cuenta como precisión técnica.
+
+Se guardaron un título corregido y una serie escrita manualmente conservando
+minúsculas en el borrador del montacargas. Se verificó reapertura de la ficha
+virtual, carga de la foto sin deformación y ausencia de desbordamiento horizontal
+en la comprobación móvil. La repetición tras el segundo parche se registra en
+el cierre de esta sección.
+
+El entorno local no tiene clave del proveedor; las ejecuciones reales se hicieron
+en SeeNode. Los registros privados de diagnóstico quedan fuera de Git. No se
+publican fotos privadas, series completas, contactos ni comprobantes firmados.
 
 ## 8. Límites concretos
 

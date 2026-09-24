@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v35"
+PROMPT_VERSION = "imc-excavators-2026-09-v36"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -895,7 +895,7 @@ def _image_input(asset):
 
 def _detail_inputs_from_image(original, alias="image_001"):
     """Return bounded crops from already decoded, metadata-free pixels."""
-    if min(original.size) < 600 or original.width * original.height > MAX_PIXELS:
+    if min(original.size) < 320 or original.width * original.height > MAX_PIXELS:
         return []
     width, height = original.size
     boxes = [(0, 0, width * 3 // 5, height * 3 // 5),

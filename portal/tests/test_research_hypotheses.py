@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from portal.research import (
     ResearchHypothesisCandidate, ResearchHypothesisCandidates,
-    is_validated_general_context, merge_research, research_machine,
+    _accepted_visual_model_hint, is_validated_general_context, merge_research, research_machine,
 )
 
 
@@ -22,6 +22,23 @@ def visual_result():
         "provenance": {"brand": {"source": "image", "review": "clear", "component": "machine"}},
         "plates": [], "fields": [], "warnings": [], "category": CATEGORY,
         "visual_description": "Excavadora de orugas naranja con cabina cerrada y cuchara.",
+    }
+
+
+def partial_visual_model_result(asset_id="image_001", accepted_asset_ids=("image_001",), *, source="image",
+                                component="machine", kind="machine",
+                                evidence='Rótulo lateral: "320D"; posible sufijo pequeño.'):
+    return {
+        "data": {"brand": "CAT", "model": "320D", "title": "Excavadora", "description": ""},
+        "provenance": {
+            "brand": {"source": "image", "review": "clear", "component": "machine", "asset_id": "image_001"},
+            "model": {"source": source, "review": "needs_review", "component": component, "asset_id": asset_id},
+        },
+        "fields": [{"key": "model", "value": "320D", "source": source, "review": "needs_review",
+                    "component": component, "asset_id": asset_id, "evidence": evidence}],
+        "relevance": {"accepted_asset_ids": list(accepted_asset_ids)},
+        "image_observations": [{"asset_id": asset_id, "kind": kind, "relevance": "machinery"}],
+        "plates": [], "warnings": [], "category": "Excavadoras", "visual_description": "Excavadora de orugas.",
     }
 
 
@@ -194,3 +211,54 @@ class PhotoModelHypothesisTests(SimpleTestCase):
         self.assertNotIn("PRIVATESERIAL", client.responses.create.call_args.kwargs["input"])
         self.assertEqual(payload["identity"]["brand"], BRAND)
         self.assertEqual(payload["cited_passages"][0]["source_url"], URL_A)
+
+    def test_accepted_partial_image_label_limits_candidates_without_becoming_identity(self):
+        client = Mock()
+        url = "https://www.cat.com/en_US/products/new/equipment/excavators.html"
+        client.responses.create.return_value = search_response([
+            (url, "CAT excavators", "CAT 320D hydraulic excavator."),
+            (url, "CAT excavators", "CAT 320DL hydraulic excavator."),
+            (url, "CAT excavators", "CAT 323 hydraulic excavator."),
+        ])
+        client.responses.parse.return_value = SimpleNamespace(
+            status="completed",
+            output_parsed=ResearchHypothesisCandidates(hypotheses=[
+                ResearchHypothesisCandidate(model="320D", matched_brand="CAT", passage_index=0),
+                ResearchHypothesisCandidate(model="320DL", matched_brand="CAT", passage_index=1),
+                ResearchHypothesisCandidate(model="323", matched_brand="CAT", passage_index=2),
+            ]),
+            usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+        )
+        result = partial_visual_model_result()
+        research, _ = research_machine(client, "gpt-5.6-luna", result, allowed_categories=["Excavadoras"])
+        search_payload = json.loads(client.responses.create.call_args.kwargs["input"])
+
+        self.assertEqual(research["identity"]["model"], None)
+        self.assertEqual(research["fields"], [])
+        self.assertEqual([item["model"] for item in research["hypotheses"]], ["320D", "320DL"])
+        self.assertEqual(search_payload["candidate_model_prefix"], "320D")
+        self.assertIn('"320D"', search_payload["query"])
+        self.assertEqual(research["discovery_hint"], {
+            "key": "model", "value": "320D", "asset_id": "image_001", "source": "image",
+            "review": "needs_review", "evidence": 'Rótulo lateral: "320D"; posible sufijo pequeño.',
+        })
+        self.assertTrue(is_validated_general_context({"research": research}))
+        merged = merge_research(result, research)
+        self.assertEqual(merged["data"]["model"], "320D")
+        self.assertEqual(merged["provenance"]["model"]["review"], "needs_review")
+
+    def test_partial_model_hint_rejects_unaccepted_plate_or_component_readings(self):
+        cases = (
+            partial_visual_model_result(asset_id="image_002"),
+            partial_visual_model_result(source="plate"),
+            partial_visual_model_result(component="engine"),
+            partial_visual_model_result(kind="plate"),
+            partial_visual_model_result(evidence="Rótulo lateral poco legible."),
+            {**partial_visual_model_result(), "fields": [
+                *partial_visual_model_result()["fields"],
+                {**partial_visual_model_result()["fields"][0], "value": "330D", "evidence": "Rótulo: 330D"},
+            ]},
+        )
+        for result in cases:
+            with self.subTest(result=result["fields"]):
+                self.assertIsNone(_accepted_visual_model_hint(result))

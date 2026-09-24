@@ -507,7 +507,24 @@ def _analysis_excludes_asset(job, meta):
     return False
 
 
-def _clear_automatic_field(job, key, value, meta):
+def _clear_profile_visual_classification(machine, job, key, value, meta):
+    """Admit only a saved visual proposal for a closed category classification."""
+    if (not isinstance(meta, dict) or meta.get("source") != "visual_proposal"
+            or meta.get("review") != "needs_review" or meta.get("component") != "machine"
+            or not meta.get("asset_id") or str(meta["asset_id"]) not in job.asset_ids):
+        return False
+    from .category_profiles import profile_for_category
+    choices = profile_for_category(machine.category).get("classification", {}).get(key, [])
+    if value not in {item.get("value") for item in choices if isinstance(item, dict)}:
+        return False
+    return any(isinstance(item, dict) and item.get("key") == key and item.get("value") == value
+               and item.get("source") == meta["source"] and item.get("review") == meta["review"]
+               and item.get("component") == meta["component"] and item.get("asset_id") == meta["asset_id"]
+               and item.get("evidence") == meta.get("evidence")
+               for item in job.result.get("fields", []))
+
+
+def _clear_automatic_field(machine, job, key, value, meta):
     if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict"}:
         return False
     if _analysis_relevance_status(job) in {"unrelated", "uncertain"} or _analysis_excludes_asset(job, meta):
@@ -533,6 +550,8 @@ def _clear_automatic_field(job, key, value, meta):
         return (meta.get("source") == "visual_proposal" and field.get("value") == value and meta.get("review") == "needs_review"
                 and meta.get("asset_id") in job.asset_ids and meta.get("asset_id") == field.get("asset_id")
                 and meta.get("evidence") == field.get("evidence"))
+    if _clear_profile_visual_classification(machine, job, key, value, meta):
+        return True
     if meta.get("source") == "web":
         if key not in WEB_DATA_FIELDS | {"year"} or meta.get("review") != "needs_review" or meta.get("component") != "machine":
             return False
@@ -757,7 +776,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             # candidate discarded because of uncertainty or a human correction.
             continue
         meta = provenance.get(key, {})
-        if not isinstance(meta, dict) or not _clear_automatic_field(job, key, value, meta):
+        if not isinstance(meta, dict) or not _clear_automatic_field(machine, job, key, value, meta):
             skip(key, "not_identifiable" if value is None or value == "" else "uncertain")
             continue
         if meta.get("source") == "valuation" and not _valuation_identity_matches(machine.data, job.result.get("valuation", {})):
@@ -793,7 +812,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             for key in age_keys:
                 if key in candidates:
                     skip(key, "human_correction" if age_protected else "known_year")
-        elif all(key in candidates and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {})) for key in age_keys):
+        elif all(key in candidates and _clear_automatic_field(machine, job, key, candidates[key], provenance.get(key, {})) for key in age_keys):
             same_source = len({provenance[key].get("source") for key in age_keys}) == 1
             identity_ok = all(provenance[key].get("source") != "web" or (
                 _web_identity_unchanged(machine, job, provenance[key].get("scope"))
@@ -817,7 +836,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                     skip(key, "incomplete_range")
     valuation = job.result.get("valuation", {})
     range_keys = [key for key in ("estimate_min", "estimate_max", "estimate_currency") if not estimate_protected and key in candidates
-                  and _clear_automatic_field(job, key, candidates[key], provenance.get(key, {}))
+                  and _clear_automatic_field(machine, job, key, candidates[key], provenance.get(key, {}))
                   and _valuation_identity_matches(machine.data, valuation) and can_fill(key)]
     if len(range_keys) == 3:
         candidate = deepcopy(machine)
@@ -1135,14 +1154,14 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
             continue
         if _analysis_excludes_asset(job, result_provenance.get(key, {})):
             raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
-        if key in VISUAL_LABELS.keys() | AGE_LABELS.keys() and not _clear_automatic_field(job, key, value, result_provenance.get(key, {})):
+        if key in VISUAL_LABELS.keys() | AGE_LABELS.keys() and not _clear_automatic_field(machine, job, key, value, result_provenance.get(key, {})):
             raise ValidationError("La observación visual no está validada para esta fotografía.")
         if result_provenance.get(key, {}).get("source") == "valuation" and (
-                not _clear_automatic_field(job, key, value, result_provenance[key])
+                not _clear_automatic_field(machine, job, key, value, result_provenance[key])
                 or not _valuation_identity_matches(machine.data, job.result.get("valuation", {}))):
             raise ValidationError("La estimación no está validada para esta maquinaria.")
         if result_provenance.get(key, {}).get("source") == "web" and (
-                not _clear_automatic_field(job, key, value, result_provenance[key])
+                not _clear_automatic_field(machine, job, key, value, result_provenance[key])
                 or not _web_identity_unchanged(machine, job, result_provenance[key].get("scope"))
                 or not _web_value_keeps_serial_private(machine, job, value)):
             raise ValidationError("La referencia web no está validada para este dato y esta maquinaria.")

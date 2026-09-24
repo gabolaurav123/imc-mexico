@@ -53,6 +53,18 @@ class PhotoDetailViewTests(SimpleTestCase):
         self.assertEqual(crop.size, (768, 256))
         self.assertEqual(crop.getpixel((384, 128)), (255, 0, 0))
 
+    def test_640_by_479_photo_gets_native_detail_crops_without_upscaling(self):
+        image = Image.new('RGB', (640, 479), 'red')
+        raw = BytesIO(); image.save(raw, format='PNG')
+        asset = SimpleNamespace(original=ContentFile(raw.getvalue(), name='small-original.png'))
+        views = _original_image_detail_inputs(asset, 'general')
+        self.assertEqual(len(views), 8)
+        crop = Image.open(BytesIO(base64.b64decode(views[1]['image_url'].split(',', 1)[1])))
+        # The 3/5 crop is 384x287. thumbnail() must preserve those source
+        # pixels rather than inventing a larger image for the provider.
+        self.assertEqual(crop.size, (384, 287))
+        self.assertEqual(crop.getpixel((192, 143)), (255, 0, 0))
+
 
 @override_settings(OPENAI_API_KEY='test-only-no-network', OPENAI_MODEL='gpt-5.6-luna')
 class PhotoDetailPipelineTests(TestCase):
