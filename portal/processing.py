@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v36"
+PROMPT_VERSION = "imc-excavators-2026-09-v37"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -1521,6 +1521,69 @@ def _cached_photo_readings(job, keys):
     return cached
 
 
+def _same_cached_general_photo(entry, prior, asset):
+    """Check the exact cached pixel identity, including legacy cache records."""
+    if not isinstance(entry, dict) or asset.purpose != "general":
+        return False
+    if all(name in entry for name in ("asset_id", "sha256", "purpose")):
+        return (entry.get("asset_id") == str(asset.pk) and entry.get("sha256") == asset.sha256
+                and entry.get("purpose") == asset.purpose)
+    # v36 cached the digest in ``key`` but did not retain its parts. Rebuild it
+    # from that job's durable context so an old ambiguous reading remains
+    # usable only for the exact same asset bytes and purpose.
+    snapshot = prior.result.get("input_snapshot", {}) if isinstance(prior.result, dict) else {}
+    return entry.get("key") == _photo_cache_keys(prior, [asset], snapshot).get(str(asset.pk))
+
+
+def _preserve_repeated_ambiguous_model(job, asset, snapshot, reading):
+    """Do not promote an unchanged doubtful general-photo label on retry.
+
+    A fresh model literal, plate, manual declaration, or another photograph is
+    deliberately outside this guard. It changes only the review level before
+    category/model research can use the reading as an identity.
+    """
+    if (asset.purpose != "general" or "model" in human_declared_data(snapshot)
+            or not isinstance(reading, dict) or reading.get("relevance", {}).get("status") != "relevant"):
+        return False
+    model = reading.get("data", {}).get("model")
+    meta = reading.get("provenance", {}).get("model", {})
+    literal = " ".join(str(model or "").split()).casefold()
+    accepted = set(reading.get("relevance", {}).get("accepted_asset_ids", []))
+    machine_images = {item.get("asset_id") for item in reading.get("image_observations", [])
+                      if isinstance(item, dict) and item.get("asset_id") in accepted
+                      and item.get("kind") == "machine" and item.get("relevance") in {"machinery", "related"}}
+    if (not literal or not isinstance(meta, dict) or meta.get("source") != "image"
+            or meta.get("review") != "clear" or meta.get("component") != "machine"
+            or meta.get("asset_id") != str(asset.pk) or str(asset.pk) not in machine_images):
+        return False
+    previous = AnalysisJob.objects.filter(machine_id=job.machine_id, requested_by_id=job.requested_by_id,
+        status="completed").exclude(pk=job.pk).order_by("-created_at")[:8]
+    for prior in previous:
+        for entry in prior.result.get("photo_cache", []) if isinstance(prior.result, dict) else []:
+            if not _same_cached_general_photo(entry, prior, asset):
+                continue
+            earlier = entry.get("reading")
+            if not isinstance(earlier, dict) or earlier.get("relevance", {}).get("status") != "relevant":
+                continue
+            old_accepted = set(earlier.get("relevance", {}).get("accepted_asset_ids", []))
+            for field in earlier.get("fields", []):
+                old_value = " ".join(str(field.get("value") or "").split()).casefold() if isinstance(field, dict) else ""
+                if (isinstance(field, dict) and field.get("key") == "model" and old_value == literal
+                        and field.get("source") == "image" and field.get("review") == "needs_review"
+                        and field.get("component") == "machine" and field.get("asset_id") == str(asset.pk)
+                        and field.get("asset_id") in old_accepted):
+                    for current in reading.get("fields", []):
+                        if not isinstance(current, dict):
+                            continue
+                        current_value = " ".join(str(current.get("value") or "").split()).casefold()
+                        if (current.get("key") == "model" and current_value == literal
+                                and current.get("source") == "image" and current.get("asset_id") == str(asset.pk)):
+                            current["review"] = "needs_review"
+                    meta["review"] = "needs_review"
+                    return True
+    return False
+
+
 def process_analysis(job):
     """One bounded pipeline attempt; optional web failure preserves valid OCR."""
     try:
@@ -1599,6 +1662,7 @@ def process_analysis(job):
     usage = UsageTotals()
     image_readings = []
     photo_cache = []
+    repeated_ambiguous_model_assets = set()
     cache_keys = _photo_cache_keys(job, assets, snapshot)
     cached_readings = _cached_photo_readings(job, cache_keys) if job.mode == "analysis" else {}
     image_pipeline_interrupted = False
@@ -1676,9 +1740,13 @@ def process_analysis(job):
                         # An unknown remote outcome can indicate an outage.
                         # Do not repeat paid photographs or send the remainder.
                         image_pipeline_interrupted = True
+                if _preserve_repeated_ambiguous_model(job, asset, snapshot, reading):
+                    repeated_ambiguous_model_assets.add(str(asset.pk))
                 readings.append(reading)
                 if status in {"completed", "reused"}:
-                    photo_cache.append({"key": cache_keys[binding['asset_id']], "reading": deepcopy(reading)})
+                    photo_cache.append({"key": cache_keys[binding['asset_id']], "asset_id": binding["asset_id"],
+                                        "sha256": asset.sha256, "purpose": asset.purpose,
+                                        "reading": deepcopy(reading)})
                 image_readings.append({"asset_id": binding["asset_id"], "status": status,
                     "requested_model": visual_model,
                     **({"provider_model": provider_model} if provider_model else {}),
@@ -1687,6 +1755,12 @@ def process_analysis(job):
                     "input_tokens": usage.input_tokens - before[0], "output_tokens": usage.output_tokens - before[1],
                     "estimated_tokens": usage.estimated_tokens - before[2]})
             result = _merge_image_results(readings, job.asset_ids, categories)
+            model_meta = result.get("provenance", {}).get("model", {})
+            if (repeated_ambiguous_model_assets and isinstance(model_meta, dict)
+                    and model_meta.get("asset_id") in repeated_ambiguous_model_assets
+                    and model_meta.get("review") == "needs_review"):
+                model_meta["review_reason"] = "repeated_ambiguous_reading"
+                result["warnings"].append("La lectura del modelo se repitió en la misma fotografía; confirma el sufijo antes de aplicar referencias del modelo.")
         result["photo_cache"] = photo_cache
         result["input_image_bindings"] = bindings
         result["image_readings"] = image_readings

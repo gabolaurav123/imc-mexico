@@ -2,13 +2,16 @@
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from portal.analysis_specialization import check_equipment_consistency
 from portal.models import AnalysisJob, Asset, Category, Machine, PlatformSettings, User
-from portal.processing import normalize_analysis, enqueue_analysis, process_next_job
+from portal.processing import (_merge_image_results, _photo_cache_keys, _preserve_repeated_ambiguous_model,
+                               normalize_analysis, enqueue_analysis, process_next_job)
+from portal.research import research_identity
 from portal.services import save_draft, snapshot, apply_analysis_suggestions
 from portal.tests.test_image_relevance import field, observation, parsed
 
@@ -84,6 +87,69 @@ class ExcavatorIntegrationTests(TestCase):
         self.assertCountEqual([row['status'] for row in second.result['image_readings']], ['reused','completed'])
         self.assertEqual(second.input_tokens, 300)
         self.assertEqual(self.machine.category_id, self.category.pk)
+
+    def test_same_general_photo_cannot_promote_a_previous_doubtful_model_on_v37(self):
+        asset_id = str(self.asset.pk)
+
+        def reading(value, review):
+            return {"data": {"model": value}, "provenance": {"model": {
+                "source": "image", "review": review, "component": "machine", "asset_id": asset_id}},
+                "fields": [{"key": "model", "label": "Modelo", "value": value, "source": "image", "review": review,
+                            "component": "machine", "asset_id": asset_id, "evidence": value}],
+                "relevance": {"status": "relevant", "accepted_asset_ids": [asset_id]},
+                "image_observations": [{"asset_id": asset_id, "kind": "machine", "relevance": "machinery"}],
+                "plates": [], "warnings": [], "questions": []}
+
+        prior = AnalysisJob.objects.create(machine=self.machine, requested_by=self.owner, revision=self.machine.revision,
+            asset_ids=[asset_id], fingerprint="prior-" + uuid4().hex, status="completed", prompt_version="imc-excavators-2026-09-v36",
+            result={"input_snapshot": {}, "photo_cache": []})
+        # This is the v36 cache shape: the key itself binds asset id, SHA and
+        # purpose, but did not yet persist those parts beside the reading.
+        prior.result["photo_cache"] = [{"key": _photo_cache_keys(prior, [self.asset], {})[asset_id],
+                                        "reading": reading("320D", "needs_review")}]
+        prior.save(update_fields=["result"])
+        current = AnalysisJob.objects.create(machine=self.machine, requested_by=self.owner, revision=self.machine.revision,
+            asset_ids=[asset_id], fingerprint="current-" + uuid4().hex, status="queued")
+
+        repeated = reading("320D", "clear")
+        self.assertTrue(_preserve_repeated_ambiguous_model(current, self.asset, {}, repeated))
+        self.assertEqual(repeated["provenance"]["model"]["review"], "needs_review")
+        self.assertEqual(repeated["fields"][0]["review"], "needs_review")
+
+        plate = self.photo("p", "plate")
+        plate_id = str(plate.pk)
+        plate_reading = {"data": {"brand": "CAT", "model": "320D"}, "provenance": {
+            "brand": {"source": "plate", "review": "clear", "component": "machine", "asset_id": plate_id},
+            "model": {"source": "plate", "review": "clear", "component": "machine", "asset_id": plate_id}},
+            "fields": [{"key": "brand", "label": "Marca", "value": "CAT", "source": "plate", "review": "clear",
+                        "component": "machine", "asset_id": plate_id, "evidence": "Marca: CAT"},
+                       {"key": "model", "label": "Modelo", "value": "320D", "source": "plate", "review": "clear",
+                        "component": "machine", "asset_id": plate_id, "evidence": "Modelo: 320D"}],
+            "relevance": {"status": "relevant", "accepted_asset_ids": [plate_id]},
+            "image_observations": [{"asset_id": plate_id, "kind": "plate", "relevance": "related"}],
+            "plates": [], "warnings": [], "questions": []}
+        merged = _merge_image_results([repeated, plate_reading], [asset_id, plate_id], ["Excavadoras"])
+        self.assertEqual(merged["provenance"]["model"]["source"], "plate")
+        self.assertEqual(merged["provenance"]["model"]["review"], "clear")
+        self.assertEqual(research_identity(merged, allowed_categories=["Excavadoras"])[1], "model")
+
+        # A newly readable suffix, another image, a plate, a declared value,
+        # or changed bytes remains outside the guard.
+        self.assertFalse(_preserve_repeated_ambiguous_model(current, self.asset, {}, reading("320DL", "clear")))
+        other = self.photo("b")
+        other_reading = reading("320D", "clear")
+        other_id = str(other.pk)
+        for item in (other_reading["provenance"]["model"], other_reading["fields"][0], other_reading["image_observations"][0]):
+            item["asset_id"] = other_id
+        other_reading["relevance"]["accepted_asset_ids"] = [other_id]
+        self.assertFalse(_preserve_repeated_ambiguous_model(current, other, {}, other_reading))
+        self.assertFalse(_preserve_repeated_ambiguous_model(current, self.asset,
+            {"data": {"model": "Manual"}, "provenance": {"model": {"source": "user", "review": "confirmed"}}},
+            reading("320D", "clear")))
+        changed_bytes = self.asset.sha256
+        self.asset.sha256 = "z" * 64
+        self.assertFalse(_preserve_repeated_ambiguous_model(current, self.asset, {}, reading("320D", "clear")))
+        self.asset.sha256 = changed_bytes
 
     def test_multiple_units_never_autofill_or_trigger_paid_research(self):
         job, calls, external = self.run_job(self.response(count=2), research=True)

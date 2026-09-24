@@ -5,7 +5,7 @@ Fecha: 24 de septiembre de 2026. Base de trabajo: `5f03e53`.
 ## Resultado y alcance
 
 Se conserva el módulo Django, su base de datos, el formulario editable, el OCR de
-placas, la investigación y las fichas virtual/PDF. Esta entrega corrige siete
+placas, la investigación y las fichas virtual/PDF. Esta entrega corrige ocho
 problemas localizados en el recorrido de las imágenes y los datos. No añade una
 biblioteca, un registro paralelo ni un conector supuesto para la web principal.
 
@@ -26,7 +26,7 @@ etiquetas públicas observadas y campos privados de IMC todavía no comprobados.
 
 El proveedor visual configurado sigue siendo **GPT-5.6 Terra** y el modelo de
 investigación **GPT-5.6 Luna**, conforme a la política existente. No se utiliza
-Astra. La versión del recorrido pasa de `v34` a `v36`, para no reutilizar como
+Astra. La versión del recorrido pasa de `v34` a `v37`, para no reutilizar como
 nuevas lecturas la caché anterior a estas correcciones.
 
 ## 2. Problemas corregidos
@@ -40,6 +40,7 @@ nuevas lecturas la caché anterior a estas correcciones.
 | Añadir un documento durante el análisis invalidaba resultados de fotos que no dependían de él. | El inventario utilizado para comprobar cambios excluye documentos, también al leer instantáneas antiguas. | Se sigue rechazando la aplicación si cambian o desaparecen las fotografías del análisis. |
 | Las clasificaciones visuales útiles quedaban sólo en el texto. | Se aplican propuestas guardadas de opciones cerradas del perfil, como orugas, familia y brazo, en sus casillas editables. | Se comprueban fotografía, evidencia y opción válida; no se convierte una propuesta en un dato confirmado ni se aplica así un modelo o una potencia dudosa. |
 | La investigación descartaba un modelo parcialmente legible y buscaba otras familias. | Se conserva la pista literal de una foto general aceptada para acotar la consulta y los candidatos. También se permiten recortes nativos de fotos desde 320 px. | La pista no fija identidad ni habilita especificaciones, año o precio. Se excluyen placas, componentes, fotos rechazadas y pistas contradictorias; no se amplían artificialmente los píxeles. |
+| Repetir la misma foto podía convertir en clara una lectura del modelo antes dudosa, sin resolver su sufijo. | Antes de investigar se comprueba la lectura histórica del mismo archivo; si repite el mismo literal, conserva su estado pendiente. | Se verifica ID, hash y propósito. Otra foto, una placa, una declaración humana o un literal ampliado con nuevos caracteres no quedan bloqueados por esta regla. No añade llamadas al proveedor. |
 
 No se atribuye a estos cambios una mejora porcentual de precisión: los tests
 comprueban comportamiento, asignación y conservación; la precisión requiere
@@ -96,7 +97,7 @@ local o de los dígitos de una URL.
 
 | Clase | Cambio | Impacto y compatibilidad |
 |---|---|---|
-| Módulo: implementado | Siete correcciones de procesamiento y aplicación. | Conservan pantallas, esquema y funciones anteriores; sin migración de base de datos. |
+| Módulo: implementado | Ocho correcciones de procesamiento y aplicación. | Conservan pantallas, esquema y funciones anteriores; sin migración de base de datos. |
 | Principal: indispensable para validar | Corregir activación/acceso y retirar contraseñas de enlaces/correos. | Debe reutilizar sus cuentas existentes; requiere acceso al código o responsable del sitio. No se modificó desde este proyecto. |
 | Principal: indispensable para conectar | Confirmar campos/IDs, permisos, privacidad del guardado y mecanismo de recepción/acuse. | Debe conservar las relaciones y validaciones actuales. Depende del formulario privado y del acceso técnico real. |
 | Opcional | Ampliar referencias, proyectos de compra y documentos. | Se mantienen los requisitos anteriores; se aplaza su ampliación para validar primero una ficha útil. |
@@ -113,8 +114,8 @@ La base previa tenía 62 máquinas, 107 adjuntos, 15 usuarios, 9 versiones y 2
 publicaciones. No había IDs principales duplicados. Estos son los valores del
 24 de septiembre, no los de la auditoría anterior.
 
-La reversión ordinaria consiste en desplegar de nuevo `5f03e53` o revertir el
-commit de corrección. No requiere restaurar la base de datos, porque no se cambia
+La reversión ordinaria consiste en desplegar de nuevo `5f03e53` o revertir los
+commits de corrección. No requiere restaurar la base de datos, porque no se cambia
 su esquema. No se debe restaurar un volcado completo encima de actividad nueva
 de usuarios para revertir sólo código.
 
@@ -125,6 +126,19 @@ combinación de entradas, correcciones concurrentes, campos insuficientes,
 contradicciones, modelos ausentes y preservación de permisos/seriales privados.
 Son pruebas controladas de comportamiento; sus respuestas simuladas no se
 presentan como precisión observada de la IA.
+
+Resultado final local `v37`: **1 014 pruebas aprobadas, 1 omitida y 1 315
+subpruebas aprobadas**. La omitida requiere conversión real con ffmpeg/ffprobe,
+no disponibles en este entorno. Los siete scripts de interfaz también pasaron
+en esta entrega; las últimas correcciones sólo afectan al servidor. La revisión
+independiente comprobó que una placa clara sigue prevaleciendo al combinarla
+con una foto general dudosa. Django no detectó problemas ni cambios de esquema.
+Los registros están en `qa-assisted/regression-v37.log` y
+`qa-assisted/ui-regression.log`, fuera del repositorio.
+
+Las dos primeras versiones de corrección pasaron también las comprobaciones de
+GitHub y se desplegaron en SeeNode. La entrega identifica por separado el commit
+final activo para distinguir código subido, despliegue y pruebas reales.
 
 ### Pruebas reales en SeeNode
 
@@ -163,11 +177,51 @@ sus casillas y la búsqueda ignoraba el indicio 320D. Ambas motivaron las dos
 correcciones adicionales descritas arriba. El número de textos o campos
 administrativos generados no se cuenta como precisión técnica.
 
-Se guardaron un título corregido y una serie escrita manualmente conservando
-minúsculas en el borrador del montacargas. Se verificó reapertura de la ficha
-virtual, carga de la foto sin deformación y ausencia de desbordamiento horizontal
-en la comprobación móvil. La repetición tras el segundo parche se registra en
-el cierre de esta sección.
+### Repetición y evaluación por campo
+
+Se hicieron cuatro trabajos reales: dos por máquina, conservando los mismos
+borradores y fotografías. La segunda lectura de la placa volvió a recuperar los
+nueve datos visibles y las siete referencias. El título corregido y la serie
+escrita manualmente en minúsculas se conservaron exactamente. Las lecturas se
+contrastaron con la imagen: dos resultados favorables no prueban precisión
+universal del OCR.
+
+| Campo o grupo de la foto general | Segunda ejecución y evaluación |
+|---|---|
+| Marca CAT | Correctamente completada. |
+| Familia hidráulica, orugas, configuración estándar de pluma y brazo, aplicación de excavación general | Cinco propuestas visuales llegaron a sus casillas; coherentes con las partes visibles y editables, no especificaciones certificadas. |
+| Cucharón y componentes visibles | Propuestas pertinentes; conservadas en sus campos. |
+| Uso y conservación | Usada; la valoración visual pasó de Bueno a Aceptable. Es subjetiva, no una medición de condición mecánica. |
+| Funcionamiento | Pendiente; la foto no lo acredita. |
+| Modelo | La segunda lectura marcó 320D como claro, aunque la primera advertía un posible sufijo. No se acepta como identificación exacta correcta. |
+| Motor, años y precio derivados de ese modelo | El sistema encontró referencias y devolvió motor, periodo 2007–2026 y rango 60 000–70 000 USD de anuncios. Se rechazaron como resultado válido de esta unidad porque dependían de una variante no confirmada. Un periodo de catálogo amplio tampoco fecha la unidad. |
+| Corrección manual | Se retiró el modelo dudoso en el formulario. El guardado dejó `model:null` con procedencia de usuario y eliminó automáticamente motor, años y valoración incompatibles. Las cinco clasificaciones visuales permanecieron. |
+
+El contador «29 datos» de la segunda ejecución incluye textos y metadatos; no
+equivale a 29 datos técnicos correctos. Esta prueba demuestra más casillas útiles,
+investigación efectiva y corrección de dependencias, pero deja una limitación
+real en la lectura automática de sufijos pequeños. Para resolver la variante de
+esta unidad hace falta un acercamiento del rótulo o confirmación del propietario.
+
+El hallazgo motivó el resguardo de lecturas repetidas de `v37`. Se verificó con
+pruebas controladas de la transición dudosa → clara sobre los mismos píxeles,
+sin una quinta llamada real. La corrección conserva la duda antes de consultar
+referencias específicas. Esto evita esa promoción por repetición, pero no garantiza
+que toda primera lectura automática sea correcta.
+
+Se verificó reapertura de la ficha virtual, carga de la foto sin deformación y
+ausencia de desbordamiento horizontal en la comprobación móvil. El borrado con
+teclado normal se guardó; la primera interacción automatizada de vaciado no
+emitió el cambio esperado, por lo que no se modificó el formulario sin un fallo
+reproducible de su comportamiento.
+
+Al terminar las cuatro ejecuciones había 64 máquinas, 109 adjuntos, 15 usuarios,
+9 versiones y 2 publicaciones: exactamente dos borradores y dos fotografías
+añadidos frente al respaldo, sin publicaciones nuevas. No quedan trabajos
+activos. Cada borrador mantuvo su propietario y UUID; no se asignó ningún ID del
+sistema principal. La segunda ejecución tardó 67.6 s en la foto general y 57.5 s
+en la placa, según inicio y fin del trabajador, sin incluir espera de interfaz.
+No se midió captura manual de comparación.
 
 El entorno local no tiene clave del proveedor; las ejecuciones reales se hicieron
 en SeeNode. Los registros privados de diagnóstico quedan fuera de Git. No se
