@@ -661,6 +661,38 @@
     }
     target.append(box);
   }
+  function renderReadingConflicts(result,target) {
+    const conflicts = result?.conflicts;
+    if (!conflicts || typeof conflicts !== 'object' || Array.isArray(conflicts)) return;
+    const fields = Object.entries(conflicts).filter(([key,readings]) =>
+      typeof key === 'string' && Array.isArray(readings) && readings.length);
+    if (!fields.length) return;
+    const box = el('section','analysis-integrity analysis-reading-conflicts');
+    box.append(el('h3','','Lecturas que no coinciden'),
+      el('p','','Conservamos este campo sin asignar. Revisa cada lectura antes de corregirlo en la ficha.'));
+    for (const [key,readings] of fields) {
+      const group = el('div','analysis-reading-conflict'), list = el('ul'), seen = new Set();
+      group.append(el('b','',keyLabels[key] || key));
+      for (const reading of readings) {
+        if (!reading || typeof reading !== 'object' || missing(reading.value)
+            || !['string','number'].includes(typeof reading.value)) continue;
+        const assetId = typeof reading.asset_id === 'string' ? reading.asset_id : '';
+        const identity = `${String(reading.value)}\u0000${assetId}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        const item = el('li','',`${String(reading.value)} · ${sourceLabels[reading.source] || 'Lectura de IA'}`);
+        if ($$('.asset-card',wizard).some(card => card.dataset.assetId === assetId)) {
+          const link = el('a','text-link small','Ver foto ↗');
+          link.href = `/archivos/${encodeURIComponent(assetId)}/?original=1`;
+          link.target = '_blank'; link.rel = 'noopener';
+          item.append(' ',link);
+        }
+        list.append(item);
+      }
+      if (list.children.length) { group.append(list); box.append(group); }
+    }
+    if (box.children.length > 2) target.append(box);
+  }
   function renderConflictBatch(job,target,metadata) {
     const actionableReasons = new Set(['existing_value','human_correction','not_empty_at_request','conflicting_reading']);
     const candidateIsReviewable = key => {
@@ -729,6 +761,7 @@
     if (Array.isArray(metadata.proposals) && metadata.proposals.length) target.append(el('p','small','Las propuestas que contradicen tu ficha quedan aquí para revisarlas juntas; los datos no conflictivos se conservaron sin pedirte confirmar cada uno.'));
     renderConflictBatch(job,target,metadata);
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }
+    renderReadingConflicts(result,target);
     const data = result.data || {};
     const provenance = el('dl','analysis-provenance');
     for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',keyLabels[key] || key),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }

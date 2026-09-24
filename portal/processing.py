@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v34"
+PROMPT_VERSION = "imc-excavators-2026-09-v35"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -893,13 +893,60 @@ def _image_input(asset):
             "image_url": "data:image/jpeg;base64," + base64.b64encode(raw).decode("ascii")}
 
 
-def _image_detail_inputs(full_image, purpose):
-    """Bounded, pixel-only views of the same photo for small exterior labels.
+def _detail_inputs_from_image(original, alias="image_001"):
+    """Return bounded crops from already decoded, metadata-free pixels."""
+    if min(original.size) < 600 or original.width * original.height > MAX_PIXELS:
+        return []
+    width, height = original.size
+    boxes = [(0, 0, width * 3 // 5, height * 3 // 5),
+             (width * 2 // 5, 0, width, height * 3 // 5),
+             (0, height * 2 // 5, width * 3 // 5, height),
+             (width * 2 // 5, height * 2 // 5, width, height)]
+    details, total = [], 0
+    for index, box in enumerate(boxes, start=1):
+        detail = original.crop(box).convert('RGB')
+        detail.thumbnail((768, 768))
+        output = io.BytesIO()
+        detail.save(output, format='PNG')
+        payload = output.getvalue()
+        total += len(payload)
+        if total > 4 * 1024 * 1024:
+            return []
+        details.extend([{'type': 'input_text', 'text': f'RECORTE {index} de la MISMA FOTO {alias}. No es otra unidad. Lee rótulos si son legibles.'},
+            {'type': 'input_image', 'detail': 'high', 'image_url': 'data:image/png;base64,' + base64.b64encode(payload).decode('ascii')}])
+    return details
 
-    Keep one provider call and one asset identity. Never fetch a URL, change the
-    stored file, sharpen/generate letters, or infer detail absent from the photo.
-    The already sanitized image contains no original metadata.
+
+def _original_image_detail_inputs(asset, purpose, alias="image_001"):
+    """Use the sanitized original for general-photo crops when it fits current limits.
+
+    The full provider input keeps the existing 2400px preview. This optional path
+    reuses the same 12MiB source and 50MP decode limits, then emits at most 4MiB
+    of thumbnailed crops. It never sends source metadata or a storage URL.
     """
+    if purpose != 'general' or not getattr(asset, 'original', None):
+        return []
+    try:
+        with asset.original.open('rb') as stream:
+            raw = stream.read(MAX_ANALYSIS_IMAGE_BYTES + 1)
+        if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
+            return []
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as source:
+                if (source.format not in {'JPEG', 'PNG', 'WEBP', 'HEIF'}
+                        or source.width * source.height > MAX_PIXELS or min(source.size) < 32):
+                    return []
+                source.load()
+                original = ImageOps.exif_transpose(source)
+                return _detail_inputs_from_image(original, alias)
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
+            Image.DecompressionBombWarning, BotoCoreError, ClientError):
+        return []
+
+
+def _image_detail_inputs(full_image, purpose, alias="image_001"):
+    """Fallback crops from the already prepared provider image."""
     if purpose != 'general':
         return []
     url = full_image.get('image_url', '')
@@ -910,26 +957,7 @@ def _image_detail_inputs(full_image, purpose):
         if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
             return []
         with Image.open(io.BytesIO(raw)) as original:
-            if min(original.size) < 600 or original.width * original.height > MAX_PIXELS:
-                return []
-            width, height = original.size
-            boxes = [(0, 0, width * 3 // 5, height * 3 // 5),
-                     (width * 2 // 5, 0, width, height * 3 // 5),
-                     (0, height * 2 // 5, width * 3 // 5, height),
-                     (width * 2 // 5, height * 2 // 5, width, height)]
-            details, total = [], 0
-            for index, box in enumerate(boxes, start=1):
-                detail = original.crop(box).convert('RGB')
-                detail.thumbnail((768, 768))
-                output = io.BytesIO()
-                detail.save(output, format='PNG')
-                payload = output.getvalue()
-                total += len(payload)
-                if total > 4 * 1024 * 1024:
-                    return []
-                details.extend([{'type': 'input_text', 'text': f'RECORTE {index} de la MISMA FOTO image_001. No es otra unidad. Lee rótulos si son legibles.'},
-                    {'type': 'input_image', 'detail': 'high', 'image_url': 'data:image/png;base64,' + base64.b64encode(payload).decode('ascii')}])
-            return details
+            return _detail_inputs_from_image(original, alias)
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         return []
 
@@ -1272,12 +1300,12 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     result["visual_description"] = sanitize_visual_description(" ".join(combined), private_serials, visual_exclusions)
     if plate_only:
         result["visual_features"], result["visual_description"] = [], ""
-    if len(json.dumps(result)) > response_size_limit:
-        raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
     result["data"] = {"description": result["description"][:10000]}
     result["provenance"] = {"description": {"source": "visual_proposal", "review": "needs_review", "asset_id": None}}
     if mode == "description":
         result.update({"fields": [], "plates": []})
+        if len(json.dumps(result)) > response_size_limit:
+            raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
         return result
     result["data"]["title"] = result["title"][:180]
     result["provenance"]["title"] = {"source": "visual_proposal", "review": "needs_review", "asset_id": None}
@@ -1287,7 +1315,17 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
     for plate in plates.values():
         if re.search(r"\[(?:[^\]]*(?:ilegible|unreadable|unknown)[^\]]*)\]|\?{2,}", plate["transcription"], re.I):
             plate["readability"] = "partial"
-    seen = set()
+    seen, first_fields = set(), {}
+
+    def conflict_entry(field):
+        value = field.get("value")
+        return {
+            "value": str(value)[:160] if value not in (None, "") else None,
+            "asset_id": field.get("asset_id") if isinstance(field.get("asset_id"), str) else None,
+            "source": field.get("source") if isinstance(field.get("source"), str) else "",
+            "evidence": str(field.get("evidence") or "")[:240],
+        }
+
     for item in result["fields"]:
         if item["asset_id"] is not None and item["asset_id"] not in allowed:
             raise ValidationError("El análisis vinculó un dato a una fotografía desconocida.")
@@ -1318,9 +1356,15 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
             # Multiple sources for one field need a human resolution.
             result["data"][key] = None
             result["provenance"][key]["review"] = "needs_review"
+            entries = result.setdefault("conflicts", {}).setdefault(key, [])
+            for field in (first_fields[key], item):
+                entry = conflict_entry(field)
+                if entry not in entries and len(entries) < 2:
+                    entries.append(entry)
             result["warnings"].append(f"Hay varias lecturas para {item['label']}; revisa las fuentes.")
             continue
         seen.add(key)
+        first_fields[key] = item
         result["data"][key] = item["value"]
         result["provenance"][key] = {k: item[k] for k in ("source", "review", "asset_id", "component", "evidence")}
         result["provenance"][key].update(source_date=timezone.now().isoformat(),
@@ -1337,6 +1381,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
             parts = [equipment_category_label(result.get("category"))] + [str(result["data"][key]) for key in ("brand", "model")
                 if result["data"].get(key) and result["provenance"].get(key, {}).get("review") == "clear"]
             result["title"] = result["data"]["title"] = " ".join(part for part in parts if part)[:180]
+    if len(json.dumps(result)) > response_size_limit:
+        raise ValidationError("El análisis devolvió demasiada información. Selecciona menos fotos.")
     return result
 
 
@@ -1492,13 +1538,16 @@ def process_analysis(job):
     if len(assets) != len(job.asset_ids):
         raise ValidationError("Una fotografía fue retirada. Solicita un nuevo análisis con las fotos actuales.")
     # pk__in follows Asset.position by default, while admission persists UUID
-    # order. Use the recorded order for the manifest AND every image message.
+    # order. Keep that order in the manifest and stored bindings. A declared
+    # plate may run first, so a later transient failure cannot skip its OCR.
     by_id = {str(asset.pk): asset for asset in assets}
     if len(by_id) != len(job.asset_ids) or any(str(pk) not in by_id for pk in job.asset_ids):
         raise ValidationError("La selección de fotografías cambió. Solicita un nuevo análisis.")
     assets = [by_id[str(pk)] for pk in job.asset_ids]
     bindings = [{"alias": "image_001", "asset_id": str(asset.pk), "sequence": index}
                 for index, asset in enumerate(assets, start=1)]
+    execution = sorted(enumerate(zip(bindings, assets)),
+                       key=lambda item: (item[1][1].purpose != "plate", item[0]))
     snapshot = job.result.get("input_snapshot", {})
     declared = human_declared_data(snapshot)
     declared_snapshot = {"data": declared, "provenance": {key: value for key, value in snapshot.get("provenance", {}).items() if key in declared}}
@@ -1522,18 +1571,20 @@ def process_analysis(job):
         return {"role": "user", "content": [{"type": "input_text", "text": json.dumps(
             {**request_data, "image_manifest": manifest}, ensure_ascii=False)}]}
     inputs = [context([])]
-    image_requests = []
-    for binding, asset in zip(bindings, assets):
+    image_work = []
+    for _, (binding, asset) in execution:
         alias = binding["alias"]
         full_image = _image_input(asset)
-        image_requests.append([context([{"asset_id": alias, "message_index": 1, "declared_purpose": asset.purpose}]),
+        details = _original_image_detail_inputs(asset, asset.purpose, alias) or _image_detail_inputs(full_image, asset.purpose, alias)
+        request = [context([{"asset_id": alias, "message_index": 1, "declared_purpose": asset.purpose}]),
             {"role": "user", "content": [
             {"type": "input_text", "text": f"INICIO FOTO {alias}. asset_id={alias}. Esta imagen pertenece únicamente a este alias."},
             full_image,
-            *_image_detail_inputs(full_image, asset.purpose),
+            *details,
             {"type": "input_text", "text": f"FIN FOTO {alias}. Toda lectura de la imagen anterior debe usar asset_id={alias}; no otro alias."},
-        ]}])
-    if sum(len(item.get("image_url", "")) for request in image_requests for message in request
+        ]}]
+        image_work.append((binding, asset, request))
+    if sum(len(item.get("image_url", "")) for _, _, request in image_work for message in request
            for item in message["content"]) > 40 * 1024 * 1024:
         raise ValidationError("Las fotografías seleccionadas son demasiado grandes en conjunto. Selecciona menos imágenes.")
     _check_analysis_draft(job)
@@ -1579,7 +1630,7 @@ def process_analysis(job):
         else:
             readings = []
             categories = job.result.get("category_names", [])
-            for binding, request in zip(bindings, image_requests):
+            for binding, asset, request in image_work:
                 _check_image_execution(job)
                 _record_progress(job, "images", len(readings), len(bindings))
                 provider_model = ""
@@ -1678,10 +1729,11 @@ def process_analysis(job):
             # Catalogue matching compares locally; no photo is uploaded to a
             # search engine. Plates, documents and unrelated images stay out.
             photo_inputs = []
+            accepted_photos = set(result.get('relevance', {}).get('accepted_asset_ids', []))
             machine_photos = {item.get('asset_id') for item in result.get('image_observations', [])
-                              if item.get('kind') == 'machine' and item.get('relevance') == 'machinery'}
+                              if item.get('asset_id') in accepted_photos and item.get('kind') == 'machine'}
             if job.mode == 'analysis':
-                for binding, asset, request in zip(bindings, assets, image_requests):
+                for binding, asset, request in image_work:
                     if (binding['asset_id'] not in machine_photos or asset.purpose not in {'general', 'detail'}
                             or len(photo_inputs) >= 3):
                         continue

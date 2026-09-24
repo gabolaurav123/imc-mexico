@@ -427,7 +427,14 @@ def _human_provenance(machine, key):
 
 def _analysis_asset_state(machine):
     return [{"id": str(a.pk), "sha256": a.sha256, "purpose": a.purpose, "kind": a.kind,
-             "status": a.processing_status} for a in machine.assets.order_by("id")]
+             "status": a.processing_status} for a in machine.assets.exclude(purpose="document").order_by("id")]
+
+
+def _analysis_snapshot_asset_state(assets):
+    """Normalize pre-document-exclusion snapshots without weakening photo checks."""
+    if not isinstance(assets, list):
+        return None
+    return [asset for asset in assets if not isinstance(asset, dict) or asset.get("purpose") != "document"]
 
 
 def _automatic_description_record(machine):
@@ -640,7 +647,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     else:
         if base.get("schema") != 1 or base.get("owner_id") != str(machine.owner_id) or base.get("revision") != job.revision or machine.revision < job.revision:
             return finish("draft_changed")
-        if base.get("assets") != _analysis_asset_state(machine):
+        if _analysis_snapshot_asset_state(base.get("assets")) != _analysis_asset_state(machine):
             return finish("assets_changed")
         eligible = set(base.get("eligible_fields", []))
     current_assets = {str(a.pk) for a in machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")}

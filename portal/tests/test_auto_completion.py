@@ -6,7 +6,7 @@ import uuid
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 
-from portal.models import (AnalysisJob, Category, Consent, Machine, MachineVersion,
+from portal.models import (AnalysisJob, Asset, Category, Consent, Machine, MachineVersion,
                            PlatformSettings, Publication, Submission, User)
 from portal.processing import enqueue_analysis, ingest_asset, normalize_analysis, process_analysis, process_next_job
 from portal.services import apply_analysis_automatically, save_draft
@@ -112,6 +112,33 @@ class AutomaticCompletionTests(TestCase):
         self.assertEqual(job.application_result["reason"], "assets_changed")
         self.assertEqual(self.machine.title, "Mi maquinaria")
         self.assertEqual(self.machine.data, {})
+
+    def test_document_added_during_analysis_does_not_invalidate_photo_result(self):
+        job = self.enqueue()
+
+        def add_manual():
+            Asset.objects.create(machine=self.machine, kind="image", purpose="document", processing_status="ready",
+                original="test/manual.jpg", mime_type="image/jpeg", sha256="d" * 64, size=1)
+
+        self.run_worker(job, add_manual)
+        self.assertEqual(job.application_result["status"], "applied")
+        self.assertNotEqual(job.application_result["reason"], "assets_changed")
+        self.assertEqual(self.machine.data["brand"], "MARCA DE PRUEBA")
+
+    def test_legacy_snapshot_with_document_keeps_photo_application_valid(self):
+        manual = Asset.objects.create(machine=self.machine, kind="image", purpose="document", processing_status="ready",
+            original="test/manual.jpg", mime_type="image/jpeg", sha256="d" * 64, size=1)
+        job = self.enqueue()
+        job.application_snapshot["assets"] = [{"id": str(asset.pk), "sha256": asset.sha256,
+            "purpose": asset.purpose, "kind": asset.kind, "status": asset.processing_status}
+            for asset in self.machine.assets.order_by("id")]
+        self.assertIn(str(manual.pk), [asset["id"] for asset in job.application_snapshot["assets"]])
+        job.save(update_fields=["application_snapshot"])
+
+        self.run_worker(job)
+        self.assertEqual(job.application_result["status"], "applied")
+        self.assertNotEqual(job.application_result["reason"], "assets_changed")
+        self.assertEqual(self.machine.data["brand"], "MARCA DE PRUEBA")
 
     def test_revoked_consent_after_remote_call_preserves_result_without_application(self):
         job = self.enqueue()

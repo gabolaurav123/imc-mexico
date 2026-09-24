@@ -134,6 +134,19 @@ class ImageRelevanceNormalizationTests(SimpleTestCase):
         self.assertIsNone(result["category"])
         self.assertNotIn("Unknown secret category", str(result))
 
+    def test_conflicting_machine_readings_keep_bounded_structured_evidence(self):
+        response = parsed([observation("a"), observation("b")], [
+            field("power", "10 kW", "a"),
+            field("power", "20 kW", "b"),
+        ])
+        result = normalize_analysis(response, ["a", "b"])
+        self.assertIsNone(result["data"]["power"])
+        self.assertEqual(result["provenance"]["power"]["review"], "needs_review")
+        self.assertEqual(result["conflicts"], {"power": [
+            {"value": "10 kW", "asset_id": "a", "source": "image", "evidence": "power: 10 kW"},
+            {"value": "20 kW", "asset_id": "b", "source": "image", "evidence": "power: 20 kW"},
+        ]})
+
     def test_foreign_asset_is_still_invalid_even_when_classified_unrelated(self):
         with self.assertRaises(ValidationError):
             normalize_analysis(parsed([observation("foreign", "unrelated", "other")]), ["own"])

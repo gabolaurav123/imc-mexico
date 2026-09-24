@@ -145,6 +145,22 @@ class ImageMessageBindingTests(TestCase):
                 self.assertEqual((usage.input_tokens, usage.output_tokens), (800, 400))
                 self.assertEqual(job.result["reservation_per_attempt"], 2 * 12200)
 
+    def test_declared_plate_runs_first_without_changing_recorded_gallery_order(self):
+        Asset.objects.filter(pk=PLATE_ID).update(purpose='plate')
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        job.asset_ids = [LIST_ID, PLATE_ID]
+        job.save(update_fields=['asset_ids'])
+        with patch('portal.processing._image_input', side_effect=self.image_input), patch('openai.OpenAI') as provider:
+            provider.return_value.responses.parse.side_effect = self.provider_result
+            result, _ = process_analysis(job)
+        sent = [call.kwargs['input'][1]['content'][1]['image_url']
+                for call in provider.return_value.responses.parse.call_args_list]
+        self.assertEqual(sent, ['data:plate-pixels', 'data:shopping-pixels'])
+        self.assertEqual(result['input_image_bindings'], [
+            {'alias': 'image_001', 'asset_id': LIST_ID, 'sequence': 1},
+            {'alias': 'image_001', 'asset_id': PLATE_ID, 'sequence': 2},
+        ])
+
     def test_invalid_binding_is_accounted_as_failed_without_search_or_draft_mutation(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True,
                                auto_apply=True, expected_revision=self.machine.revision)
