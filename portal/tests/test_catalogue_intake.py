@@ -44,6 +44,8 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertNotIn("year", proposal["data"])
         self.assertNotIn("hours", proposal["data"])
         self.assertNotIn("location", proposal["data"])
+        self.assertEqual(proposal["title"], "Excavadora Caterpillar 320")
+        self.assertEqual(proposal["title_provenance"], {"source": "system", "review": "needs_review"})
         self.assertEqual(proposal["provenance"]["power"]["source"], "web_model")
         self.assertEqual(proposal["provenance"]["model"]["basis"], "catalogue_intake")
 
@@ -82,11 +84,23 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         self.assertIn("entrada=catalogue&paso=2", response.json()["url"])
         machine = Machine.objects.get(pk=response.json()["id"])
+        self.assertEqual(machine.title, "Excavadora Caterpillar 320")
+        self.assertEqual(machine.provenance["title"], {"source": "system", "review": "needs_review"})
         self.assertEqual(machine.data["model"], "320")
         self.assertNotIn("hours", machine.data)
         rejected = self.client.post("/api/maquinarias/catalogo/", json.dumps({"category": self.category.pk,
             "model_id": 99999}), content_type="application/json")
         self.assertEqual(rejected.status_code, 400)
+
+    def test_catalogue_start_form_creates_the_commercial_title(self):
+        self.client.force_login(self.owner)
+        response = self.client.post("/panel/maquinarias/nueva/", {
+            "category": self.category.pk, "entry_mode": "catalogue", "catalogue_model": self.model.pk,
+        })
+        self.assertEqual(response.status_code, 302)
+        machine = Machine.objects.get(owner=self.owner, title="Excavadora Caterpillar 320")
+        self.assertIn(f"/panel/maquinarias/{machine.pk}/?entrada=catalogue&paso=2", response.url)
+        self.assertEqual(machine.provenance["title"], {"source": "system", "review": "needs_review"})
 
     def test_catalogue_mode_can_be_shared_and_submitted_without_assets(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)

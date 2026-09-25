@@ -161,7 +161,10 @@ def catalogue_proposal(category_id, model_id):
     if len(data["description"].splitlines()) < 3 and all(data.get(key) for key in ("estimate_min", "estimate_max", "estimate_currency")):
         data["description"] += (f"\nValor orientativo de equipos comparables: {data['estimate_min']}"
                                 f"–{data['estimate_max']} {data['estimate_currency']}.")
-    return {"category": category, "model": model, "data": data, "provenance": provenance,
+    title = data["description"].splitlines()[0].rstrip(". ")[:180] or f"{category.name} {model.brand.name} {model.name}"[:180]
+    return {"category": category, "model": model, "title": title,
+            "title_provenance": {"source": "system", "review": "needs_review"},
+            "data": data, "provenance": provenance,
             "reference_count": len(references), "mode": "catalogue"}
 
 

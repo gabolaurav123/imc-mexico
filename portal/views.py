@@ -174,10 +174,13 @@ def machine_create(request):
         provenance={'currency':{'source':'system','review':'needs_review'}}
         if category:provenance['category']={'source':'user','review':'confirmed'}
         data={'currency':'USD'}
+        title=None
         if entry_mode=='catalogue':
             proposal=catalogue_proposal(category.pk,request.POST.get('catalogue_model'))
             data,provenance=proposal['data'],{**proposal['provenance'],
+                'title':proposal['title_provenance'],
                 'category':{'source':'user','review':'confirmed'}}
+            title=proposal['title']
         elif entry_mode=='manual_identity':
             brand=request.POST.get('catalogue_manual_brand','').strip()[:100]
             model=request.POST.get('catalogue_manual_model','').strip()[:100]
@@ -195,7 +198,7 @@ def machine_create(request):
                 data[key]=value
                 provenance[key]={'source':'user','review':'confirmed'}
         machine=Machine.objects.create(owner=request.user,category=category,data=data,
-            provenance=provenance)
+            provenance=provenance,**({'title':title} if title else {}))
         event(request,'draft_started',machine)
         suffix=('?entrada=catalogue&paso=2' if entry_mode=='catalogue' else
                 '?entrada='+entry_mode if entry_mode in {'plate','serial','photos','manual_identity'} else '')
@@ -222,8 +225,9 @@ def api_catalogue_intake(request):
                              'url':'/panel/perfil/?next=/panel/maquinarias/nueva/'},status=400)
     body=payload(request,allowed=['category','model_id'])
     proposal=catalogue_proposal(body.get('category'),body.get('model_id'))
-    machine=Machine.objects.create(owner=request.user,category=proposal['category'],data=proposal['data'],
-        provenance={**proposal['provenance'],'category':{'source':'user','review':'confirmed'}})
+    machine=Machine.objects.create(owner=request.user,category=proposal['category'],title=proposal['title'],data=proposal['data'],
+        provenance={**proposal['provenance'],'title':proposal['title_provenance'],
+                    'category':{'source':'user','review':'confirmed'}})
     event(request,'draft_started',machine)
     return JsonResponse({'id':str(machine.pk),'url':f'/panel/maquinarias/{machine.pk}/?entrada=catalogue&paso=2',
                          'mode':'catalogue','reference_count':proposal['reference_count']},status=201)
