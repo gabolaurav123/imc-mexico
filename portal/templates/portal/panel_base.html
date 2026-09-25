@@ -1,7 +1,8 @@
 {% extends 'portal/base.html' %}
 {% block body_class %}panel-page{% if is_management_user %} management-page{% endif %}{% endblock %}
 {% block content %}
-<div class="wrap panel-layout">
+<div class="wrap panel-layout{% if not user.is_authenticated %} guest-layout{% endif %}">
+  {% if user.is_authenticated %}
   <aside class="sidebar{% if is_management_user %} management-sidebar{% endif %}">
     {% if is_management_user %}
     <div class="management-identity"><p class="eyebrow">ADMINISTRACIÓN</p><b>{% if user.is_superuser %}Superadministrador{% else %}Equipo IMC México{% endif %}</b>{% if needs_management_mfa %}<a href="/panel/seguridad/">Verificación pendiente →</a>{% else %}<span>Acceso del equipo</span>{% endif %}</div>
@@ -39,6 +40,7 @@
     {% if not is_management_user %}<div class="sidebar-help"><span class="eyebrow">AQUÍ PARA AYUDARTE</span><p>¿Te falta un dato o tienes una duda?</p><a href="/contacto/">Contactar al equipo ↗</a></div>{% endif %}
     <form action="/cerrar-sesion/" method="post">{% csrf_token %}<button class="link-button muted" type="submit">Cerrar sesión</button></form>
   </aside>
+  {% endif %}
   <div class="panel-main">
     {% if is_management_user and is_advertiser_mode %}<div class="management-mode-notice"><div><b>Vista de anunciante</b><p>Aquí están tus propias maquinarias. Tu acceso administrativo sigue disponible.</p></div><a class="button button-navy button-small" href="{{ management_url }}">Volver a administración →</a></div>{% endif %}
     {% block panel_content %}{% endblock %}

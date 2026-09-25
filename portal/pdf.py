@@ -18,7 +18,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (CondPageBreak, Flowable, KeepInFrame, LongTable, PageBreak, Paragraph,
                                SimpleDocTemplate, Spacer, Table, TableStyle)
-from .services import (PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
+from .services import (CATALOGUE_TECHNICAL_LABELS, PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
                        public_valuation, valuations_for_provenance)
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, AGE_LABELS
 from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
@@ -37,7 +37,7 @@ LABELS = {
     "power": "Potencia", "weight": "Peso", "capacity": "Capacidad", "dimensions": "Dimensiones",
     "fuel": "Combustible", "kilometers": "Kilometraje", "engine": "Motor", "transmission": "Transmisión",
     "attachments": "Accesorios",
-    **PLATE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS, **AGE_LABELS, **PROFILE_FIELD_LABELS,
+    **PLATE_TECHNICAL_LABELS, **CATALOGUE_TECHNICAL_LABELS, **VISUAL_LABELS, **ESTIMATE_LABELS, **AGE_LABELS, **PROFILE_FIELD_LABELS,
 }
 AVAILABILITY = {"available": "Disponible", "reserved": "Reservada", "sold": "Vendida", "withdrawn": "Retirada"}
 PRIVATE_FIELDS = {"serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate", "notes",
@@ -160,8 +160,10 @@ class PhotoPanel(Flowable):
         canvas.restoreState()
 
 
-def build_pdf(machine, data, assets, public=False, version=None):
+def build_pdf(machine, data, assets, public=False, version=None, *, destination_asset_ids=None):
     """Return PDF bytes. Public mode always needs an authorized snapshot."""
+    if destination_asset_ids is not None and not public:
+        raise ValueError("La selección de destino sólo se permite para un PDF de difusión autorizado.")
     snapshot = version.data if version else {}
     if public:
         from .public_data import public_projection
@@ -193,7 +195,17 @@ def build_pdf(machine, data, assets, public=False, version=None):
         for key in set(WEB_FIELD_LABELS) | {"hours", "kilometers", "attachments"} | VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys():
             if key in values and any(identifier in _reference_text(values[key]) for identifier in private_identifiers):
                 values.pop(key)
-        public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
+        if destination_asset_ids is None:
+            public_ids = {str(a) for a in snapshot.get("public_asset_ids", [])}
+        else:
+            if not isinstance(destination_asset_ids, (list, tuple)):
+                raise ValueError("La selección de destino del PDF no es válida.")
+            requested = [str(asset_id) for asset_id in destination_asset_ids]
+            if len(requested) != len(set(requested)) or set(requested) - allowed:
+                raise ValueError("La selección de destino del PDF no pertenece a la versión autorizada.")
+            by_id = {str(asset.pk): asset for asset in asset_list}
+            asset_list = [by_id[asset_id] for asset_id in requested if asset_id in by_id]
+            public_ids = set(requested)
         asset_list = [a for a in asset_list if str(a.pk) in public_ids and a.public_authorized
                       and not is_plate(a) and a.purpose != "document"]
         for field in PRIVATE_FIELDS:
@@ -202,7 +214,11 @@ def build_pdf(machine, data, assets, public=False, version=None):
             values.pop("contact_public", None)
     else:
         asset_list = [a for a in asset_list if a.purpose != "document"]
-    asset_list.sort(key=lambda a: (is_plate(a), not a.is_cover, a.position, str(a.pk)))
+    # The handoff PDF uses a server-validated destination manifest, whose
+    # ordering is intentional (four principal photographs followed by extras).
+    # Normal public PDFs retain their established cover/position ordering.
+    if destination_asset_ids is None:
+        asset_list.sort(key=lambda a: (is_plate(a), not a.is_cover, a.position, str(a.pk)))
 
     regular, bold = _fonts()
     output, width = BytesIO(), 176 * mm

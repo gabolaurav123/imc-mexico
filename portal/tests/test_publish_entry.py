@@ -1,6 +1,6 @@
 """The service entry survives registration/login without starting paid work."""
 from django.test import TestCase, override_settings
-from portal.models import AnalysisJob, Machine, Notification, PlatformSettings, Publication, User
+from portal.models import AnalysisJob, GuestDraft, Machine, Notification, PlatformSettings, Publication, User
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, STORAGES={
@@ -23,13 +23,19 @@ class PublishEntryTests(TestCase):
         self.assertContains(response, 'Publica tu maquinaria')
         self.assertContains(response, 'href="/publicar/"')
         self.assertContains(response, 'Enviar la ficha no la publica de inmediato')
-        entry = self.client.get('/publicar/', follow=True)
+        entry = self.client.get('/publicar/')
         self.assertEqual(entry.status_code, 200)
-        self.assertContains(entry, 'name="next" value="/panel/maquinarias/nueva/"')
-        self.assertContains(entry, '/iniciar-sesion/?next=/panel/maquinarias/nueva/')
+        self.assertContains(entry, 'data-intake-start')
+        self.assertContains(entry, '¿Qué tipo de máquina quieres anunciar?')
         for model in (User, Machine, AnalysisJob, Notification, Publication):
             self.assertFalse(model.objects.exists())
-        self.assertEqual(self.client.post('/publicar/').status_code, 405)
+        response = self.client.post('/publicar/', {'brand': 'CAT', 'model': '320', 'description': 'Datos declarados'})
+        draft = GuestDraft.objects.get()
+        self.assertRedirects(response, f'/invitados/{draft.pk}/')
+        self.assertTrue(draft.owner.is_guest)
+        self.assertEqual(draft.machine.data['brand'], 'CAT')
+        self.assertFalse(Notification.objects.exists())
+        self.assertFalse(Publication.objects.exists())
 
     def test_registration_returns_to_photos_and_only_post_creates_private_draft(self):
         response = self.client.post('/registro/', self.registration())
@@ -61,4 +67,3 @@ class PublishEntryTests(TestCase):
     def test_registration_does_not_accept_an_external_return_url(self):
         response = self.client.post('/registro/', self.registration(next='https://outside.example/'))
         self.assertRedirects(response, '/panel/')
-

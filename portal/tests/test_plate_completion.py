@@ -5,7 +5,8 @@ from django.test import TestCase
 
 from portal.models import AnalysisJob, Asset, Consent, Machine, User
 from portal.services import (apply_analysis_automatically, automatic_application_snapshot,
-                             detected_plate_asset_ids, review_submission, save_draft, snapshot, submit_machine)
+                             detected_plate_asset_ids, record_local_duplicate_review, review_submission,
+                             save_draft, snapshot, submit_machine)
 from portal.views import sheet_context
 
 
@@ -150,6 +151,10 @@ class PlateCompletionTests(TestCase):
         self.owner.save(update_fields=["advertiser_status"])
         submission = submit_machine(self.machine, self.owner, True)
         administrator = User.objects.create_superuser(email="plate-review@example.invalid", is_test=True)
+        record_local_duplicate_review(
+            self.machine, submission, administrator, "no_match",
+            "Se revisaron los activos privados y los datos de esta solicitud.",
+        )
         review_submission(submission, administrator, "approved")
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.approved_version.data["public_asset_ids"], [])

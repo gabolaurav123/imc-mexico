@@ -66,6 +66,25 @@ def _category(category):
     return Category.objects.filter(name__iexact=category.strip()).first() or Category.objects.filter(slug__iexact=category.strip()).first()
 
 
+def _reference_model_matches(reference, model):
+    """Accept only a reviewed, exact model alias stored on that reference.
+
+    An alias never crosses category, brand, variant, generation or market:
+    those checks remain in ``retrieve_technical_references``.  This permits
+    harmless documented spellings such as ``E 450 AJ`` while preserving the
+    distinction between actual model variants such as ``450AJ`` and
+    ``450AJ HC3``.
+    """
+    if identifier_key(reference.model) == identifier_key(model):
+        return True
+    provenance = reference.provenance if isinstance(reference.provenance, dict) else {}
+    aliases = provenance.get("model_aliases", [])
+    return isinstance(aliases, list) and any(
+        isinstance(alias, str) and identifier_key(alias) == identifier_key(model)
+        for alias in aliases
+    )
+
+
 def retrieve_technical_references(snapshot, category=None, identity=None):
     """Return active approved refs only when brand/model/variant/market match.
 
@@ -91,7 +110,7 @@ def retrieve_technical_references(snapshot, category=None, identity=None):
     for reference in queryset:
         if not isinstance(reference.provenance, dict) or not isinstance(reference.specs, dict):
             continue
-        if identifier_key(reference.model) != identifier_key(model):
+        if not _reference_model_matches(reference, model):
             continue
         if reference.equipment_model_id and (not reference.equipment_model.active or not reference.equipment_model.brand.active):
             continue
@@ -122,6 +141,7 @@ def knowledge_sources(snapshot, category=None, identity=None):
     return [{"id": reference.pk, "category": reference.category_id, "brand": reference.brand,
              "model": reference.model, "variant": reference.variant, "generation": reference.generation,
              "market": reference.market, "period_from": reference.period_from, "period_to": reference.period_to,
+             "model_aliases": deepcopy(reference.provenance.get("model_aliases", [])),
              "specs": deepcopy(reference.specs), "provenance": deepcopy(reference.provenance),
              "source": reference.source, "source_title": reference.source_title,
              "source_version": reference.source_version, "retrieved_at": reference.retrieved_at.isoformat()}

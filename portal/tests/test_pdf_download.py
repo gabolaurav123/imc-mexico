@@ -1,4 +1,4 @@
-"""PDF downloads obey the same private/public authorization as their sheets."""
+"""Official PDFs are management-only exports; sheets remain viewable normally."""
 from copy import deepcopy
 from io import BytesIO
 from tempfile import TemporaryDirectory
@@ -76,6 +76,9 @@ class PdfDownloadTests(TestCase):
 
     def test_owner_download_is_attachment_private_and_contains_internal_values(self):
         self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(self.private_url).status_code, 403)
+        self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="publish_machine"))
+        self.verify_operator()
         response = self.client.get(self.private_url)
         self.assert_download_headers(response)
         text = " ".join(page.extract_text() for page in PdfReader(BytesIO(response.content)).pages)
@@ -84,9 +87,9 @@ class PdfDownloadTests(TestCase):
 
     def test_private_pdf_rejects_anonymous_and_other_owner_before_building(self):
         with patch("portal.pdf.build_pdf") as build:
-            self.assertEqual(self.client.get(self.private_url).status_code, 302)
+            self.assertEqual(self.client.get(self.private_url).status_code, 403)
             self.client.force_login(self.other)
-            self.assertEqual(self.client.get(self.private_url).status_code, 404)
+            self.assertEqual(self.client.get(self.private_url).status_code, 403)
         build.assert_not_called()
 
     def test_long_multiline_technical_cell_continues_without_losing_content(self):
@@ -95,7 +98,8 @@ class PdfDownloadTests(TestCase):
         self.assertEqual(len(value), 998)
         self.machine.data["power"] = value
         self.machine.save(update_fields=["data"])
-        self.client.force_login(self.owner)
+        self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="publish_machine"))
+        self.verify_operator()
         response = self.client.get(self.private_url)
         self.assert_download_headers(response)
         document = PdfReader(BytesIO(response.content))
@@ -109,14 +113,14 @@ class PdfDownloadTests(TestCase):
                                                                        codename="operate_platform"))
         self.verify_operator()
         with patch("portal.pdf.build_pdf", return_value=b"%PDF-FAKE") as build:
-            self.assertEqual(self.client.get(self.private_url).status_code, 404)
+            self.assertEqual(self.client.get(self.private_url).status_code, 403)
             build.assert_not_called()
-            self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="view_machine"))
+            self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="publish_machine"))
             response = self.client.get(self.private_url)
             self.assert_download_headers(response)
             self.client.logout()
             self.client.force_login(self.operator)
-            self.assertEqual(self.client.get(self.private_url).status_code, 404)
+            self.assertEqual(self.client.get(self.private_url).status_code, 403)
             self.assertEqual(build.call_count, 1)
 
     def test_owner_cannot_request_a_version_from_another_machine(self):
@@ -124,13 +128,16 @@ class PdfDownloadTests(TestCase):
         version = MachineVersion.objects.create(machine=foreign, number=1, data={}, created_by=self.other)
         self.client.force_login(self.owner)
         with patch("portal.pdf.build_pdf") as build:
-            self.assertEqual(self.client.get(self.private_url, {"version": str(version.pk)}).status_code, 404)
+            self.assertEqual(self.client.get(self.private_url, {"version": str(version.pk)}).status_code, 403)
         build.assert_not_called()
 
     def test_anonymous_public_pdf_uses_approved_snapshot_and_omits_private_data_and_plate(self):
         self.machine.title = "PRIVATE-UNREVIEWED-TITLE"
         self.machine.data["description"] = "PRIVATE-UNREVIEWED-DESCRIPTION"
         self.machine.save()
+        self.assertEqual(self.client.get(self.public_url).status_code, 403)
+        self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="publish_machine"))
+        self.verify_operator()
         response = self.client.get(self.public_url)
         self.assert_download_headers(response)
         document = PdfReader(BytesIO(response.content))
@@ -152,6 +159,8 @@ class PdfDownloadTests(TestCase):
                  (User, self.owner.pk, {"advertiser_status": "suspended"}),
                  (Machine, self.machine.pk, {"availability": "withdrawn"}),
                  (Machine, self.machine.pk, {"approved_version": None})]
+        self.operator.user_permissions.add(Permission.objects.get(content_type__app_label="portal", codename="publish_machine"))
+        self.verify_operator()
         with patch("portal.pdf.build_pdf") as build:
             for model, pk, changes in cases:
                 with self.subTest(changes=changes):

@@ -6,6 +6,7 @@ from django.db import close_old_connections
 
 from portal.processing import process_next_job, process_notifications
 from portal.access_tracking import purge_expired_accesses
+from portal.guest import purge_expired_guest_drafts
 
 
 class Command(BaseCommand):
@@ -18,6 +19,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.stopping = False
         next_access_cleanup = 0
+        next_guest_cleanup = 0
 
         def stop(signum, frame):
             self.stopping = True
@@ -33,6 +35,9 @@ class Command(BaseCommand):
                 if time.monotonic() >= next_access_cleanup:
                     purge_expired_accesses()
                     next_access_cleanup = time.monotonic() + 3600
+                if time.monotonic() >= next_guest_cleanup:
+                    purge_expired_guest_drafts()
+                    next_guest_cleanup = time.monotonic() + 3600
                 if options["once"]:
                     self.stdout.write(f"Análisis procesado: {int(processed)}. Avisos aceptados por backend: {accepted}.")
                     break

@@ -31,23 +31,39 @@ PLATE_TECHNICAL_LABELS = {"vibration_frequency": "Frecuencia de vibración", "ce
                           "battery_weight": "Peso de batería", "battery_capacity": "Capacidad de batería", "fork_length": "Longitud de horquillas"}
 PLATE_TECHNICAL_LABELS.update(working_width="Ancho de trabajo", maximum_weight="Peso operativo máximo",
                               drum_type="Tipo de tambor", emissions="Etapa de emisiones")
+CATALOGUE_TECHNICAL_LABELS = {
+    "engine_displacement": "Cilindrada", "boom_length": "Longitud de pluma",
+    "stick_length": "Longitud de brazo", "maximum_reach_ground": "Alcance máximo a nivel de suelo",
+    "maximum_loading_height": "Altura máxima de carga", "bucket_digging_force": "Fuerza de excavación del cucharón",
+    "stick_digging_force": "Fuerza de excavación del brazo", "hydraulic_flow": "Caudal hidráulico",
+    "swing_speed": "Velocidad de giro", "drum_width": "Ancho de tambor",
+    "drum_diameter": "Diámetro de tambor", "travel_speed": "Velocidad de desplazamiento",
+    "fuel_capacity": "Capacidad de combustible", "water_tank_capacity": "Capacidad de tanque de agua",
+    "platform_height": "Altura de plataforma", "horizontal_outreach": "Alcance horizontal",
+    "gradeability": "Pendiente superable", "swing": "Giro", "blade_width": "Ancho de hoja",
+}
 DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
 WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 DATA_FIELDS |= VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys() | AGE_LABELS.keys()
 DATA_FIELDS |= SPECIALIZED_FIELDS
+DATA_FIELDS |= CATALOGUE_TECHNICAL_LABELS.keys()
 AUTOMATIC_DATA_FIELDS |= VISUAL_LABELS.keys() | VALUATION_KEYS | AGE_LABELS.keys()
 AUTOMATIC_DATA_FIELDS |= EXCAVATOR_FIELDS
+AUTOMATIC_DATA_FIELDS |= CATALOGUE_TECHNICAL_LABELS.keys()
 WEB_DATA_FIELDS |= EXCAVATOR_FIELDS
 WEB_DATA_FIELDS |= AGE_LABELS.keys()
+WEB_DATA_FIELDS |= CATALOGUE_TECHNICAL_LABELS.keys()
 WEB_FIELD_LABELS = {"brand": "Marca", "model": "Modelo", "power": "Potencia", "weight": "Peso",
                     "capacity": "Capacidad", "dimensions": "Dimensiones", "fuel": "Combustible",
-                    "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS, **AGE_LABELS}
+                    "engine": "Motor", "transmission": "Transmisión", "year": "Año", **PLATE_TECHNICAL_LABELS,
+                    **CATALOGUE_TECHNICAL_LABELS, **AGE_LABELS}
 NUMERIC_READING_FIELDS = {"serial", "year", "hours", "kilometers", "power", "weight", "capacity", "dimensions",
                           "vibration_frequency", "centrifugal_force", "compaction_depth", "front_tire_size",
                           "rear_tire_size", "mast_tilt", "load_tire_tread", "voltage", "lift_height", "load_center",
-                          "battery_weight", "battery_capacity", "fork_length", "digging_depth"}
+                          "battery_weight", "battery_capacity", "fork_length", "digging_depth",
+                          *CATALOGUE_TECHNICAL_LABELS.keys()}
 
 
 def _same_image_numeric_conflict(machine, key, value, meta):
@@ -912,6 +928,8 @@ def require_owner(machine, user):
 
 
 def _notify(user, machine, kind, subject, body, template_key=None, context=None):
+    if user.is_guest:
+        return
     template=NotificationTemplate.objects.filter(key=template_key or kind,active=True).first()
     if template:
         values={"folio":machine.folio if machine else "", "status":machine.get_status_display() if machine else "", "reason":body,
@@ -1258,6 +1276,44 @@ def submit_machine(machine, user, advertise_consent, contact_consent=False):
     return submission
 
 
+LOCAL_DUPLICATE_REVIEW_RESULTS = {"no_match", "match", "update", "legitimate", "inconclusive"}
+
+
+def _local_duplicate_review_event(machine, submission):
+    """Return the human decision recorded for this exact submitted snapshot."""
+    events = AuditEvent.objects.filter(
+        action="machine.local_duplicate_reviewed", object_type=Machine._meta.label_lower,
+        object_id=str(machine.pk), created_at__gte=submission.created_at,
+    ).select_related("actor").order_by("-created_at")
+    for event in events:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        if metadata.get("submission_id") == submission.pk and metadata.get("version_id") == submission.version_id:
+            return event
+    return None
+
+
+@transaction.atomic
+def record_local_duplicate_review(machine, submission, actor, result, evidence, limitations=""):
+    """Record a staff decision without merging or rejecting any machine automatically."""
+    require_operator(actor, "portal.review_submission")
+    if result not in LOCAL_DUPLICATE_REVIEW_RESULTS:
+        raise ValidationError("Selecciona el resultado de la revisión local de duplicados.")
+    evidence, limitations = str(evidence or "").strip(), str(limitations or "").strip()
+    if not 12 <= len(evidence) <= 4000 or len(limitations) > 4000:
+        raise ValidationError("Describe qué se comprobó; los límites de la revisión son opcionales.")
+    machine = Machine.objects.select_for_update().get(pk=machine.pk)
+    submission = Submission.objects.select_for_update().select_related("version").get(pk=submission.pk)
+    if submission.machine_id != machine.pk or submission.status not in {"submitted", "in_review"}:
+        raise ValidationError("La revisión local debe corresponder a una solicitud pendiente de esta maquinaria.")
+    candidates = []
+    if actor.has_perm("portal.view_machine"):
+        candidates = [str(item.pk) for item in find_possible_duplicates(machine, actor)]
+    return audit(actor, "machine.local_duplicate_reviewed", machine, {
+        "submission_id": submission.pk, "version_id": submission.version_id, "result": result,
+        "evidence": evidence, "limitations": limitations, "candidate_machine_ids": candidates,
+    })
+
+
 @transaction.atomic
 def review_submission(submission, actor, decision, reason=""):
     require_operator(actor, "portal.review_submission")
@@ -1275,6 +1331,8 @@ def review_submission(submission, actor, decision, reason=""):
         raise ValidationError("Indica el motivo y, cuando corresponda, qué debe corregirse.")
     if decision == "approved" and machine.owner.advertiser_status != "approved":
         raise ValidationError("Aprueba primero el permiso de anunciante del propietario.")
+    if decision == "approved" and not _local_duplicate_review_event(machine, submission):
+        raise ValidationError("Registra primero una revisión local de posibles duplicados para esta solicitud y versión.")
     if submission.version.machine_id != machine.pk:
         raise ValidationError("La versión no corresponde a la maquinaria.")
     original_version = submission.version

@@ -110,7 +110,13 @@
   try { state = JSON.parse($('#machine-state').textContent); if (typeof state === 'string') state = JSON.parse(state); }
   catch { $('#wizard-errors').textContent = 'No pudimos cargar el borrador. Recarga antes de editar.'; $('#wizard-errors').hidden = false; return; }
   state.data ||= {}; state.provenance ||= {};
-  const base = `/api/maquinarias/${wizard.dataset.machine}/`;
+  const guest = Boolean(wizard.dataset.guest);
+  const base = wizard.dataset.apiBase || `/api/maquinarias/${wizard.dataset.machine}/`;
+  const jobUrl = id => guest ? `${base}analisis/${id}/` : `/api/analisis/${id}/`;
+  const assetUrl = id => guest ? `${base}archivos/${encodeURIComponent(id)}/` : `/archivos/${encodeURIComponent(id)}/`;
+  const assetActionUrl = id => guest ? `${base}archivos/${id}/accion/` : `/api/archivos/${id}/accion/`;
+  function keepGuestResult() { displayStep(2); $('#guest-save-result')?.scrollIntoView({behavior:'smooth',block:'center'}); }
+  $$('[data-guest-save]',wizard).forEach(link => link.addEventListener('click',event => { event.preventDefault(); keepGuestResult(); }));
   let editable = wizard.dataset.editable === 'true';
   const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set(), assetTasks = new Set();
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
@@ -126,7 +132,8 @@
   const conditionLabels = { usage_condition:'Uso aparente',preservation_condition:'Conservación aparente',preservation_notes:'Observaciones de conservación',operating_status:'Funcionamiento',visible_defects:'Defectos visibles',visible_components:'Componentes visibles',applications:'Aplicaciones y usos' };
   const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_suggested_price:'Precio sugerido',estimate_currency:'Moneda de la estimación',estimate_date:'Fecha de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
   const ageLabels = { estimated_year_from:'Año aproximado desde',estimated_year_to:'Año aproximado hasta',estimated_year_basis:'Indicios para el año aproximado' };
-  Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels);
+  const catalogueTechnicalLabels = { engine_displacement:'Cilindrada',boom_length:'Longitud de pluma',stick_length:'Longitud de brazo',maximum_reach_ground:'Alcance máximo a nivel de suelo',maximum_loading_height:'Altura máxima de carga',bucket_digging_force:'Fuerza de excavación del cucharón',stick_digging_force:'Fuerza de excavación del brazo',hydraulic_flow:'Caudal hidráulico',swing_speed:'Velocidad de giro',drum_width:'Ancho de tambor',drum_diameter:'Diámetro de tambor',travel_speed:'Velocidad de desplazamiento',fuel_capacity:'Capacidad de combustible',water_tank_capacity:'Capacidad de tanque de agua',platform_height:'Altura de plataforma',horizontal_outreach:'Alcance horizontal',gradeability:'Pendiente superable',swing:'Giro',blade_width:'Ancho de hoja' };
+  Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels,catalogueTechnicalLabels);
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -149,6 +156,7 @@
     if (!editable || submitting || deleting) return;
     const input = event.target, key = input.dataset.field || input.dataset.topField;
     if (!key) return;
+    if (['category','brand','model','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
     pending.set(key,{value:readInput(input),sequence:++sequence});
     renderPreview();
     if (conflict) return;
@@ -180,7 +188,7 @@
   async function rebaseOwnAnalysis(revision) {
     if (!activeJob) return false;
     try {
-      const job = await api(`/api/analisis/${activeJob}/`);
+      const job = await api(jobUrl(activeJob));
       if (!isOwnAutoAdvance(job.machine,job.auto_apply,revision)) return false;
       return hydrate(job.machine);
     } catch { return false; }
@@ -236,7 +244,7 @@
     event.preventDefault();
     if (submitting || downloading || deleting) return problem('Espera a que termine la operación en curso.');
     if (uploadCount || uploadFailures.size) return problem('Termina la carga o descarta los archivos que no pudieron subir antes de salir.');
-    try { await save(); location.assign('/panel/maquinarias/'); } catch { /* Keep local corrections visible. */ }
+    try { await save(); if (guest) keepGuestResult(); else location.assign('/panel/maquinarias/'); } catch { /* Keep local corrections visible. */ }
   });
   beforePreferencesReload = async () => {
     if (submitting || downloading || deleting || uploadCount || uploadFailures.size) return false;
@@ -269,6 +277,19 @@
     try { const result = await action(); updateRevision(result); return result; }
     finally { assetMutation = null; release(); if (pending.size && !conflict && !deleting) saveTimer = setTimeout(() => save().catch(() => {}),0); }
   }
+  function orderedCards() { return $$('.asset-card',wizard).sort((a,b) => Number(a.dataset.position || 0) - Number(b.dataset.position || 0)); }
+  function organizePhotos() {
+    const main=$('#asset-grid'), extra=$('#additional-asset-grid'), privateGrid=$('#private-asset-grid');
+    if (!extra || !privateGrid) return;
+    let count=0, internal=0;
+    for (const card of orderedCards()) {
+      const isPhoto=card.dataset.kind==='image' && !['plate','document'].includes(card.dataset.purpose);
+      if (isPhoto && count++ < 10) (count<=4 ? main : extra).append(card);
+      else { privateGrid.append(card); internal++; }
+    }
+    $('#private-photos').hidden=!internal;
+    $('#photo-count-status').textContent=`${Math.min(count,4)} de 4 vistas principales · ${Math.max(0,Math.min(count-4,6))} adicionales. Puedes empezar con una sola foto.`;
+  }
   function assetSummary(card) {
     const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
   }
@@ -279,11 +300,11 @@
       if (action === 'delete' && !confirm('¿Eliminar este archivo del borrador?')) return;
       button.disabled = true;
       try {
-        await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action}));
+        await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action}));
         if (action === 'delete') card.remove();
         if (action === 'cover') { $$('.asset-cover',wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover',card).hidden = false; }
-        if (action === 'up' && card.previousElementSibling) card.parentNode.insertBefore(card,card.previousElementSibling);
-        if (action === 'down' && card.nextElementSibling) card.parentNode.insertBefore(card.nextElementSibling,card);
+        if (action === 'up' || action === 'down') { const cards=orderedCards(), index=cards.indexOf(card), other=cards[index+(action==='up'?-1:1)]; if (other) { const position=card.dataset.position; card.dataset.position=other.dataset.position; other.dataset.position=position; } }
+        organizePhotos();
         renderPreview(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
       } catch (error) { problem(error.message); }
       finally { button.disabled = !editable || submitting || deleting; }
@@ -292,23 +313,24 @@
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
       const previous = card.dataset.purpose; if (preparing || submitting || downloading || deleting) { select.value = previous; return; } select.disabled = true;
-      try { await mutateAsset(() => api(`/api/archivos/${card.dataset.assetId}/accion/`,{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); renderPreview(); }
+      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); }
       catch (error) { select.value = previous; problem(error.message); }
       finally { select.disabled = !editable || submitting || deleting; }
     });
     $('.asset-info',card).append(select);
   }
-  $$('.asset-card',wizard).forEach(assetActionButtons);
+  $$('.asset-card',wizard).forEach((card,index) => { if (!card.dataset.position) card.dataset.position=String(index); assetActionButtons(card); });
+  organizePhotos();
   function appendAsset(result) {
     if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(result.id))) return;
-    const card = el('article','asset-card'); card.dataset.assetId = result.id; card.dataset.kind = result.kind; card.dataset.purpose = result.purpose;
-    const preview = el('div','asset-preview'), url = result.url || `/archivos/${result.id}/`;
+    const card = el('article','asset-card'); card.dataset.assetId = result.id; card.dataset.kind = result.kind; card.dataset.purpose = result.purpose; card.dataset.position = String(result.position ?? (Math.max(-1,...orderedCards().map(item => Number(item.dataset.position))) + 1));
+    const preview = el('div','asset-preview'), url = result.url || assetUrl(result.id);
     if (result.kind === 'video') { const video = el('video'); video.src = url; video.controls = true; video.preload = 'metadata'; preview.append(video); }
-    else { const link = el('a'); link.href = `/archivos/${result.id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; const image = el('img'); image.src = url; image.alt = 'Fotografía de tu maquinaria'; image.loading = 'lazy'; link.append(image); preview.append(link); }
+    else { const link = el('a'); link.href = `${assetUrl(result.id)}?original=1`; link.target = '_blank'; link.rel = 'noopener'; const image = el('img'); image.src = url; image.alt = 'Fotografía de tu maquinaria'; image.loading = 'lazy'; link.append(image); preview.append(link); }
     const cover = el('span','tag asset-cover','PORTADA'); cover.hidden = !result.is_cover; preview.append(cover);
     const info = el('details','asset-info'), summary = el('summary'), actions = el('div','asset-actions');
     for (const [action,label,symbol] of [['cover','Usar como portada','☆'],['up','Mover antes','←'],['down','Mover después','→'],['delete','Eliminar archivo','×']]) { const button = el('button','',symbol); button.type = 'button'; button.dataset.assetAction = action; button.setAttribute('aria-label',label); button.title = label; actions.append(button); }
-    info.append(summary,actions); card.append(preview,info); $('#asset-grid').append(card); assetSummary(card); assetActionButtons(card); renderPreview();
+    info.append(summary,actions); card.append(preview,info); $('#asset-grid').append(card); assetSummary(card); assetActionButtons(card); organizePhotos(); renderPreview();
   }
   function sendFile(file,purpose,row) {
     return new Promise((resolve,reject) => {
@@ -358,15 +380,25 @@
     if (uploadFailures.size) throw new Error('Hay archivos que no pudieron subir. Reinténtalos o descártalos para continuar.');
   }
 
+  if (guest) $$('a[href^="/registro/"],a[href^="/iniciar-sesion/"]').forEach(link => link.addEventListener('click',async event => {
+    event.preventDefault();
+    if (downloading || preparing || jobPending || polling) return problem('Espera a que termine el análisis para conservar el resultado en tu cuenta.');
+    downloading = true; prepareLabel();
+    try { await uploadsReady(); await save(); location.assign(link.href); }
+    catch (error) { problem(error.message); }
+    finally { downloading = false; prepareLabel(); }
+  }));
+
   const pdfDownload = $('#download-draft-pdf'), pdfStatus = $('#draft-pdf-status'), sheetLinks = $$('[data-open-sheet]',wizard);
   let documentMode = 'pdf';
   function pdfLabel() {
     const busy = downloading || submitting || preparing || jobPending || polling || deleting;
-    pdfDownload.setAttribute('aria-disabled',String(busy));
-    pdfDownload.setAttribute('aria-busy',String(downloading && documentMode === 'pdf'));
-    pdfDownload.textContent = downloading && documentMode === 'pdf' ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
+    pdfDownload?.setAttribute('aria-disabled',String(busy));
+    pdfDownload?.setAttribute('aria-busy',String(downloading && documentMode === 'pdf'));
+    if (pdfDownload) pdfDownload.textContent = downloading && documentMode === 'pdf' ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
     sheetLinks.forEach(link => { link.setAttribute('aria-disabled',String(busy)); link.setAttribute('aria-busy',String(downloading && documentMode === 'screen')); });
-    $('#view-draft-sheet').textContent = downloading && documentMode === 'screen' ? 'Abriendo tu ficha…' : 'Ver ficha en pantalla →';
+    const sheetControl = $('#view-draft-sheet');
+    if (sheetControl) sheetControl.textContent = downloading && documentMode === 'screen' ? 'Abriendo tu ficha…' : 'Ver ficha en pantalla →';
   }
   async function openDocument(event,mode) {
     event.preventDefault();
@@ -387,7 +419,7 @@
       problem(error.message); pdfStatus.textContent = mode === 'pdf' ? 'No se descargó el PDF. Conservamos tus cambios para que puedas reintentar.' : 'No se abrió la ficha. Conservamos tus cambios para que puedas reintentar.';
     } finally { downloading = false; prepareLabel(); }
   }
-  pdfDownload.addEventListener('click',event => openDocument(event,'pdf'));
+  pdfDownload?.addEventListener('click',event => openDocument(event,'pdf'));
   sheetLinks.forEach(link => link.addEventListener('click',event => openDocument(event,'screen')));
   function analysisStatus(message,status='') { $('#analysis-feedback').hidden = false; const box = $('#analysis-status'); box.textContent = message; box.dataset.state = status; }
   function setAnalysisLoading(active,message='') {
@@ -457,11 +489,11 @@
     if (!deleting) displayStep(1);
     return true;
   }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Preparar mi ficha ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Completar con IA ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
-    if (job.machine && Number(job.machine.revision) < Number(state.revision)) job = await api(`/api/analisis/${job.id}/`);
+    if (job.machine && Number(job.machine.revision) < Number(state.revision)) job = await api(jobUrl(job.id));
     if (!conflict && job.machine && (!pending.size || Number(job.machine.revision) === Number(state.revision) || isOwnAutoAdvance(job.machine,job.auto_apply))) hydrate(job.machine);
     return job;
   }
@@ -479,7 +511,7 @@
       renderRelevance(relevanceOf(job),readings);
     }
     // A previous, already consented analysis can fill blanks without a second AI call.
-    if (editable && !conflict && !deleting && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
+    if (!guest && editable && !conflict && !deleting && (!job.auto_apply?.requested || job.auto_apply.reason === 'application_failed') && !legacyAttempts.has(job.id)) {
       legacyAttempts.add(job.id);
       try { await save(); if (deleting) return; const applied = await api(`${base}aplicar/`,{automatic:true,job_id:job.id,revision:state.revision}); job = await syncSnapshot({...job,auto_apply:applied.auto_apply,machine:applied.machine}); }
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
@@ -510,7 +542,7 @@
   async function runPollJob(id) {
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
-      const job = await api(`/api/analisis/${id}/`);
+      const job = await api(jobUrl(id));
       analysisOutcome = job.status;
       if (job.status === 'completed') { jobPending = false; await completedJob(job); }
       else if (job.status === 'failed') { jobPending = false; setAnalysisLoading(false); await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
@@ -528,12 +560,14 @@
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
     if (!editable || preparing || jobPending || polling || submitting || downloading || deleting) return;
+    if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();
     try {
       await uploadsReady(); await save();
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
-      if (!assetIds.length) throw new Error('Agrega al menos una fotografía para preparar la ficha.');
-      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode:'analysis'});
+      const mode = assetIds.length ? 'analysis' : 'description';
+      if (!assetIds.length && !['brand','model','serial','description'].some(key => String(collect().data[key] || '').trim())) throw new Error('Agrega una fotografía o algún dato del equipo para completar la ficha con IA.');
+      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode});
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
       displayStep(2); setAnalysisLoading(true,'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.'); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
@@ -645,8 +679,8 @@
   }
   function renderIntegrityAlerts(job,target) {
     const result = job.result || {}, integrity = job.integrity || job.processing_integrity || result.integrity || result.processing_integrity || {};
-    const categoryConflict = integrity.category_conflict;
-    const multiple = integrity.multiple_machines;
+    const categoryConflict = integrity.category_conflict || result.category_conflict;
+    const multiple = integrity.multiple_machines || result.multiple_machines;
     if (!categoryConflict && !multiple) return;
     const box = el('div','analysis-integrity');
     if (categoryConflict) {
@@ -683,7 +717,7 @@
         const item = el('li','',`${String(reading.value)} · ${sourceLabels[reading.source] || 'Lectura de IA'}`);
         if ($$('.asset-card',wizard).some(card => card.dataset.assetId === assetId)) {
           const link = el('a','text-link small','Ver foto ↗');
-          link.href = `/archivos/${encodeURIComponent(assetId)}/?original=1`;
+          link.href = `${assetUrl(assetId)}?original=1`;
           link.target = '_blank'; link.rel = 'noopener';
           item.append(' ',link);
         }
@@ -694,6 +728,7 @@
     if (box.children.length > 2) target.append(box);
   }
   function renderConflictBatch(job,target,metadata) {
+    if (guest) return;
     const actionableReasons = new Set(['existing_value','human_correction','not_empty_at_request','conflicting_reading']);
     const candidateIsReviewable = key => {
       const meta = job.result?.provenance?.[key] || {};
@@ -744,6 +779,15 @@
   }
   function renderResults(job) {
     const target = $('#analysis-results'), result = job.result || {}, metadata = job.auto_apply || {};
+    const consistency = result.consistency, consistencyBox = $('#consistency-status');
+    if (consistencyBox) {
+      const statuses = {compatible:'Datos comparados compatibles',contradiction:'Hay datos que no coinciden',insufficient_evidence:'Falta evidencia para comparar'};
+      consistencyBox.replaceChildren(); consistencyBox.hidden = !statuses[consistency?.status];
+      if (!consistencyBox.hidden) {
+        consistencyBox.append(el('div','',statuses[consistency.status]),el('p','small',consistency.explanation || ''));
+        consistencyBox.append(el('p','small muted','Comparación privada con los datos disponibles al iniciar este análisis. Puedes corregir la ficha; no certifica la identidad ni el funcionamiento.'));
+      }
+    }
     researchHypotheses = researchHypothesesOf(result.research);
     researchHypothesisIdentity = valuationIdentityOf(job.machine || state);
     valuationFeedback = result.valuation?.status === 'insufficient' ? 'insufficient' : null;
@@ -766,7 +810,7 @@
     const provenance = el('dl','analysis-provenance');
     for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',keyLabels[key] || key),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }
     if (provenance.children.length) target.append(provenance);
-    for (const plate of Array.isArray(result.plates) ? result.plates : []) { target.append(el('p','small',`Placa: ${plate.component || 'componente por identificar'}`),el('pre','plate-text',plate.transcription || 'No identificable')); if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a','text-link small','Ver placa original ↗'); link.href = `/archivos/${plate.asset_id}/?original=1`; link.target = '_blank'; link.rel = 'noopener'; target.append(link); } }
+    for (const plate of Array.isArray(result.plates) ? result.plates : []) { target.append(el('p','small',`Placa: ${plate.component || 'componente por identificar'}`),el('pre','plate-text',plate.transcription || 'No identificable')); if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a','text-link small','Ver placa original ↗'); link.href = `${assetUrl(plate.asset_id)}?original=1`; link.target = '_blank'; link.rel = 'noopener'; target.append(link); } }
     renderPreview();
   }
   function previewSource(meta) {
@@ -791,8 +835,8 @@
     if (cover) {
       if ($('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) {
         const link = el('a'), image = el('img');
-        link.href = `/archivos/${encodeURIComponent(cover.dataset.assetId)}/?original=1`; link.target = '_blank'; link.rel = 'noopener';
-        image.src = `/archivos/${encodeURIComponent(cover.dataset.assetId)}/`; image.dataset.assetId = cover.dataset.assetId;
+        link.href = `${assetUrl(cover.dataset.assetId)}?original=1`; link.target = '_blank'; link.rel = 'noopener';
+        image.src = assetUrl(cover.dataset.assetId); image.dataset.assetId = cover.dataset.assetId;
         link.append(image); coverBox.replaceChildren(link);
       }
       $('img',coverBox).alt = isPlate(cover) ? 'Placa de identificación de esta ficha' : 'Fotografía aportada de la maquinaria';
@@ -826,7 +870,7 @@
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';
     $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
-    for (const key of ['machine_family','boom_configuration','stick_configuration','size_class','application','depth_configuration','power_type','power','weight','capacity','digging_depth','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels)]) addField(technical,key,data[key]);
+    for (const key of ['machine_family','boom_configuration','stick_configuration','size_class','application','depth_configuration','power_type','power','weight','capacity','digging_depth','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels),...Object.keys(catalogueTechnicalLabels)]) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
     const condition = $('#preview-condition-specs'); condition.replaceChildren();
     for (const key of ['preservation_notes','visible_defects','visible_components','attachments','applications']) addField(condition,key,data[key]);
@@ -843,6 +887,7 @@
     addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');
   }
   $('#submit-machine').addEventListener('click',async () => {
+    if (guest) { try { await uploadsReady(); await save(); keepGuestResult(); } catch (error) { problem(error.message); } return; }
     if (!editable || submitting || downloading || deleting) return;
     submitting = true; clearProblem(); pdfLabel(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
     frozenControls.forEach(([control]) => { control.disabled = true; });
@@ -852,7 +897,7 @@
       if (!$('.asset-card[data-kind=image][data-purpose=general],.asset-card[data-kind=image][data-purpose=detail]',wizard)) { displayStep(1); throw new Error('Agrega al menos una fotografía general o de detalle antes de enviar.'); }
       const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
       pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
-    } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a IMC México ↗'; }
+    } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a revisión ↗'; }
   });
   $('#delete-draft')?.addEventListener('click',async () => {
     if (!editable || deleting || preparing || submitting || downloading) return;
@@ -890,7 +935,7 @@
     let categories; try { categories = JSON.parse(source.textContent); } catch { return; }
     const category = categories.find(item => String(item.id) === $('#category').value); target.replaceChildren();
     const profile = category?.profile && typeof category.profile === 'object' ? category.profile : {};
-    const technical = ['power','weight','capacity','digging_depth','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin',...Object.keys(additionalPlateLabels)];
+    const technical = ['power','weight','capacity','digging_depth','dimensions','fuel','kilometers','attachments','engine','transmission','vibration_frequency','centrifugal_force','compaction_depth','country_of_origin',...Object.keys(additionalPlateLabels),...Object.keys(catalogueTechnicalLabels)];
     const profileFields = Array.isArray(profile.fields) ? profile.fields : Array.isArray(profile.field_definitions) ? profile.field_definitions : [];
     const excavatorFields = profile.key === 'excavator' ? [
       {key:'hours_recorded_at',type:'date'}, {key:'weight',help:'Escribe número y unidad, por ejemplo: 21 500 kg.'},

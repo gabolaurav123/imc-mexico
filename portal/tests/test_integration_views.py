@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from io import BytesIO
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -9,9 +10,10 @@ from django.contrib.auth.models import Permission
 from django.core.files.base import ContentFile
 from django.test import Client, RequestFactory, TestCase, override_settings
 from PIL import Image
+from pypdf import PdfReader
 
 from portal.admin import PublicationAdmin
-from portal.integration import ack_delivery, delivery_metadata, prepare_delivery
+from portal.integration import ack_delivery, delivery_metadata, prepare_delivery, record_manual_review
 from django.core.exceptions import ValidationError
 from portal.models import Asset, IntegrationDelivery, Machine, MachineVersion, Publication, User
 from portal.export_payload import build_export_payload
@@ -60,6 +62,11 @@ class IntegrationViewTests(TestCase):
                 'remote_url': 'https://www.imcmexico.com.mx/catalogo-de-prueba-0012345678901234',
                 'status': 'acknowledged', **changes}
 
+    def review_duplicates(self, delivery):
+        return record_manual_review(delivery, self.publisher,
+            imc_advertiser='Cuenta IMC de prueba', duplicate_result='no_match',
+            evidence='Se revisó manualmente el catálogo autorizado de la cuenta IMC de prueba.')
+
     def test_operator_pages_are_read_only_and_access_is_restricted(self):
         Publication.objects.create(machine=self.machine, destination='share', version=self.version)
         self.assertContains(self.client.get('/operaciones/integracion/'), 'Pendiente de entrega')
@@ -90,8 +97,10 @@ class IntegrationViewTests(TestCase):
 
     def test_checked_receipt_links_but_does_not_publish_and_return_route_is_private(self):
         delivery = self.prepare()
+        self.review_duplicates(delivery)
         response = self.client.post(self.url, {'action': 'acknowledge', 'delivery_id': str(delivery.pk),
-            'receipt': json.dumps(self.receipt(delivery)), 'evidence': 'Acuse comprobado en un receptor de prueba aislado.', 'verified': 'on'})
+            'receipt': json.dumps(self.receipt(delivery)), 'evidence': 'Acuse comprobado en un receptor de prueba aislado.',
+            'imc_advertiser': 'Anunciante IMC de prueba', 'verified': 'on'})
         self.assertEqual(response.status_code, 302)
         pub = Publication.objects.get(machine=self.machine, destination='main')
         self.assertEqual(pub.integration_state, 'acknowledged')
@@ -112,8 +121,88 @@ class IntegrationViewTests(TestCase):
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.revision, 1)
 
+    def test_manual_review_records_destination_and_inconclusive_duplicates_without_publishing(self):
+        delivery = self.prepare()
+        response = self.client.post(self.url, {
+            'action': 'manual_review', 'delivery_id': str(delivery.pk),
+            'imc_advertiser': 'Cuenta autorizada del anunciante', 'duplicate_result': 'partial',
+            'evidence': 'Se revisó manualmente el catálogo accesible del anunciante.',
+            'limitations': 'La búsqueda no cubrió fichas archivadas.',
+        })
+        self.assertEqual(response.status_code, 302)
+        delivery.refresh_from_db()
+        event = delivery.manual_metadata['events'][0]
+        self.assertEqual(event['imc_advertiser'], 'Cuenta autorizada del anunciante')
+        self.assertEqual(event['duplicate_result'], 'partial')
+        self.assertEqual(Publication.objects.get(machine=self.machine, destination='main').status, 'approved')
+
+    def test_imc_media_selection_is_versioned_and_separate_from_local_share_media(self):
+        response = self.client.post(self.url, {
+            'action': 'select_imc_media', 'imc_asset_slots': f'{self.asset.pk}|1',
+        })
+        self.assertEqual(response.status_code, 302)
+        publication = Publication.objects.get(machine=self.machine, destination='main')
+        self.assertEqual(publication.imc_selection_version_id, self.version.pk)
+        self.assertEqual(publication.imc_asset_ids, [str(self.asset.pk)])
+        payload, _ = build_export_payload(self.machine, self.version, asset_ids=publication.imc_asset_ids)
+        self.assertEqual(payload['assets'][0]['destination_role'], 'principal')
+        self.assertEqual(payload['assets'][0]['path'].split('/')[0], 'fotos_principales')
+
+    def test_zip_pdf_uses_the_exact_imc_selection_and_manual_data_has_structured_location(self):
+        raw = BytesIO()
+        Image.new('RGB', (60, 60), 'blue').save(raw, 'PNG')
+        selected = Asset.objects.create(machine=self.machine, kind='image', purpose='general', processing_status='ready',
+            public_authorized=True, mime_type='image/png', size=len(raw.getvalue()), sha256='b' * 64)
+        selected.original.save('selected-original.png', ContentFile(raw.getvalue()))
+        snapshot = deepcopy(self.version.data)
+        snapshot['asset_ids'].append(str(selected.pk))
+        snapshot['data'].update({
+            'location_country': 'México', 'location_region': 'Nuevo León', 'location_city': 'Monterrey',
+            'weight': '21 t', 'power': '110 kW', 'capacity': '1.2 m³', 'digging_depth': '6.7 m',
+            'estimated_year_from': 2015, 'estimated_year_to': 2017,
+        })
+        self.version = MachineVersion.objects.create(machine=self.machine, number=2, created_by=self.owner,
+                                                     data=snapshot)
+        self.machine.approved_version = self.version
+        self.machine.save(update_fields=['approved_version'])
+        self.assertEqual(self.client.post(self.url, {
+            'action': 'select_imc_media', 'imc_asset_slots': f'{selected.pk}|1',
+        }).status_code, 302)
+        publication = Publication.objects.get(machine=self.machine, destination='main')
+        payload, _ = build_export_payload(self.machine, self.version, asset_ids=publication.imc_asset_ids)
+        self.review_duplicates(prepare_delivery(self.machine, self.publisher, payload))
+
+        with patch('portal.pdf.build_pdf', return_value=b'%PDF-1.4\n') as build:
+            response = self.client.post(f'/operaciones/maquinarias/{self.machine.pk}/exportar/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([str(asset.pk) for asset in build.call_args.args[2]], [str(selected.pk)])
+        self.assertEqual(build.call_args.kwargs['destination_asset_ids'], [str(selected.pk)])
+        with zipfile.ZipFile(BytesIO(response.content)) as package:
+            payload = json.loads(package.read('publicacion.json'))
+            text = package.read(f'ficha_{self.machine.folio}_{self.version.number}/datos_para_imc.txt').decode()
+            self.assertEqual([item['id'] for item in payload['assets']], [str(selected.pk)])
+            self.assertIn('Ubicación país: México', text)
+            self.assertIn('Ubicación estado o región: Nuevo León', text)
+            self.assertIn('Ubicación ciudad: Monterrey', text)
+            self.assertIn('Rango de año estimado: 2015 a 2017', text)
+            self.assertIn('Peso: 21 t', text)
+            self.assertNotIn('PRIVATE-NOTES', text)
+            self.assertNotIn(selected.original.name, json.dumps(payload))
+            self.assertNotIn(self.asset.original.name, json.dumps(payload))
+        shared_preview = BytesIO()
+        Image.new('RGB', (80, 40), 'orange').save(shared_preview, 'PNG')
+        self.asset.preview.save('shared-preview.png', ContentFile(shared_preview.getvalue()))
+        selected.preview.save('selected-preview.png', ContentFile(raw.getvalue()))
+        from portal.pdf import build_pdf
+        actual_pdf = build_pdf(self.machine, {}, [self.asset, selected], public=True, version=self.version,
+                               destination_asset_ids=[str(selected.pk)])
+        image_sizes = [item.image.size for page in PdfReader(BytesIO(actual_pdf)).pages for item in page.images]
+        self.assertIn((60, 60), image_sizes)
+        self.assertNotIn((80, 40), image_sizes)
+
     def test_zip_retries_keep_key_and_use_actual_media_and_safe_projection(self):
         url = f'/operaciones/maquinarias/{self.machine.pk}/exportar/'
+        self.review_duplicates(self.prepare())
         with patch('portal.pdf.build_pdf', return_value=b'%PDF-1.4\n'):
             first, second = self.client.post(url), self.client.post(url)
         self.assertEqual(first.status_code, 200)
@@ -140,7 +229,7 @@ class IntegrationViewTests(TestCase):
         self.assertEqual(IntegrationDelivery.objects.count(), 0)
 
     def test_admin_json_reuses_public_projection(self):
-        self.prepare()
+        self.review_duplicates(self.prepare())
         request = RequestFactory().post('/admin/')
         request.user = self.publisher
         response = PublicationAdmin(Publication, AdminSite()).export_main(request, Publication.objects.all())

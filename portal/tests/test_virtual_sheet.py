@@ -42,11 +42,14 @@ class VirtualSheetTests(SimpleTestCase):
         for private in ("PRIVATE-SERIAL", "PRIVATE-NOTE", "PRIVATE-TRANSCRIPTION", "Guardar disponibilidad",
                         "Duplicar como nuevo borrador", "Vista interna · datos privados"):
             self.assertNotIn(private, html)
-        self.assertIn("/ficha/example-token/pdf/", html)
+        self.assertNotIn("/ficha/example-token/pdf/", html)
+        self.assertIn("Compartir ficha web", html)
+        self.assertIn("Ver máquinas similares", html)
         self.assertIn("Consultar al equipo", html)
 
     def test_historical_internal_pdf_link_keeps_the_displayed_version(self):
         context = self.context()
+        context['can_export'] = True
         context["machine"].updated_at = datetime(2026, 9, 16, 18, tzinfo=timezone.utc)
         context["version"] = SimpleNamespace(pk="historical-version", number=3,
                                              created_at=datetime(2026, 8, 12, 18, tzinfo=timezone.utc))

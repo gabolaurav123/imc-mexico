@@ -12,11 +12,12 @@ from django.test import TestCase, override_settings
 from PIL import Image
 from pypdf import PdfReader
 
-from portal.models import AnalysisJob, Asset, Consent, Machine, Publication, User
+from portal.models import AnalysisJob, Asset, Consent, IntegrationDelivery, Machine, Publication, User
+from portal.integration import record_manual_review
 from portal.pdf import build_pdf
 from portal.research import ResearchExtraction, ResearchField, merge_research, normalize_research
 from portal.services import (apply_analysis_automatically, apply_analysis_suggestions,
-    automatic_application_snapshot, public_web_references, review_submission,
+    automatic_application_snapshot, public_web_references, record_local_duplicate_review, review_submission,
     save_draft, set_advertiser_status, set_publication, submit_machine)
 
 
@@ -185,6 +186,10 @@ class WebAutofillTests(TestCase):
         set_advertiser_status(self.owner,self.admin,'approved','Prueba')
         submission=submit_machine(self.machine,self.owner,True)
         self.asset.public_authorized=True;self.asset.save()
+        record_local_duplicate_review(
+            self.machine, submission, self.admin, "no_match",
+            "Se revisaron serie, marca, modelo y el activo de la solicitud.",
+        )
         review_submission(submission,self.admin,'approved');self.machine.refresh_from_db()
         version=self.machine.approved_version
         publication=set_publication(self.machine,self.admin,True)
@@ -210,6 +215,12 @@ class WebAutofillTests(TestCase):
         self.assertNotIn(safe_url,links)
         self.assertNotIn('CAT', ''.join(link for link in links if link!=safe_url))
         self.client.force_login(self.admin)
+        prepared=self.client.post(f'/operaciones/maquinarias/{self.machine.pk}/exportar/')
+        self.assertEqual(prepared.status_code, 302)
+        delivery=IntegrationDelivery.objects.get(source_machine_id=self.machine.pk)
+        record_manual_review(delivery, self.admin, imc_advertiser='Cuenta IMC de prueba',
+                             duplicate_result='no_match',
+                             evidence='Se revisaron manualmente los resultados de duplicado para IMC.')
         response=self.client.post(f'/operaciones/maquinarias/{self.machine.pk}/exportar/')
         self.assertEqual(response.status_code,200)
         package=zipfile.ZipFile(BytesIO(response.content))

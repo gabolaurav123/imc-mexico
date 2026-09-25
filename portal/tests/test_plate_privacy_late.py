@@ -9,7 +9,7 @@ from PIL import Image
 from pypdf import PdfReader
 
 from portal.models import AnalysisJob, Asset, Machine, MachineVersion, Publication, User
-from portal.services import review_submission, submit_machine
+from portal.services import record_local_duplicate_review, review_submission, submit_machine
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, PRIVATE_S3_BUCKET="",
@@ -65,6 +65,10 @@ class LatePlatePrivacyTests(TestCase):
         self.assertIn(str(self.plate.pk), submission.version.data["public_asset_ids"])
         self.identify_plate()
         administrator = User.objects.create_superuser(email="late-plate-admin@example.invalid", is_test=True)
+        record_local_duplicate_review(
+            self.machine, submission, administrator, "no_match",
+            "Se revisaron la placa privada, serie y archivos de esta versión.",
+        )
         review_submission(submission, administrator, "approved")
         self.machine.refresh_from_db()
         approved = self.machine.approved_version.data
@@ -89,8 +93,4 @@ class LatePlatePrivacyTests(TestCase):
     def test_historical_public_pdf_does_not_embed_newly_detected_plate(self):
         publication = self.historical_publication()
         response = self.client.get(f"/ficha/{publication.token}/pdf/")
-        self.assertEqual(response.status_code, 200)
-        document = PdfReader(BytesIO(response.content))
-        sizes = [item.image.size for page in document.pages for item in page.images]
-        self.assertIn((120, 80), sizes)
-        self.assertNotIn((96, 64), sizes)
+        self.assertEqual(response.status_code, 403)

@@ -61,7 +61,7 @@ class ExportPayloadTests(TestCase):
         self.approve_assets(asset)
         payload, files = build_export_payload(self.machine, self.version)
         item = payload["assets"][0]
-        self.assertEqual(item["path"], f"fotografias/{asset.pk}.png")
+        self.assertEqual(item["path"], f"fotos_principales/01_{asset.pk}.png")
         self.assertEqual(item["mime_type"], "image/png")
         self.assertEqual(item["size"], len(raw))
         self.assertEqual(item["sha256"], sha256(raw).hexdigest())

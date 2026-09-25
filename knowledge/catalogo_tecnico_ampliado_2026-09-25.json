@@ -1,0 +1,150 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "323",
+      "variant": "Tier 4 / Stage V",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/excavators/medium-excavators/126531.html",
+      "source_title": "323 Hydraulic Excavator | Cat | Caterpillar",
+      "source_version": "07H US product page; Tier 4 / Stage V",
+      "retrieved_at": "2026-09-25",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica de orugas",
+        "type_en": "crawler hydraulic excavator",
+        "model_aliases": ["Cat 323"],
+        "market_scope": "US product configuration",
+        "note": "Los datos de alcance de excavación publicados corresponden a pluma Reach de 5.7 m, brazo Reach de 2.9 m y cucharón HD de 1.30 m³. La potencia neta se publica según ISO 9249 a 2,200 rpm. La ficha no acredita el año, configuración, emisiones ni accesorios de una unidad concreta."
+      },
+      "specs": {
+        "power": {"value": "128.5 kW", "evidence": "Caterpillar 323 Tier 4 / Stage V: Net Power - ISO 9249 128.5 kW."},
+        "engine": {"value": "Cat C7.1", "evidence": "Caterpillar 323 Tier 4 / Stage V: Engine Model Cat C7.1."},
+        "engine_displacement": {"value": "7.01 L", "evidence": "Caterpillar 323 Tier 4 / Stage V: Engine displacement 7.01 L."},
+        "weight": {"value": "25000 kg", "evidence": "Caterpillar 323 Tier 4 / Stage V: Operating Weight 25000 kg."},
+        "digging_depth": {"value": "6730 mm", "evidence": "Caterpillar 323 Tier 4 / Stage V: Maximum Digging Depth 6730 mm."},
+        "capacity": {"value": "1.30 m³", "evidence": "Caterpillar 323 Tier 4 / Stage V: HD bucket 1.30 m³."},
+        "boom_length": {"value": "5.7 m", "evidence": "Caterpillar 323 Tier 4 / Stage V: Reach boom 5.7 m."},
+        "stick_length": {"value": "2.9 m", "evidence": "Caterpillar 323 Tier 4 / Stage V: Reach stick 2.9 m."},
+        "maximum_reach_ground": {"value": "9870 mm", "evidence": "Caterpillar 323 Tier 4 / Stage V: Maximum Reach at Ground Level 9870 mm."},
+        "maximum_loading_height": {"value": "6480 mm", "evidence": "Caterpillar 323 Tier 4 / Stage V: Maximum Loading Height 6480 mm."},
+        "bucket_digging_force": {"value": "140 kN", "evidence": "Caterpillar 323 Tier 4 / Stage V: Bucket Digging Force - ISO 140 kN."},
+        "stick_digging_force": {"value": "107 kN", "evidence": "Caterpillar 323 Tier 4 / Stage V: Stick Digging Force - ISO 107 kN."},
+        "hydraulic_flow": {"value": "429 L/min", "evidence": "Caterpillar 323 Tier 4 / Stage V: Main System - Maximum Flow 429 L/min."},
+        "swing_speed": {"value": "11.25 r/min", "evidence": "Caterpillar 323 Tier 4 / Stage V: Swing Speed 11.25 r/min."}
+      }
+    },
+    {
+      "category_slug": "compactadores",
+      "brand": "Caterpillar",
+      "model": "CC2.7 GC",
+      "market": "US",
+      "source": "https://www.cat.com/en_US/products/new/equipment/compactors/tandem-vibratory-rollers/110800.html",
+      "source_title": "CC2.7 GC Utility Compactor | Cat | Caterpillar",
+      "source_version": "US product page; current CC2.7 GC",
+      "retrieved_at": "2026-09-25",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "compactador combinado vibratorio",
+        "type_en": "combination vibratory roller",
+        "model_aliases": ["Cat CC2.7 GC"],
+        "market_scope": "US product configuration",
+        "note": "Ficha US de compactador combinado: tambor delantero y ruedas traseras. El peso estándar se publica con ROPS y el fabricante enumera lastres opcionales; por ello no acredita el peso operativo ni el equipamiento de una unidad."
+      },
+      "specs": {
+        "weight": {"value": "2599 kg", "evidence": "Caterpillar CC2.7 GC: Standard Operating Weight with ROPS 2599 kg."},
+        "maximum_weight": {"value": "2779 kg", "evidence": "Caterpillar CC2.7 GC: Maximum Operating Weight 2779 kg."},
+        "power": {"value": "18.4 kW", "evidence": "Caterpillar CC2.7 GC: Engine Power 18.4 kW."},
+        "engine": {"value": "C1.7T", "evidence": "Caterpillar CC2.7 GC: Engine Model C1.7T."},
+        "working_width": {"value": "1312 mm", "evidence": "Caterpillar CC2.7 GC: Compaction Width 1312 mm."},
+        "drum_width": {"value": "1200 mm", "evidence": "Caterpillar CC2.7 GC: Drum Width 1200 mm."},
+        "drum_diameter": {"value": "720 mm", "evidence": "Caterpillar CC2.7 GC: Drum Diameter 720 mm."},
+        "centrifugal_force": {"value": "31 kN", "evidence": "Caterpillar CC2.7 GC: Centrifugal Force - Maximum 31 kN."},
+        "vibration_frequency": {"value": "62 Hz", "evidence": "Caterpillar CC2.7 GC: Frequency 62 Hz."},
+        "travel_speed": {"value": "8.6 km/h", "evidence": "Caterpillar CC2.7 GC: Travel Speed - Maximum 8.6 km/h."},
+        "fuel_capacity": {"value": "55 L", "evidence": "Caterpillar CC2.7 GC: Fuel Tank Capacity 55 L."},
+        "water_tank_capacity": {"value": "160 L", "evidence": "Caterpillar CC2.7 GC: Water Spray Tank Capacity 160 L."}
+      }
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "JLG",
+      "model": "E450AJ",
+      "market": "US",
+      "source": "https://www.jlg.com/equipment/boom-lifts/articulating/electric-hybrid/e450-series/E450AJ",
+      "source_title": "E450AJ Electric Boom Lift | JLG",
+      "source_version": "US product page; E450AJ",
+      "retrieved_at": "2026-09-25",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "plataforma articulada eléctrica",
+        "type_en": "electric articulating boom lift",
+        "model_aliases": ["E 450 AJ"],
+        "market_scope": "US product configuration",
+        "note": "La página describe una plataforma de brazo articulado eléctrica y menciona jib opcional. Capacidad, alcance, altura, pendiente y giro son límites de la configuración publicada; no prueban que una unidad tenga el jib u otras opciones."
+      },
+      "specs": {
+        "power": {"value": "electric", "evidence": "JLG E450AJ: Electric Boom Lift."},
+        "capacity": {"value": "500 lb", "evidence": "JLG E450AJ: Platform Capacity Unrestricted 500 lb."},
+        "platform_height": {"value": "45 ft", "evidence": "JLG E450AJ: Max Platform Height 45 ft 0 in."},
+        "horizontal_outreach": {"value": "22 ft 5 in", "evidence": "JLG E450AJ: Horizontal Outreach 22 ft 5 in."},
+        "gradeability": {"value": "30%", "evidence": "JLG E450AJ: Gradeability 30%."},
+        "swing": {"value": "360°", "evidence": "JLG E450AJ: Swing 360°."}
+      }
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "JLG",
+      "model": "450AJ",
+      "market": "US",
+      "source": "https://www.jlg.com/en/equipment/boom-lifts/articulating/engine-powered/450-series/450aj",
+      "source_title": "450AJ Articulating Boom Lift | JLG",
+      "source_version": "US product page; 450AJ",
+      "retrieved_at": "2026-09-25",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "plataforma articulada con motor",
+        "type_en": "engine-powered articulating boom lift",
+        "model_aliases": ["450 AJ"],
+        "market_scope": "US product configuration",
+        "note": "Modelo 450AJ de motor; no se debe confundir con E450AJ eléctrica ni con 450AJ HC3 de alta capacidad. La fuente no fija las opciones o el año de una unidad."
+      },
+      "specs": {
+        "capacity": {"value": "550 lb", "evidence": "JLG 450AJ: Platform Capacity Unrestricted 550 lb."},
+        "platform_height": {"value": "45 ft", "evidence": "JLG 450AJ: Max Platform Height 45 ft 0 in."},
+        "horizontal_outreach": {"value": "25 ft", "evidence": "JLG 450AJ: Horizontal Outreach 25 ft 0 in."},
+        "gradeability": {"value": "45%", "evidence": "JLG 450AJ: Gradeability 45%."},
+        "swing": {"value": "355°", "evidence": "JLG 450AJ: Swing 355°."}
+      }
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "JLG",
+      "model": "450AJ HC3",
+      "market": "US",
+      "source": "https://www.jlg.com/en/equipment/boom-lifts/articulating/engine-powered/450-series/450aj-hc3",
+      "source_title": "450AJ HC3 Hi-Capacity Articulating Boom Lift | JLG",
+      "source_version": "US product page; 450AJ HC3",
+      "retrieved_at": "2026-09-25",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "plataforma articulada de alta capacidad",
+        "type_en": "high-capacity articulating boom lift",
+        "model_aliases": ["450 AJ HC3"],
+        "market_scope": "US product configuration",
+        "note": "La capacidad máxima publicada es específica de 450AJ HC3 y no debe trasladarse a 450AJ ni E450AJ. JLG indica tres zonas de trabajo; la configuración y los límites aplicables de una unidad requieren su placa y manual."
+      },
+      "specs": {
+        "capacity": {"value": "1,000 lb", "evidence": "JLG 450AJ HC3: Max Platform Capacity 1,000 lb."},
+        "platform_height": {"value": "45 ft", "evidence": "JLG 450AJ HC3: Max Platform Height 45 ft 0 in."},
+        "horizontal_outreach": {"value": "25 ft", "evidence": "JLG 450AJ HC3: Horizontal Outreach 25 ft 0 in."}
+      }
+    }
+  ]
+}

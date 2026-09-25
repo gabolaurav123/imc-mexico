@@ -17,7 +17,8 @@ from PIL import Image
 
 from portal.models import (AnalysisJob, Asset, AuditEvent, Machine, Message, Notification,
                            Publication, Submission, User, PlatformSettings, Lead)
-from portal.services import review_submission, set_advertiser_status, set_publication, submit_machine
+from portal.services import (record_local_duplicate_review, review_submission, set_advertiser_status,
+                             set_publication, submit_machine)
 from portal.views import safe_public_data, sheet_context
 
 
@@ -62,6 +63,10 @@ class WebSecurityTests(TestCase):
         set_advertiser_status(self.owner,self.admin,"approved","Validado en prueba")
         sub=submit_machine(self.machine,self.owner,True)
         self.photo.public_authorized=True;self.photo.save()
+        record_local_duplicate_review(
+            self.machine, sub, self.admin, "no_match",
+            "Se revisaron identidad, archivos y datos de la ficha enviada.",
+        )
         review_submission(sub,self.admin,"approved")
         self.machine.refresh_from_db()
         return sub,set_publication(self.machine,self.admin,True)
@@ -86,8 +91,9 @@ class WebSecurityTests(TestCase):
     def test_idor_denies_other_user_data_and_jobs(self):
         job=AnalysisJob.objects.create(machine=self.machine,requested_by=self.owner,revision=1,fingerprint="b"*64)
         self.client.force_login(self.other)
-        for url in [f"/panel/maquinarias/{self.machine.pk}/",f"/panel/maquinarias/{self.machine.pk}/ficha/",f"/panel/maquinarias/{self.machine.pk}/pdf/",f"/archivos/{self.photo.pk}/",f"/api/analisis/{job.pk}/"]:
+        for url in [f"/panel/maquinarias/{self.machine.pk}/",f"/panel/maquinarias/{self.machine.pk}/ficha/",f"/archivos/{self.photo.pk}/",f"/api/analisis/{job.pk}/"]:
             self.assertEqual(self.client.get(url).status_code,404,url)
+        self.assertEqual(self.client.get(f"/panel/maquinarias/{self.machine.pk}/pdf/").status_code,403)
         self.assertEqual(self.post_json(self.base+"/guardar/",{"revision":1,"title":"Ajena"}).status_code,404)
 
     def test_normal_account_cannot_access_operations_or_admin(self):
@@ -363,7 +369,9 @@ class WebSecurityTests(TestCase):
         main=Publication.objects.create(machine=self.machine,destination="main",version=self.machine.approved_version,status="published",external_id="confirmed-123",external_url="https://example.com/machine")
         with patch("portal.pdf.build_pdf",return_value=b"%PDF-1.4\n"):
             response=self.client.post(f"/operaciones/maquinarias/{self.machine.pk}/exportar/")
-        self.assertEqual(response.status_code,200)
+        # Preparing the package creates a local handoff candidate.  It must
+        # not export until a separate IMC duplicate review is recorded.
+        self.assertEqual(response.status_code,302)
         main.refresh_from_db()
         self.assertEqual(main.status,"published")
         self.assertEqual(main.external_id,"confirmed-123")

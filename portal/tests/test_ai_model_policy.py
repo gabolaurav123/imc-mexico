@@ -17,16 +17,18 @@ from portal.tests.test_image_relevance import observation, parsed
 
 
 class ModelPolicyTests(SimpleTestCase):
-    def test_visual_stage_uses_permitted_terra_without_changing_research_model(self):
+    def test_visual_and_research_stages_use_gpt6_luna_without_fallback(self):
         self.assertEqual(image_model(DEFAULT_MODEL), VISION_MODEL)
-        self.assertEqual(DEFAULT_MODEL, 'gpt-5.6-luna')
+        self.assertEqual(DEFAULT_MODEL, 'gpt-6-luna')
+        self.assertEqual(image_model('gpt-5.6-luna'), 'gpt-5.6-terra')
+        self.assertEqual(image_model('gpt-6-luna-2026-09-24'), 'gpt-6-luna-2026-09-24')
         self.assertEqual(image_model('gpt-4.1-mini'), 'gpt-4.1-mini')
         with self.assertRaises(ValueError):
             image_model('gpt-6-astra')
 
     def test_only_selected_model_and_dated_snapshots_get_reasoning_policy(self):
-        self.assertEqual(DEFAULT_MODEL, "gpt-5.6-luna")
-        for model in ("gpt-5.6-luna", "gpt-5.6-luna-2026-09-17", "gpt-5.6-terra", "gpt-5.6-terra-2026-09-17"):
+        self.assertEqual(DEFAULT_MODEL, "gpt-6-luna")
+        for model in ("gpt-6-luna", "gpt-6-luna-2026-09-24", "gpt-5.6-luna", "gpt-5.6-luna-2026-09-17", "gpt-5.6-terra", "gpt-5.6-terra-2026-09-17"):
             with self.subTest(model=model):
                 self.assertTrue(is_reasoning_model(model))
                 self.assertEqual(model_options(model), {"reasoning": {"effort": "low"}})
@@ -70,7 +72,7 @@ class ModelPolicyTests(SimpleTestCase):
         self.assertEqual(_job_lease_seconds(legacy), 600)
 
 
-@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-5.6-luna",
+@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-6-luna",
                    OPENAI_TIMEOUT=90, AI_JOB_STALE_SECONDS=600)
 class ReasoningModelWorkerTests(TestCase):
     def setUp(self):
@@ -214,3 +216,27 @@ class ReasoningModelWorkerTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.locked_at, original)
         self.assertEqual(job.attempts, 1)
+
+    def test_rejected_model_access_has_specific_safe_error_no_fallback_or_token_charge(self):
+        import httpx2 as httpx
+        from openai import AuthenticationError, NotFoundError, PermissionDeniedError
+        for mode in ('analysis', 'description'):
+            for error_type, status, code in ((NotFoundError, 404, 'model_unavailable'),
+                                           (PermissionDeniedError, 403, 'model_unavailable'),
+                                           (AuthenticationError, 401, 'credentials_unavailable')):
+                with self.subTest(mode=mode, error=error_type.__name__):
+                    AnalysisJob.objects.all().delete()
+                    response = httpx.Response(status, request=httpx.Request('POST', 'https://api.openai.com/v1/responses'))
+                    self.provider.return_value.responses.parse.side_effect = error_type(
+                        'private-provider-detail', response=response, body={'secret': 'do-not-expose'})
+                    job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, mode=mode)
+                    self.assertTrue(process_next_job())
+                    job.refresh_from_db()
+                    self.assertEqual(job.status, 'failed')
+                    self.assertEqual(job.result['provider_error_code'], code)
+                    self.assertEqual((job.input_tokens, job.output_tokens, job.reserved_tokens), (0, 0, 0))
+                    self.assertNotIn('private-provider-detail', job.error)
+                    self.assertNotIn('do-not-expose', str(job.result))
+                    self.assertEqual(self.provider.return_value.responses.parse.call_count, 1)
+                    self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs['model'], DEFAULT_MODEL)
+                    self.provider.return_value.responses.parse.reset_mock()

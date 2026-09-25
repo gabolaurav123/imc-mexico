@@ -103,6 +103,11 @@ COMPACTOR_PROFILE = {
         {"key": "maximum_weight", "label": "Peso operativo máximo", "kind": "text", "optional": True},
         {"key": "drum_type", "label": "Tipo de tambor", "kind": "text", "optional": True},
         {"key": "emissions", "label": "Etapa de emisiones", "kind": "text", "optional": True},
+        {"key": "engine", "label": "Motor", "kind": "text", "optional": True},
+        {"key": "drum_width", "label": "Ancho de tambor", "kind": "text", "optional": True},
+        {"key": "drum_diameter", "label": "Diámetro de tambor", "kind": "text", "optional": True},
+        {"key": "centrifugal_force", "label": "Fuerza centrífuga", "kind": "text", "optional": True},
+        {"key": "vibration_frequency", "label": "Frecuencia de vibración", "kind": "text", "optional": True},
     ],
     "photo_guidance": [
         "Máquina completa y ambos laterales", "Placa de identificación y rótulo de modelo",
@@ -118,7 +123,69 @@ COMPACTOR_PROFILE = {
     "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
 }
 
-PROFILES = {"excavadoras": EXCAVATOR_PROFILE, "compactadores": COMPACTOR_PROFILE}
+PLATFORM_PROFILE = {
+    "key": "aerial_platform", "label": "Plataforma elevadora",
+    "aliases": ["plataforma elevadora", "plataforma de elevacion", "plataforma de elevación", "aerial lift", "boom lift", "scissor lift"],
+    "classification": {"machine_family": _options(("articulating_boom", "Brazo articulado"),
+                                                     ("telescopic_boom", "Brazo telescópico"),
+                                                     ("crawler_boom", "Brazo sobre orugas"),
+                                                     ("towable_boom", "Brazo remolcable"),
+                                                     ("scissor", "Tijera"), ("other", "Otra plataforma documentada"))},
+    "fields": [{"key": "machine_family", "label": "Familia de plataforma", "kind": "choice", "optional": True},
+               {"key": "platform_height", "label": "Altura máxima de plataforma", "kind": "text", "optional": True},
+               {"key": "horizontal_outreach", "label": "Alcance horizontal", "kind": "text", "optional": True},
+               {"key": "capacity", "label": "Capacidad de plataforma", "kind": "text", "optional": True},
+               {"key": "gradeability", "label": "Pendiente superable", "kind": "text", "optional": True},
+               {"key": "swing", "label": "Giro", "kind": "text", "optional": True}],
+    "ai_instructions": "No confundir alcance, altura de plataforma y capacidad. Una plataforma eléctrica, remolcable o sobre orugas es una familia distinta.",
+    "sources": [{"name": "JLG", "url": "https://www.jlg.com/", "kind": "manufacturer"}],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
+
+LOADER_PROFILE = {
+    "key": "compact_loader", "label": "Minicargador",
+    "aliases": ["minicargador", "minicargadores", "skid steer", "skid-steer", "compact track loader", "cargador compacto"],
+    "classification": {"undercarriage": _options(("wheeled", "Ruedas"), ("crawler", "Orugas"))},
+    "fields": [{"key": "undercarriage", "label": "Sistema de desplazamiento", "kind": "choice", "optional": True},
+               {"key": "power", "label": "Potencia", "kind": "text", "optional": True},
+               {"key": "capacity", "label": "Capacidad operativa nominal", "kind": "text", "optional": True},
+               {"key": "weight", "label": "Peso operativo", "kind": "text", "optional": True}],
+    "ai_instructions": "Conserva el criterio de capacidad publicado, por ejemplo 35% de carga de vuelco; no lo equipares con carga de vuelco ni con un accesorio.",
+    "sources": [{"name": "Caterpillar compact loaders", "url": "https://www.cat.com/", "kind": "manufacturer"}],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
+
+FORKLIFT_PROFILE = {
+    "key": "forklift", "label": "Montacargas",
+    "aliases": ["montacargas", "forklift", "fork lift", "carretilla elevadora", "lift truck"],
+    "classification": {"power_type": _options(("electric", "Eléctrico"), ("lpg", "Gas LP"),
+                                                     ("gasoline", "Gasolina"), ("diesel", "Diésel"),
+                                                     ("other", "Otra energía documentada"))},
+    "fields": [{"key": "power_type", "label": "Tipo de potencia", "kind": "choice", "optional": True},
+               {"key": "capacity", "label": "Capacidad nominal", "kind": "text", "optional": True},
+               {"key": "load_center", "label": "Centro de carga", "kind": "text", "optional": True},
+               {"key": "lift_height", "label": "Altura de elevación", "kind": "text", "optional": True},
+               {"key": "weight", "label": "Peso operativo", "kind": "text", "optional": True}],
+    "ai_instructions": "No infieras capacidad por la altura de elevación. Conserva centro de carga y tipo de potencia publicados para comparar unidades compatibles.",
+    "sources": [{"name": "Toyota Material Handling", "url": "https://www.toyotaforklift.com/", "kind": "manufacturer"}],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
+
+MOTOR_GRADER_PROFILE = {
+    "key": "motor_grader", "label": "Motoconformadora",
+    "aliases": ["motoconformadora", "motoniveladora", "motoniveladoras", "motor grader"],
+    "classification": {},
+    "fields": [{"key": "blade_width", "label": "Ancho de hoja", "kind": "text", "optional": True},
+               {"key": "power", "label": "Potencia", "kind": "text", "optional": True},
+               {"key": "weight", "label": "Peso operativo", "kind": "text", "optional": True}],
+    "ai_instructions": "Conserva la variante de emisiones y el criterio de peso publicado; no deduzcas hoja, ripper u opciones por la apariencia.",
+    "sources": [{"name": "Caterpillar motor graders", "url": "https://www.cat.com/", "kind": "manufacturer"}],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
+
+PROFILES = {"excavadoras": EXCAVATOR_PROFILE, "compactadores": COMPACTOR_PROFILE,
+            "plataformas-elevadoras": PLATFORM_PROFILE, "minicargadores": LOADER_PROFILE,
+            "montacargas": FORKLIFT_PROFILE, "motoniveladoras": MOTOR_GRADER_PROFILE}
 
 PROFILE_FIELD_LABELS = {item["key"]: item["label"] for profile in PROFILES.values() for item in profile["fields"]}
 PROFILE_FIELD_LABELS.update(power_type="Tipo de potencia", depth_configuration="Configuración de profundidad")

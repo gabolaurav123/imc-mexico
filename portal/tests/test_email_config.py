@@ -109,7 +109,8 @@ class EmailConfigurationTests(SimpleTestCase):
                 patch("portal.management.commands.runworker.close_old_connections"), \
                 patch("portal.management.commands.runworker.process_next_job", return_value=False), \
                 patch("portal.management.commands.runworker.process_notifications", return_value=2), \
-                patch("portal.management.commands.runworker.purge_expired_accesses", return_value=0):
+                patch("portal.management.commands.runworker.purge_expired_accesses", return_value=0), \
+                patch("portal.management.commands.runworker.purge_expired_guest_drafts", return_value={"purged": 0}):
             call_command("runworker", "--once", stdout=output)
         self.assertIn("Avisos aceptados por backend: 2", output.getvalue())
         self.assertNotIn("entregados", output.getvalue())

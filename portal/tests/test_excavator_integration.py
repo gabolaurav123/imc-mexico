@@ -30,6 +30,35 @@ class EquipmentConsistencyTests(SimpleTestCase):
         result = {'fields': [field('brand', 'CAT', 'a'), field('brand', 'Caterpillar', 'b'),
                              field('model', '320', 'a'), engine], 'image_observations': []}
         self.assertFalse(check_equipment_consistency(result))
+        self.assertEqual(result['consistency']['status'], 'compatible')
+
+    def test_single_reading_or_component_plate_is_insufficient_not_compatible(self):
+        engine = field('model', 'C7.1', 'plate', 'plate'); engine['component'] = 'engine'
+        result = {'fields': [field('brand', 'Caterpillar', 'machine'), engine],
+                  'image_observations': [observation('machine'), observation('plate', kind='plate')]}
+        self.assertFalse(check_equipment_consistency(result))
+        self.assertEqual(result['consistency']['status'], 'insufficient_evidence')
+        self.assertNotIn('blocking_reason', result)
+
+    def test_confirmed_snapshot_and_clear_machine_reading_can_be_compatible(self):
+        result = {'fields': [field('brand', 'CAT', 'machine')], 'image_observations': []}
+        self.assertFalse(check_equipment_consistency(result, {
+            'revision': 12, 'data': {'brand': 'Caterpillar'},
+            'provenance': {'brand': {'source': 'user', 'review': 'confirmed'}},
+        }))
+        consistency = result['consistency']
+        self.assertEqual(consistency['status'], 'compatible')
+        self.assertEqual(consistency['analysis_cutoff']['revision'], 12)
+        self.assertEqual(consistency['comparisons'][0]['left']['source'], 'manual_snapshot')
+
+    def test_confirmed_snapshot_mismatch_is_a_private_contradiction_not_a_new_block(self):
+        result = {'fields': [field('model', 'PC200', 'machine')], 'image_observations': []}
+        self.assertFalse(check_equipment_consistency(result, {
+            'data': {'model': '320'},
+            'provenance': {'model': {'source': 'user', 'review': 'confirmed'}},
+        }))
+        self.assertEqual(result['consistency']['status'], 'contradiction')
+        self.assertNotIn('blocking_reason', result)
 
     def test_selected_category_is_not_silently_replaced(self):
         result = {'category': 'Montacargas', 'fields': [], 'image_observations': []}
@@ -157,6 +186,22 @@ class ExcavatorIntegrationTests(TestCase):
         external.assert_not_called()
         self.assertFalse(self.machine.data)
         self.assertEqual(job.application_result['reason'], 'multiple_machines')
+
+    def test_consistency_uses_the_analysis_snapshot_after_the_draft_changes(self):
+        self.machine.data = {'brand': 'Caterpillar'}
+        self.machine.provenance = {'brand': {'source': 'user', 'review': 'confirmed'}}
+        self.machine.save(update_fields=['data', 'provenance'])
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        self.machine.data['brand'] = 'Komatsu'
+        self.machine.revision += 1
+        self.machine.save(update_fields=['data', 'revision'])
+
+        result = normalize_analysis(parsed([observation(str(self.asset.pk), category='Excavadoras')],
+            [field('brand', 'CAT', str(self.asset.pk))]), [str(self.asset.pk)],
+            allowed_categories=['Excavadoras'])
+        self.assertFalse(check_equipment_consistency(result, job.result['input_snapshot']))
+        self.assertEqual(result['consistency']['status'], 'compatible')
+        self.assertEqual(result['consistency']['analysis_cutoff']['revision'], job.revision)
 
     def test_snapshot_indexes_numeric_values_from_immutable_data(self):
         saved = save_draft(self.machine, self.owner, {'data':{'hours':'0','year':'2018',

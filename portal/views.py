@@ -15,7 +15,7 @@ from django.http import JsonResponse, HttpResponse, FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from .models import *
 from .forms import ContactForm
 from .security import operator_required, staff_authorized, throttle, is_management_user, login_destination
@@ -27,6 +27,13 @@ def owned(request,pk):
     query=Machine.objects.select_related('owner','category','approved_version')
     if not (staff_authorized(request.user) and request.user.has_perm('portal.view_machine')):query=query.filter(owner=request.user)
     return get_object_or_404(query,pk=pk)
+
+
+def can_export_machine(request):
+    """Template hint only; export views enforce the same rule server-side."""
+    return bool(request.user.is_authenticated and request.user.is_staff
+                and request.user.has_perm('portal.publish_machine')
+                and (not settings.STAFF_MFA_REQUIRED or request.user.is_verified()))
 
 def payload(request,allowed=None):
     try:
@@ -55,13 +62,19 @@ def home(request):
     content=SiteContent.objects.filter(key='home-hero',active=True).first()
     return render(request,'portal/home.html',{'home_content':content})
 
-@require_GET
+@require_http_methods(["GET", "POST"])
 def publish_start(request):
-    # A stable service entry point for the original IMC website. GET never
-    # creates a draft, sends email or starts a paid analysis.
+    # GET only renders the first question.  A visitor starts one bounded,
+    # session-capability draft through the guest API; it never creates a
+    # human account or starts paid work by itself.
     if request.user.is_authenticated:
         return redirect('machine_create')
-    return redirect('/registro/?' + urlencode({'next': '/panel/maquinarias/nueva/'}))
+    if request.method == 'POST':
+        from .guest import start as guest_start
+        return guest_start(request)
+    from .category_profiles import category_catalog
+    categories = Category.objects.filter(active=True)
+    return render(request, 'portal/start.html', {'categories_json': category_catalog(categories), 'guest_start': True})
 
 PAGES={
  'como-funciona':('Tus fotos son el punto de partida','De tus fotos a una ficha, en dos pasos.', [('01 · Sube tus fotos','Agrega fotos o una captura. Puedes escribir la serie sin una foto de la placa, pero es opcional: también puedes continuar sólo con fotos. Pulsa Preparar mi ficha para buscar referencias y redactar la descripción con lo disponible. Sin identificadores fiables, las referencias por tipo de equipo son contexto general; no identifican esa unidad ni confirman sus especificaciones.'),('02 · Envía tu ficha','La ficha se completa con los datos disponibles. Puedes enviarla sin llenar más campos; ubicación, precio y correcciones son opcionales. IMC México revisará tu solicitud.')]),
@@ -136,6 +149,8 @@ def machine_create(request):
     if request.method=='POST':
         category_id=request.POST.get('category')
         serial=request.POST.get('serial','').strip()[:150]
+        declared={key:request.POST.get(key,'').strip()[:limit] for key,limit in
+                  {'brand':100,'model':100,'description':10000}.items()}
         category=None
         if category_id not in (None, '', 'unsure'):
             try:
@@ -143,9 +158,15 @@ def machine_create(request):
             except (Category.DoesNotExist, ValueError, TypeError):
                 return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
                     'error':'Selecciona un tipo disponible o «No estoy seguro».'},status=400)
-        provenance={'category':{'source':'user','review':'confirmed'}} if category else {}
-        data={'serial':serial} if serial else {}
+        provenance={'currency':{'source':'system','review':'needs_review'}}
+        if category:provenance['category']={'source':'user','review':'confirmed'}
+        data={'currency':'USD'}
         if serial: provenance['serial']={'source':'user','review':'confirmed'}
+        if serial:data['serial']=serial
+        for key,value in declared.items():
+            if value:
+                data[key]=value
+                provenance[key]={'source':'user','review':'confirmed'}
         machine=Machine.objects.create(owner=request.user,category=category,data=data,
             provenance=provenance)
         event(request,'draft_started',machine)
@@ -162,7 +183,7 @@ def machine_wizard(request,pk):
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
     models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
     catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
-    return render(request,'portal/wizard.html',{'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
+    return render(request,'portal/wizard.html',{'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
 
 @login_required
 def requests_list(request):
@@ -198,8 +219,9 @@ def api_create(request):
     if body.get('category') not in (None, '', 'unsure'):
         try:category=Category.objects.get(pk=body['category'],active=True)
         except (Category.DoesNotExist,ValueError,TypeError):raise ValidationError('Selecciona una categoría disponible.')
-    machine=Machine.objects.create(owner=request.user,category=category,
-        provenance={'category':{'source':'user','review':'confirmed'}} if category else {})
+    provenance={'currency':{'source':'system','review':'needs_review'}}
+    if category:provenance['category']={'source':'user','review':'confirmed'}
+    machine=Machine.objects.create(owner=request.user,category=category,data={'currency':'USD'},provenance=provenance)
     event(request,'draft_started',machine)
     return JsonResponse({'id':str(machine.pk),'url':f'/panel/maquinarias/{machine.pk}/'},status=201)
 
@@ -394,7 +416,7 @@ def sheet_context(machine,version=None,public=False,token=None):
         label={'plate':'Lectura de placa','image':'Lectura de fotografía'}.get(meta.get('source'),'Dato de la ficha')
         return label + (' · por revisar' if meta.get('review') in {'needs_review','not_identifiable'} else '')
     field_origins={key:origin_label(key) for key in data if data.get(key) not in (None,'')}
-    labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS}
+    labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS,**services.CATALOGUE_TECHNICAL_LABELS}
     labels={**{key:labels[key] for key in ('weight','digging_depth')}, **PROFILE_FIELD_LABELS, **labels}
     extra_fields=[{'key':key,'label':label,'value':display_field_value(key,data[key]),'source_label':'' if public else field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
     display_location=data.get('location') or ', '.join(str(data[key]) for key in ('location_city','location_region','location_country') if data.get(key))
@@ -423,6 +445,9 @@ def machine_sheet(request,pk):
     record_event(request,'sheet_reviewed',page='internal_sheet')
     context = sheet_context(machine,version)
     context['main_record'] = machine.publications.filter(destination='main', acknowledged_at__isnull=False).first()
+    context['can_export'] = can_export_machine(request)
+    share = machine.publications.filter(destination='share', enabled=True, status='published', version_id=machine.approved_version_id).first()
+    context['share_url'] = f'{settings.PUBLIC_URL}/ficha/{share.token}/' if share else ''
     return render(request,'portal/sheet.html',context)
 
 def public_sheet(request,token):
@@ -430,6 +455,8 @@ def public_sheet(request,token):
     context=sheet_context(pub.machine,pub.version,True,token)
     back=request.GET.get('back','')
     context['catalog_back']=back if back.startswith('/maquinaria/') else '/maquinaria/'
+    context['can_export'] = False
+    context['share_url'] = ''
     response=render(request,'portal/sheet.html',context)
     response['Cache-Control']='no-store';response['X-Robots-Tag']='noindex'
     return response
@@ -457,10 +484,11 @@ def public_asset(request,token,pk):
     if asset.purpose in ['plate','document']:raise Http404
     return send_asset(asset)
 
-@login_required
 def machine_pdf(request,pk):
     from .pdf import build_pdf
-    machine=owned(request,pk)
+    machine=get_object_or_404(Machine.objects.select_related('approved_version'),pk=pk,deleted_at__isnull=True)
+    if not can_export_machine(request):
+        raise PermissionDenied
     version=get_object_or_404(MachineVersion,machine=machine,pk=request.GET['version']) if request.GET.get('version') else None
     context=sheet_context(machine,version)
     response=HttpResponse(build_pdf(context['machine'],context['data'],context['assets'],False,version),content_type='application/pdf')
@@ -471,7 +499,10 @@ def machine_pdf(request,pk):
 
 def public_pdf(request,token):
     from .pdf import build_pdf
-    pub=public_record(token);context=sheet_context(pub.machine,pub.version,True,token)
+    pub=public_record(token)
+    if not can_export_machine(request):
+        raise PermissionDenied
+    context=sheet_context(pub.machine,pub.version,True,token)
     response=HttpResponse(build_pdf(context['machine'],context['data'],context['assets'],True,pub.version),content_type='application/pdf')
     response['Content-Disposition']=f'attachment; filename="{pub.machine.folio}.pdf"'
     response['Cache-Control']='private, no-store'
@@ -519,9 +550,9 @@ def operations(request):
     visible_notifications=(Notification.objects.exclude(kind__in=['activation','admin_activation','verify','recovery'])
         if capabilities['can_view_notifications'] else Notification.objects.none())
     counts={
-        'users':User.objects.filter(is_test=False).count() if capabilities['can_view_users'] else None,
+        'users':User.objects.filter(is_test=False,is_guest=False).count() if capabilities['can_view_users'] else None,
         'pending':live.filter(status__in=['submitted','in_review']).count() if capabilities['can_view_submissions'] else None,
-        'advertisers':User.objects.filter(advertiser_status='pending',is_test=False).count() if capabilities['can_view_users'] else None,
+        'advertisers':User.objects.filter(advertiser_status='pending',is_test=False,is_guest=False).count() if capabilities['can_view_users'] else None,
         'active':Publication.objects.filter(destination='share',enabled=True,status='published',machine__owner__is_test=False,machine__deleted_at__isnull=True).count() if capabilities['can_view_publications'] else None,
         'sold':live.filter(availability='sold').count() if capabilities['can_view_machines'] else None,
         'abandoned':live.filter(status='draft',updated_at__lt=timezone.now()-timedelta(days=30)).count() if capabilities['can_view_machines'] else None,
@@ -535,7 +566,7 @@ def operations(request):
     return render(request,'portal/operations.html',{'counts':counts,'submissions':page,'page_obj':page,
         'jobs':visible_jobs.select_related('machine').order_by('-created_at')[:10],
         'leads':visible_leads.order_by('-created_at')[:10],'q':q,
-        'recent_users':User.objects.filter(is_test=False).order_by(F('last_login').desc(nulls_last=True),'-date_joined')[:8] if capabilities['can_view_users'] else User.objects.none(),
+        'recent_users':User.objects.filter(is_test=False,is_guest=False).order_by(F('last_login').desc(nulls_last=True),'-date_joined')[:8] if capabilities['can_view_users'] else User.objects.none(),
         'recent_machines':live.select_related('owner').order_by('-updated_at')[:8] if capabilities['can_view_machines'] else Machine.objects.none(),
         'recent_messages':visible_messages.select_related('machine','sender').order_by('-created_at')[:8],
         'recent_notifications':visible_notifications.select_related('user').order_by('-created_at')[:8],
@@ -619,6 +650,9 @@ def review(request,pk):
         action=request.POST.get('action')
         try:
             if action=='review':services.review_submission(sub,request.user,request.POST.get('decision'),request.POST.get('reason',''))
+            elif action=='local_duplicate_review':
+                services.record_local_duplicate_review(machine,sub,request.user,request.POST.get('result'),
+                    request.POST.get('evidence',''),request.POST.get('limitations',''))
             elif action=='advertiser':services.set_advertiser_status(machine.owner,request.user,request.POST.get('status'),request.POST.get('reason',''))
             elif action=='message':
                 body=request.POST.get('body','').strip()
@@ -643,13 +677,19 @@ def review(request,pk):
                     machine.assets.filter(pk__in=ids,purpose__in=['general','detail'],processing_status='ready').update(public_authorized=True)
                     services.audit(request.user,'assets.public_permissions',machine,{'asset_ids':ids})
             elif action=='share':services.set_publication(machine,request.user,request.POST.get('enabled') in ['1','on','true'])
-            elif action=='export':return export_machine(request,machine.pk)
+            elif action=='export':
+                if not request.user.has_perm('portal.publish_machine'):
+                    raise PermissionDenied
+                return export_machine(request,machine.pk)
             else:raise ValidationError('Acción no válida.')
             flash.success(request,'La acción quedó guardada y registrada en el historial.')
             return redirect(f'/operaciones/solicitudes/{sub.pk}/')
         except ValidationError as exc:flash.error(request,' '.join(exc.messages))
     pub=machine.publications.filter(destination='share').first()
-    return render(request,'portal/review.html',{'submission':sub,'machine':machine,'assets':machine.assets.filter(pk__in=sub.version.data.get('asset_ids',[])),'data':sub.version.data.get('data',{}),'provenance':sub.version.data.get('provenance',{}),'versions':machine.versions.all(),'versions_json':[{'id':v.pk,'number':v.number,'data':v.data} for v in machine.versions.all()],'messages_list':machine.messages.select_related('sender'),'publication':pub,'share_url':f'{settings.PUBLIC_URL}/ficha/{pub.token}/' if pub and pub.enabled else '', 'jobs':AnalysisJob.objects.filter(machine=machine).order_by('-created_at')})
+    duplicate_review=services._local_duplicate_review_event(machine,sub)
+    possible_duplicates=(services.find_possible_duplicates(machine,request.user)
+                         if request.user.has_perm('portal.view_machine') else [])
+    return render(request,'portal/review.html',{'submission':sub,'machine':machine,'assets':machine.assets.filter(pk__in=sub.version.data.get('asset_ids',[])),'data':sub.version.data.get('data',{}),'provenance':sub.version.data.get('provenance',{}),'versions':machine.versions.all(),'versions_json':[{'id':v.pk,'number':v.number,'data':v.data} for v in machine.versions.all()],'messages_list':machine.messages.select_related('sender'),'publication':pub,'share_url':f'{settings.PUBLIC_URL}/ficha/{pub.token}/' if pub and pub.enabled else '', 'can_select_imc_media':can_export_machine(request), 'jobs':AnalysisJob.objects.filter(machine=machine).order_by('-created_at'),'possible_duplicates':possible_duplicates,'local_duplicate_review':duplicate_review})
 
 @operator_required('portal.publish_machine')
 @require_POST
@@ -673,23 +713,77 @@ def _export_machine(request,pk):
     output=BytesIO()
     from .export_payload import build_export_payload
     from .integration import prepare_delivery, delivery_metadata
-    exported, files = build_export_payload(machine, version)
+    main_publication = machine.publications.filter(destination='main').first()
+    selected_assets = (main_publication.imc_asset_ids if main_publication
+                       and main_publication.imc_selection_version_id == version.pk else None)
+    exported, files = build_export_payload(machine, version, asset_ids=selected_assets)
     # PDF and media are assembled before persisting an exported status. A
-    # storage/PDF failure must not pretend a package was delivered.
-    pdf_bytes = build_pdf(context['machine'],context['data'],context['assets'],True,version)
+    # storage/PDF failure must not pretend a package was delivered. The PDF is
+    # part of this manual handoff, so its images must be the exact ordered IMC
+    # manifest rather than the independent Seenode shared-sheet selection.
+    exported_ids = [item['id'] for item in exported['assets']]
+    by_id = {str(asset.pk): asset for asset in machine.assets.filter(pk__in=exported_ids)}
+    pdf_assets = [by_id[asset_id] for asset_id in exported_ids if asset_id in by_id]
+    pdf_bytes = build_pdf(context['machine'], context['data'], pdf_assets, True, version,
+                          destination_asset_ids=exported_ids)
     delivery = prepare_delivery(machine, request.user, exported)
     envelope = {'schema': 'imc-handoff-v1', **delivery_metadata(delivery),
                 'module_record_url': f'{settings.PUBLIC_URL}/panel/maquinarias/{machine.pk}/ficha/',
                 'remote_record_id': delivery.publication.external_id or None,
                 'connection': 'manual_handoff', 'remote_transport_performed': False,
                 'acknowledgement_recorded': delivery.state == 'acknowledged'}
+    snapshot = version.data if isinstance(version.data, dict) else {}
+    values = snapshot.get('data', {}) if isinstance(snapshot.get('data', {}), dict) else {}
+    def copy_value(name, fallback='Pendiente'):
+        value = values.get(name)
+        return str(value).strip() if value not in (None, '') else fallback
+    exact_year = copy_value('year')
+    if exact_year == 'Pendiente' and (values.get('estimated_year_from') or values.get('estimated_year_to')):
+        exact_year = 'Pendiente; existe un rango local, no es un año exacto'
+    estimated_year_range = 'Pendiente'
+    if values.get('estimated_year_from') or values.get('estimated_year_to'):
+        estimated_year_range = f'{copy_value("estimated_year_from")} a {copy_value("estimated_year_to")}'
+    data_for_imc = '\n'.join([
+        f'Ficha local: {machine.folio}', f'Versión: {version.number}',
+        f'Tipo: {snapshot.get("category_name") or "Pendiente"}', f'Marca: {copy_value("brand")}',
+        f'Modelo: {copy_value("model")}', f'Número de serie: {copy_value("serial")}',
+        f'Precio solicitado: {copy_value("price")} {copy_value("currency", "USD")}',
+        f'Año exacto: {exact_year}', f'Rango de año estimado: {estimated_year_range}',
+        f'Horas de uso: {copy_value("hours")}',
+        f'Ubicación país: {copy_value("location_country")}',
+        f'Ubicación estado o región: {copy_value("location_region")}',
+        f'Ubicación ciudad: {copy_value("location_city")}',
+        f'Ubicación adicional: {copy_value("location")}',
+        f'Peso: {copy_value("weight")}', f'Potencia: {copy_value("power")}',
+        f'Capacidad: {copy_value("capacity")}', f'Profundidad de excavación: {copy_value("digging_depth")}',
+        '', 'Descripción pública:', copy_value('description', 'Pendiente de redactar o confirmar.'),
+    ])
+    manifest_lines = [
+        f'Identificador local: {machine.folio}', f'Versión: {version.number}',
+        f'Anunciante local: {machine.owner.get_full_name() or machine.owner.email}',
+        f'Fecha de preparación: {delivery.created_at.isoformat()}',
+        f'Estado de revisión local: {machine.get_status_display()}',
+        f'Referencia IMC: {delivery.publication.external_reference or "Pendiente"}',
+        'Contenido seleccionado para IMC:',
+    ]
+    for item in exported['assets']:
+        manifest_lines.append(f"- {item['destination_role']} · {item['path']} · posición local {item['position']}{' · portada' if item['cover'] else ''}")
+    manifest_lines.extend(['Campos pendientes: revisar los valores marcados como Pendiente en datos_para_imc.txt.',
+                           'No se incluyen placas ni documentos privados; las notas internas permanecen en Seenode.'])
+    package_root = f'ficha_{machine.folio}_{version.number}'
     with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr('ficha.pdf',pdf_bytes)
+        archive.writestr(f'{package_root}/datos_para_imc.txt',data_for_imc)
+        archive.writestr(f'{package_root}/ficha_administrativa.pdf',pdf_bytes)
         for path, raw in files:
+            archive.writestr(f'{package_root}/{path}', raw)
             archive.writestr(path, raw)
+        archive.writestr(f'{package_root}/manifiesto.txt','\n'.join(manifest_lines))
+        archive.writestr(f'{package_root}/publicacion.json',json.dumps(exported,ensure_ascii=False,indent=2))
+        archive.writestr(f'{package_root}/integracion.json',json.dumps(envelope,ensure_ascii=False,indent=2))
+        # Keep these envelopes at the root for existing internal import tools;
+        # they carry the exact same frozen version as the human-readable folder.
         archive.writestr('publicacion.json',json.dumps(exported,ensure_ascii=False,indent=2))
         archive.writestr('integracion.json',json.dumps(envelope,ensure_ascii=False,indent=2))
-        archive.writestr('LEEME.txt','Paquete autorizado para preparación editorial. Exportar NO publica automáticamente en imcmexico.com.mx. El UUID de maquinaria es una correlación local, no la llave ni la referencia del sitio principal. El receptor debe conservar la clave de entrega, comprobar su huella y devolver un acuse; reintentar no debe insertar otro anuncio. No renombrar las imágenes del sistema principal a partir de estos UUID. Registrar identificador/enlace externo solo tras confirmación verificable.')
     from .integration import mark_delivery_exported
     mark_delivery_exported(delivery, request.user)
     services.audit(request.user,'publication.exported',machine,{'version':version.number})

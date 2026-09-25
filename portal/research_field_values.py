@@ -12,7 +12,7 @@ _FUEL_NAMES = frozenset({
     "unleaded gasoline", "unleaded petrol", "gasolina premium", "gasolina regular",
     "gas", "gas natural", "natural gas", "gas natural comprimido", "compressed natural gas",
     "gas natural licuado", "liquefied natural gas", "gnc", "cng", "gnl", "lng",
-    "glp", "lpg", "gas lp", "gas l.p", "gas l.p.", "gas licuado de petroleo",
+    "glp", "lpg", "lp", "gas lp", "gas l.p", "gas l.p.", "gas licuado de petroleo",
     "liquefied petroleum gas", "autogas", "propano", "propane", "butano", "butane", "biogas",
     "hidrogeno", "hydrogen", "etanol", "ethanol", "metanol", "methanol",
     "queroseno", "kerosene", "keroseno",

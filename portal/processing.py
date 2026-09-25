@@ -27,7 +27,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation
+from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner)
@@ -792,7 +792,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                                 "category_profile": category_profile,
                                                 "progress": {"stage": "queued", "completed": 0, "total": len(assets)},
                                                 "research_description_only": research_description_only, "category_names": category_names,
-                                                "input_snapshot": {"title": machine.title,
+                                                "input_snapshot": {"revision": machine.revision,
+                                                "title": machine.title,
                                                 "category": machine.category.name if machine.category_id else None,
                                                 "provenance": {k: v for k, v in machine.provenance.items()
                                                                if k in AI_KEYS | {"title", "description", "category", "condition", "attachments", "location_country"}},
@@ -1730,7 +1731,7 @@ def process_analysis(job):
                         bound = _bind_image_aliases(response.output_parsed, [binding])
                         reading = normalize_analysis(bound, [binding["asset_id"]], allowed_categories=categories)
                     except Exception as exc:
-                        if not received:
+                        if not received and not provider_configuration_failure(exc):
                             usage.estimate(image_reservation)
                         if not readings:
                             exc.accounted_usage = usage
@@ -2015,13 +2016,20 @@ def process_next_job():
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
                             "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
+            configuration_failure = provider_configuration_failure(exc)
+            if configuration_failure:
+                locked.result = {**locked.result, 'provider_error_code': configuration_failure}
+                locked.error = (f"El modelo {locked.model} no está disponible con la configuración actual del proyecto. "
+                                "Conservamos tus archivos y la edición manual; el equipo debe revisar el acceso al modelo."
+                                if configuration_failure == 'model_unavailable' else
+                                "No se pudo autenticar el servicio de IA. Conservamos tus archivos y la edición manual; el equipo debe revisar su configuración.")
             if deleted:
                 locked.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
             accounted = getattr(exc, "accounted_usage", None)
             if accounted is not None:
                 locked.input_tokens += accounted.input_tokens
                 locked.output_tokens += accounted.output_tokens
-            else:
+            elif not configuration_failure:
                 locked.input_tokens += min(locked.reserved_tokens, per_attempt)
             locked.reserved_tokens = max(0, locked.reserved_tokens - per_attempt) if retry else 0
             locked.locked_at = timezone.now() + timedelta(seconds=min(300, 15 * 2 ** locked.attempts)) if retry else None

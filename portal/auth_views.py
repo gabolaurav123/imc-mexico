@@ -43,7 +43,10 @@ def activation_email(user,kind='activation'):
 def register(request):
     publication_flow=(request.POST.get('next') or request.GET.get('next'))=='/panel/maquinarias/nueva/'
     destination='/panel/maquinarias/nueva/' if publication_flow else '/panel/'
-    if request.user.is_authenticated:return redirect(destination)
+    if request.user.is_authenticated:
+        from .guest import claim_after_authentication
+        claimed = claim_after_authentication(request, request.user)
+        return redirect(f'/panel/maquinarias/{claimed}/' if claimed else destination)
     configuration=PlatformSettings.load()
     if not configuration.registration_open:
         return auth_render(request,None,'Próximamente podrás anunciar tu maquinaria','',intro='El registro de nuevos anunciantes todavía no está abierto. Puedes consultar cómo funciona el portal o comunicarte con el equipo desde Contacto.')
@@ -57,17 +60,21 @@ def register(request):
                 audit(user,'account.register',user)
                 # Tokens include last_login: create the verification link only
                 # after login has updated it, otherwise it is invalid on arrival.
-                login(request,user)
-                activation_email(user,'verify')
+            login(request,user)
+            activation_email(user,'verify')
+            from .guest import claim_after_authentication
+            claimed = claim_after_authentication(request, user)
             attach_consent_to_account(request,user)
             record_event(request,'register_completed',page='register')
             messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')
-            return redirect(destination)
+            return redirect(f'/panel/maquinarias/{claimed}/' if claimed else destination)
     return auth_render(request,form,'Crea tu cuenta para publicar maquinaria','Crear mi cuenta y continuar' if publication_flow else 'Crear mi cuenta')
 
 def sign_in(request,management_only=False):
     if request.user.is_authenticated and request.method=='GET' and (not management_only or is_management_user(request.user)):
-        return redirect(login_destination(request,None if management_only else request.GET.get('next')))
+        from .guest import claim_after_authentication
+        claimed = claim_after_authentication(request, request.user)
+        return redirect(f'/panel/maquinarias/{claimed}/' if claimed else login_destination(request,None if management_only else request.GET.get('next')))
     form=LoginForm(request,data=request.POST or None)
     if request.method=='POST':
         if not throttle(request,'login',15,900) or not throttle(request,'login-account',12,900,request.POST.get('username','').strip().lower()):
@@ -78,7 +85,9 @@ def sign_in(request,management_only=False):
             else:
                 login(request,form.get_user())
                 audit(request.user,'account.login',request.user)
-                return redirect(login_destination(request,None if management_only else (request.POST.get('next') or request.GET.get('next'))))
+                from .guest import claim_after_authentication
+                claimed = claim_after_authentication(request, request.user)
+                return redirect(f'/panel/maquinarias/{claimed}/' if claimed else login_destination(request,None if management_only else (request.POST.get('next') or request.GET.get('next'))))
     if management_only:
         intro='Ingresa con el correo de tu cuenta administrativa. Después verificarás tu acceso en dos pasos.'
         if request.user.is_authenticated and not is_management_user(request.user):
@@ -99,14 +108,14 @@ def recover(request):
     form=RecoveryForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         if throttle(request,'recover',5,3600):
-            user=User.objects.filter(email__iexact=form.cleaned_data['email'],is_active=True).first()
+            user=User.objects.filter(email__iexact=form.cleaned_data['email'],is_active=True,is_guest=False).first()
             if user:activation_email(user,'recovery')
         messages.success(request,'Si existe una cuenta con ese correo, recibirás un enlace para recuperar el acceso. Revisa también la carpeta de spam.')
         return redirect('/recuperar-acceso/?solicitado=1')
     return auth_render(request,form,'Recupera tu acceso','Enviar enlace de recuperación')
 
 def activate(request,uidb64,token):
-    try:user=User.objects.get(pk=urlsafe_base64_decode(uidb64).decode(),is_active=True)
+    try:user=User.objects.get(pk=urlsafe_base64_decode(uidb64).decode(),is_active=True,is_guest=False)
     except (User.DoesNotExist,ValueError,TypeError,UnicodeDecodeError):user=None
     if user is None or not default_token_generator.check_token(user,token):
         return auth_render(request,None,'Este enlace venció o ya se utilizó','',intro='Solicita un nuevo enlace en Recuperar acceso.')

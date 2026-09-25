@@ -40,7 +40,7 @@ class ManualNotificationForm(forms.Form):
     def __init__(self, *args, actor, **kwargs):
         self.actor = actor
         super().__init__(*args, **kwargs)
-        self.fields["recipient"].queryset = User.objects.filter(is_active=True).order_by("email")
+        self.fields["recipient"].queryset = User.objects.filter(is_active=True, is_guest=False).order_by("email")
         if not self.is_bound:
             self.initial["request_token"] = signing.dumps(
                 {"actor": actor.pk, "nonce": uuid.uuid4().hex}, salt=COMPOSE_SALT)
@@ -81,7 +81,7 @@ def queue_manual_notification(*, actor, recipient, subject, body, request_id):
                                  metadata__request_id=request_id).exists():
         return False
     recipient = User.objects.get(pk=recipient.pk)
-    if not recipient.is_active:
+    if not recipient.is_active or recipient.is_guest:
         raise ValidationError("La cuenta del destinatario está inactiva.")
     _notify(recipient, None, "manual", subject, body)
     audit(actor, "notification.manual_queued", recipient, {"request_id": request_id,

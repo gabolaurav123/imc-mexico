@@ -30,6 +30,14 @@ def validate_record(item):
     for key in ("specs", "provenance"):
         if not isinstance(item.get(key, {}), dict):
             raise CommandError(f"{key}: debe ser un objeto estructurado.")
+    aliases = item.get("provenance", {}).get("model_aliases")
+    if aliases is not None:
+        if not isinstance(aliases, list) or any(not isinstance(alias, str) or not alias.strip() for alias in aliases):
+            raise CommandError("provenance.model_aliases: debe ser una lista de textos no vacíos.")
+        from .research import identifier_key
+        normalized = [identifier_key(alias) for alias in aliases]
+        if len(normalized) != len(set(normalized)):
+            raise CommandError("provenance.model_aliases: no debe repetir aliases equivalentes.")
     for key in ("period_from", "period_to"):
         if item.get(key) is not None and type(item[key]) is not int:
             raise CommandError(f"{key}: debe ser un año numérico o null.")

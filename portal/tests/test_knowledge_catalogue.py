@@ -65,10 +65,16 @@ class BundledKnowledgeTests(TestCase):
     def test_manual_import_is_linked_but_never_active(self):
         Category.objects.create(slug='excavadoras', name='Excavadoras')
         call_command('import_technical_knowledge', path=str(KNOWLEDGE_ROOT/'excavadoras'), stdout=StringIO())
-        self.assertFalse(TechnicalReference.objects.filter(category__slug='excavadoras', active=True).exists())
+        manual_reference_ids = list(TechnicalReference.objects.filter(category__slug='excavadoras').values_list('pk', flat=True))
+        self.assertTrue(manual_reference_ids)
+        self.assertFalse(TechnicalReference.objects.filter(pk__in=manual_reference_ids, active=True).exists())
         self.assertFalse(TechnicalReference.objects.filter(equipment_model__isnull=True).exists())
         self.seed()
-        self.assertFalse(TechnicalReference.objects.filter(category__slug='excavadoras', active=True).exists())
+        # A later release bundle may add *different* curated excavator
+        # references and activate them.  It must never turn a staff/manual
+        # import into an approved record merely because that import's source
+        # directory has since become part of the catalogue.
+        self.assertFalse(TechnicalReference.objects.filter(pk__in=manual_reference_ids, active=True).exists())
 
     def test_modified_release_bundle_is_not_silently_approved(self):
         with TemporaryDirectory() as directory:

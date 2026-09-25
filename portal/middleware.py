@@ -1,7 +1,32 @@
 from django.conf import settings
 from django.http import JsonResponse
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 from .security import login_destination
+
+
+class GuestPrincipalMiddleware:
+    """Technical visitor principals can never behave like user sessions.
+
+    Guest browser work is authorized by the short-lived draft capability, not
+    by logging in as its internal owner.  Keep an explicit allowlist so an
+    accidental password or staff action cannot expose panel, sharing, submit,
+    export, or ordinary machine API routes.
+    """
+    allowed_prefixes = ("/api/invitados/", "/salud/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        user = request.user
+        if user.is_authenticated and getattr(user, "is_guest", False):
+            if request.path.startswith(self.allowed_prefixes):
+                return self.get_response(request)
+            if request.path.startswith("/api/"):
+                return JsonResponse({"error": "El borrador temporal requiere su capacidad de sesión."}, status=403)
+            return HttpResponseForbidden("El borrador temporal requiere su capacidad de sesión.")
+        return self.get_response(request)
 
 class StaffMFAMiddleware:
     def __init__(self, get_response): self.get_response = get_response

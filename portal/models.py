@@ -50,6 +50,9 @@ class User(AbstractUser):
     company = models.CharField("empresa", max_length=180, blank=True)
     marketing_consent = models.BooleanField("comunicaciones comerciales", default=False)
     is_test = models.BooleanField("cuenta de prueba", default=False)
+    # This is a technical principal for a short-lived visitor capability.  It
+    # is never a person, advertiser, login or contact record.
+    is_guest = models.BooleanField("principal técnico temporal", default=False, db_index=True)
     objects = UserManager()
     REQUIRED_FIELDS = ["email"]
 
@@ -200,6 +203,42 @@ class Machine(models.Model):
 
     def __str__(self):
         return f"{self.folio} · {self.title}"
+
+
+def guest_draft_expiry():
+    return timezone.now() + timedelta(hours=24)
+
+
+class GuestDraft(models.Model):
+    """A session-capability wrapper around one normal private Machine.
+
+    The temporary owner is a non-login technical User so Asset and AnalysisJob
+    keep their normal foreign keys.  Claiming changes that Machine's owner;
+    no files, analysis jobs, or second machine are copied.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+                                 related_name="guest_draft")
+    machine = models.OneToOneField(Machine, on_delete=models.PROTECT, related_name="guest_draft")
+    secret_hash = models.CharField(max_length=64)
+    expires_at = models.DateTimeField(default=guest_draft_expiry, db_index=True)
+    claimed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+                                   related_name="claimed_guest_drafts")
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "borrador temporal"
+        verbose_name_plural = "borradores temporales"
+
+    @property
+    def expired(self):
+        return self.expires_at <= timezone.now()
+
+    @property
+    def claimable(self):
+        return self.claimed_by_id is None and not self.expired
 
 
 class ImmutableQuerySet(models.QuerySet):
@@ -511,6 +550,9 @@ class Publication(models.Model):
     external_id = models.CharField("identificador externo", max_length=200, blank=True)
     external_reference = models.CharField("referencia visible externa", max_length=200, blank=True)
     external_url = models.URLField("enlace externo", blank=True)
+    imc_asset_ids = models.JSONField("medios seleccionados para IMC", default=list, blank=True)
+    imc_selection_version = models.ForeignKey(MachineVersion, on_delete=models.PROTECT, null=True, blank=True,
+                                              related_name="imc_media_selections", verbose_name="versión de medios IMC")
     integration_state = models.CharField("estado de integración", max_length=16,
                                          choices=[("pending", "Pendiente"), ("acknowledged", "Acusada")],
                                          default="pending")
@@ -542,6 +584,8 @@ class Publication(models.Model):
             raise ValidationError("Se requiere una versión y un anunciante aprobados.")
         if self.current_delivery_id and self.current_delivery.publication_id != self.pk:
             raise ValidationError("La entrega activa no pertenece a esta publicación.")
+        if self.imc_selection_version_id and self.imc_selection_version.machine_id != self.machine_id:
+            raise ValidationError("La selección de medios no pertenece a esta maquinaria.")
 
     def __str__(self):
         return f"{self.machine.folio} · {self.get_destination_display()}"
@@ -562,6 +606,7 @@ class IntegrationDelivery(models.Model):
     state = models.CharField("estado", max_length=16, choices=State.choices, default=State.PREPARED, db_index=True)
     receipt = models.JSONField("acuse remoto declarado", default=dict, blank=True)
     evidence = models.TextField("evidencia independiente", blank=True)
+    manual_metadata = models.JSONField("bitácora manual de preparación", default=dict, blank=True)
     acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
                                         related_name="acknowledged_deliveries")
     acknowledged_at = models.DateTimeField(null=True, blank=True)

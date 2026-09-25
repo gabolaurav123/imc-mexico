@@ -21,6 +21,11 @@ PUBLIC_KEYS = frozenset({
     "working_width", "maximum_weight", "drum_type", "emissions",
     "machine_family", "boom_configuration", "stick_configuration", "size_class",
     "application", "power_type", "depth_configuration",
+    "engine_displacement", "boom_length", "stick_length", "maximum_reach_ground",
+    "maximum_loading_height", "bucket_digging_force", "stick_digging_force",
+    "hydraulic_flow", "swing_speed", "drum_width", "drum_diameter", "travel_speed",
+    "fuel_capacity", "water_tank_capacity", "platform_height", "horizontal_outreach",
+    "gradeability", "swing", "blade_width",
 })
 PRIVATE_KEYS = frozenset({
     "serial", "vin", "plate_transcription", "plate_kind", "plate_type", "no_plate",

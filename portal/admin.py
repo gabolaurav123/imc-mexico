@@ -9,6 +9,9 @@ from django.shortcuts import redirect
 from django.utils.html import format_html
 from django.utils.html import format_html_join
 from django.db import transaction
+from django.db.models import Count
+from django.urls import reverse
+from urllib.parse import urlencode
 import json
 import csv
 
@@ -96,9 +99,25 @@ class SafeUserChangeForm(UserChangeForm):
 class UserAdmin(BaseUserAdmin):
     form = SafeUserChangeForm
     add_form = SafeUserCreationForm
-    list_display = ("email", "first_name", "phone", "advertiser_status", "last_login", "email_verified", "is_active", "is_staff", "is_test")
+    list_display = ("email", "first_name", "phone", "machine_count_link", "advertiser_status", "last_login", "email_verified", "is_active", "is_staff", "is_test")
     list_filter = ("advertiser_status", "email_verified", "is_staff", "is_active", "is_test")
     search_fields = ("email", "first_name", "last_name", "phone", "company")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).exclude(is_guest=True).annotate(machine_count=Count("machines"))
+
+    def lookup_allowed(self, lookup, value, request=None):
+        # The count link narrows the existing machinery administration to one
+        # owner.  It is intentionally precise rather than exposing a broad
+        # staff-facing search parameter.
+        return lookup == "owner__id__exact" or super().lookup_allowed(lookup, value, request)
+
+    @admin.display(description="Fichas", ordering="machine_count")
+    def machine_count_link(self, obj):
+        count = getattr(obj, "machine_count", 0)
+        href = reverse("admin:portal_machine_changelist") + "?" + urlencode({"owner__id__exact": obj.pk})
+        label = f"{count} {'ficha' if count == 1 else 'fichas'}"
+        return format_html('<a href="{}">{}</a>', href, label)
     ordering = ("-date_joined",)
     list_per_page = 30
     action_form = ReasonActionForm
@@ -285,7 +304,7 @@ class MachineAdmin(AuditedAdmin):
     def transfer_owner(self,request,queryset):
         if not request.user.has_perm("portal.reassign_machine"):
             raise PermissionDenied
-        target=User.objects.filter(email__iexact=request.POST.get("new_owner_email","").strip()).first()
+        target=User.objects.filter(email__iexact=request.POST.get("new_owner_email","").strip(),is_guest=False).first()
         if not target:
             self.message_user(request,"Indica el correo de una cuenta de destino existente.",messages.ERROR)
             return

@@ -13,7 +13,7 @@ from portal.models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Ma
                            Notification, PlatformSettings, Publication, Submission, User)
 from portal.services import (apply_analysis_suggestions, duplicate_machine, review_submission,
                              save_draft, set_advertiser_status, set_availability, set_publication,
-                             snapshot, submit_machine, reassign_machine)
+                             snapshot, submit_machine, reassign_machine, record_local_duplicate_review)
 
 
 class WorkflowTests(TestCase):
@@ -35,6 +35,8 @@ class WorkflowTests(TestCase):
         submission = submit_machine(self.machine, self.owner, True)
         self.photo.public_authorized = True
         self.photo.save()
+        record_local_duplicate_review(self.machine, submission, self.admin, "no_match",
+                                      "Se revisaron serie, marca, modelo y fotografía principal.")
         review_submission(submission, self.admin, "approved")
         self.machine.refresh_from_db()
         submission.refresh_from_db()
@@ -149,6 +151,16 @@ class WorkflowTests(TestCase):
             review_submission(submission, self.admin, "approved")
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.status, "submitted")
+
+    def test_approval_requires_a_human_local_duplicate_decision_for_this_submission(self):
+        set_advertiser_status(self.owner, self.admin, "approved", "Datos revisados por operador")
+        submission = submit_machine(self.machine, self.owner, True)
+        with self.assertRaises(ValidationError):
+            review_submission(submission, self.admin, "approved")
+        event = record_local_duplicate_review(self.machine, submission, self.admin, "legitimate",
+                                              "La coincidencia comparte modelo, pero no serie ni archivos.")
+        self.assertEqual(event.actor_id, self.admin.pk)
+        review_submission(submission, self.admin, "approved")
 
     def test_approval_creates_separate_frozen_version_and_no_auto_publication(self):
         submission = self.approve()

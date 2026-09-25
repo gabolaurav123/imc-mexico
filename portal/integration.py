@@ -9,8 +9,12 @@ import json
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from .models import IntegrationDelivery, Machine, Publication
+
+
+MANUAL_DUPLICATE_RESULTS = {"partial", "no_match", "match", "update", "legitimate"}
 
 
 def canonical_json(value):
@@ -36,6 +40,33 @@ def delivery_metadata(delivery):
     }
 
 
+def _manual_duplicate_review(delivery):
+    """Return the latest complete human IMC duplicate review for this delivery."""
+    metadata = delivery.manual_metadata if isinstance(delivery.manual_metadata, dict) else {}
+    events = metadata.get("events", []) if isinstance(metadata.get("events", []), list) else []
+    for event in reversed(events):
+        if not isinstance(event, dict) or event.get("kind") != "manual_preparation_review":
+            continue
+        recorded_at = event.get("recorded_at")
+        actor_id = event.get("actor_id")
+        if (event.get("duplicate_result") not in MANUAL_DUPLICATE_RESULTS
+                or not isinstance(actor_id, int) or actor_id <= 0
+                or not isinstance(recorded_at, str) or parse_datetime(recorded_at) is None
+                or not isinstance(event.get("imc_advertiser"), str) or not event["imc_advertiser"].strip()
+                or not isinstance(event.get("evidence"), str) or len(event["evidence"].strip()) < 12):
+            return None
+        return event
+    return None
+
+
+def _require_manual_duplicate_review(delivery):
+    if _manual_duplicate_review(delivery) is None:
+        raise ValidationError(
+            "Antes de entregar o acusar esta ficha principal, registra la revisión manual de duplicados en IMC "
+            "con resultado, actor, fecha y evidencia."
+        )
+
+
 @transaction.atomic
 def mark_delivery_exported(delivery, actor):
     """Advance only the local handoff state, rechecking after file preparation."""
@@ -44,6 +75,7 @@ def mark_delivery_exported(delivery, actor):
     machine = Machine.objects.select_for_update(of=("self",)).select_related('owner').get(pk=candidate.source_machine_id)
     publication = Publication.objects.select_for_update().get(pk=candidate.publication_id)
     delivery = IntegrationDelivery.objects.select_for_update().get(pk=candidate.pk)
+    _require_manual_duplicate_review(delivery)
     if (publication.current_delivery_id != delivery.pk or machine.approved_version_id != delivery.version_id or not machine.owner.is_active
             or machine.owner.advertiser_status != 'approved' or machine.availability == 'withdrawn'
             or machine.deleted_at is not None or machine.availability != delivery.payload.get('availability')):
@@ -61,6 +93,102 @@ def mark_delivery_exported(delivery, actor):
 def _require_publisher(actor):
     from .services import require_operator
     require_operator(actor, "portal.publish_machine")
+
+
+@transaction.atomic
+def set_imc_media_selection(machine, actor, slots):
+    """Store the ordered destination selection without changing local sharing.
+
+    Slots 1–4 are the principal IMC photos and 5–10 the additional photos.
+    The selection is tied to the exact approved version and does not create a
+    delivery, remote record, or publication.
+    """
+    _require_publisher(actor)
+    if not isinstance(slots, list):
+        raise ValidationError("La selección de medios no es válida.")
+    machine = Machine.objects.select_for_update().select_related("approved_version", "owner").get(pk=machine.pk)
+    if not machine.approved_version_id:
+        raise ValidationError("Primero se requiere una versión aprobada.")
+    requested = {}
+    videos = []
+    for value in slots:
+        if not isinstance(value, str) or "|" not in value:
+            raise ValidationError("La selección de medios contiene un valor inválido.")
+        asset_id, slot_text = value.rsplit("|", 1)
+        if slot_text == "video":
+            videos.append(asset_id)
+            continue
+        try:
+            slot = int(slot_text)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("La posición seleccionada no es válida.") from exc
+        if slot not in range(1, 11) or slot in requested:
+            raise ValidationError("Cada posición de IMC sólo puede contener una fotografía.")
+        requested[slot] = asset_id
+    if len(set(requested.values()) | set(videos)) != len(requested) + len(videos):
+        raise ValidationError("Una fotografía no puede ocupar dos posiciones de IMC.")
+    from .services import detected_plate_asset_ids
+    allowed = {str(asset_id) for asset_id in machine.assets.filter(
+        processing_status="ready", public_authorized=True, purpose__in=("general", "detail"),
+    ).exclude(pk__in=detected_plate_asset_ids(machine)).values_list("pk", flat=True)}
+    allowed &= {str(asset_id) for asset_id in machine.approved_version.data.get("asset_ids", [])}
+    if set(requested.values()) - allowed:
+        raise ValidationError("Sólo se permiten medios autorizados de esta versión; placas y documentos no se incluyen.")
+    asset_kinds = {str(pk): kind for pk, kind in machine.assets.filter(pk__in=set(requested.values()) | set(videos)).values_list("pk", "kind")}
+    if any(asset_kinds.get(asset_id) != "image" for asset_id in requested.values()):
+        raise ValidationError("Las posiciones principales y adicionales sólo aceptan fotografías.")
+    if set(videos) - allowed or any(asset_kinds.get(asset_id) != "video" for asset_id in videos):
+        raise ValidationError("Sólo se permiten videos autorizados de esta versión.")
+    publication, _ = Publication.objects.select_for_update().get_or_create(
+        machine=machine, destination="main", defaults={"version": machine.approved_version, "status": "approved"})
+    publication.imc_asset_ids = [requested[slot] for slot in sorted(requested)] + videos
+    publication.imc_selection_version = machine.approved_version
+    publication.full_clean()
+    publication.save(update_fields=["imc_asset_ids", "imc_selection_version", "updated_at"])
+    from .services import audit
+    audit(actor, "integration.media_selected", publication,
+          {"version": machine.approved_version.number, "asset_ids": publication.imc_asset_ids})
+    return publication
+
+
+def _manual_text(value, field, *, minimum=0, maximum=4000, required=False):
+    if not isinstance(value, str):
+        raise ValidationError({field: "Debe ser texto."})
+    value = value.strip()
+    if (required and not value) or len(value) < minimum or len(value) > maximum:
+        raise ValidationError({field: "Registra un valor válido."})
+    return value
+
+
+@transaction.atomic
+def record_manual_review(delivery, actor, *, imc_advertiser, duplicate_result, evidence, limitations=""):
+    """Append a local review record; this never contacts IMC or creates a listing."""
+    _require_publisher(actor)
+    imc_advertiser = _manual_text(imc_advertiser, "imc_advertiser", minimum=2, maximum=250, required=True)
+    evidence = _manual_text(evidence, "evidence", minimum=12, maximum=4000, required=True)
+    limitations = _manual_text(limitations, "limitations", maximum=4000)
+    allowed_results = {"not_checked", *MANUAL_DUPLICATE_RESULTS}
+    if duplicate_result not in allowed_results:
+        raise ValidationError({"duplicate_result": "El resultado de duplicados no es válido."})
+    delivery = IntegrationDelivery.objects.select_for_update().get(pk=delivery.pk)
+    metadata = delivery.manual_metadata if isinstance(delivery.manual_metadata, dict) else {}
+    events = list(metadata.get("events", [])) if isinstance(metadata.get("events", []), list) else []
+    event = {
+        "kind": "manual_preparation_review",
+        "actor_id": actor.pk,
+        "imc_advertiser": imc_advertiser,
+        "duplicate_result": duplicate_result,
+        "evidence": evidence,
+        "limitations": limitations,
+        "recorded_at": timezone.now().isoformat(),
+    }
+    events.append(event)
+    delivery.manual_metadata = {"events": events}
+    delivery.save(update_fields=["manual_metadata"])
+    from .services import audit
+    audit(actor, "integration.manual_review_recorded", delivery,
+          {"duplicate_result": duplicate_result, "imc_advertiser": imc_advertiser})
+    return delivery
 
 
 @transaction.atomic
@@ -140,6 +268,7 @@ def ack_delivery(delivery, actor, receipt, evidence):
     machine = Machine.objects.select_for_update(of=("self",)).select_related("approved_version", "owner").get(pk=candidate.publication.machine_id)
     publication = Publication.objects.select_for_update().get(pk=candidate.publication_id)
     delivery = IntegrationDelivery.objects.select_for_update().select_related("version").get(pk=candidate.pk)
+    _require_manual_duplicate_review(delivery)
     if (publication.current_delivery_id != delivery.pk or machine.approved_version_id != delivery.version_id or delivery.source_machine_id != machine.pk
             or delivery.version.machine_id != machine.pk or machine.deleted_at is not None
             or not machine.owner.is_active or machine.owner.advertiser_status != "approved"

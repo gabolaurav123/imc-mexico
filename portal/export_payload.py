@@ -82,6 +82,20 @@ def _valid_asset_ids(raw_ids):
         raise ValidationError("La versión contiene un identificador de archivo inválido.") from exc
 
 
+def _imc_asset_ids(snapshot, asset_ids=None):
+    """Return the destination-specific selection, retaining old snapshots.
+
+    ``public_asset_ids`` remains the selection for the local shared sheet.  A
+    later IMC selection is deliberately optional so historical approved
+    versions remain exportable without rewriting their immutable snapshot.
+    """
+    raw_ids = asset_ids if asset_ids is not None else snapshot.get("imc_asset_ids", snapshot.get("public_asset_ids", []))
+    ids = _valid_asset_ids(raw_ids)
+    if len(ids) != len(set(ids)):
+        raise ValidationError("La selección de IMC contiene archivos duplicados.")
+    return ids
+
+
 def _approved_version_for(machine, version):
     if getattr(version, "machine_id", None) != getattr(machine, "pk", None):
         raise ValidationError("La versión no pertenece a esta maquinaria.")
@@ -103,7 +117,10 @@ def validate_export_manifest(machine, version, payload):
     if len(ids) != len(set(ids)):
         raise ValidationError('El manifiesto contiene archivos duplicados.')
     snapshot = version.data
-    allowed = set(snapshot.get('public_asset_ids', []))
+    # The delivery's immutable manifest is authoritative after preparation;
+    # current authorization, not a later editable destination ordering, is
+    # what must be checked before export or acknowledgement.
+    allowed = set(_valid_asset_ids(snapshot.get('asset_ids', [])))
     from .services import detected_plate_asset_ids
     private = set(snapshot.get('private_plate_asset_ids', [])) | detected_plate_asset_ids(machine)
     if set(ids) - allowed or set(ids) & private:
@@ -114,7 +131,7 @@ def validate_export_manifest(machine, version, payload):
         raise ValidationError('Una fotografía cambió de permisos durante la entrega.')
 
 
-def build_export_payload(machine, version, *, include_private_metadata=False):
+def build_export_payload(machine, version, *, include_private_metadata=False, asset_ids=None):
     """Return ``(payload, files)`` for the current approved version.
 
     ``files`` is a list of ``(archive_path, bytes)`` pairs.  The caller can
@@ -123,7 +140,7 @@ def build_export_payload(machine, version, *, include_private_metadata=False):
     """
     _approved_version_for(machine, version)
     snapshot = version.data if isinstance(version.data, dict) else {}
-    public_ids = _valid_asset_ids(snapshot.get("public_asset_ids", []))
+    public_ids = _imc_asset_ids(snapshot, asset_ids)
     private_plate_ids = set(str(value) for value in (snapshot.get("private_plate_asset_ids", []) or []))
     # The historical snapshot is only one layer of protection.  A later image
     # analysis can classify a current asset as plate evidence, and it must stop
@@ -139,7 +156,20 @@ def build_export_payload(machine, version, *, include_private_metadata=False):
         public_authorized=True,
         purpose__in=("general", "detail"),
     ).exclude(pk__in=private_plate_ids)
-    assets = sorted(candidates, key=lambda asset: (asset.position, str(asset.pk)))
+    by_id = {str(asset.pk): asset for asset in candidates}
+    # Preserve the administrator's explicit destination order.  Older
+    # snapshots use the local public order and then the Asset ordering.
+    assets = [by_id[asset_id] for asset_id in public_ids if asset_id in by_id]
+    if asset_ids is None and "imc_asset_ids" not in snapshot:
+        assets.sort(key=lambda asset: (asset.position, str(asset.pk)))
+    image_count = sum(asset.kind == "image" for asset in assets)
+    if image_count > 10:
+        if asset_ids is not None or "imc_asset_ids" in snapshot:
+            raise ValidationError("IMC permite seleccionar hasta 10 fotografías: cuatro principales y seis adicionales.")
+        # An old local shared selection can have more images.  Preserve its
+        # history, but prepare only the first ten for this destination.
+        retained_images = 0
+        assets = [asset for asset in assets if asset.kind != "image" or (retained_images := retained_images + 1) <= 10]
 
     title = snapshot.get("title")
     exported = public_json(
@@ -163,6 +193,8 @@ def build_export_payload(machine, version, *, include_private_metadata=False):
     files = []
     cover_assigned = False
     exported_bytes = 0
+    image_index = 0
+    video_index = 0
     for asset in assets:
         source = asset.preview if asset.preview else asset.original
         if not source:
@@ -173,7 +205,16 @@ def build_export_payload(machine, version, *, include_private_metadata=False):
         raw = _read_export_file(source, maximum=min(MAX_EXPORT_ASSET_BYTES, remaining))
         exported_bytes += len(raw)
         mime_type, suffix, width, height = _content_description(raw, asset)
-        path = f"fotografias/{asset.pk}{suffix}"
+        if asset.kind == "image":
+            image_index += 1
+            group = "fotos_principales" if image_index <= 4 else "fotos_adicionales"
+            position = image_index if image_index <= 4 else image_index - 4
+            path = f"{group}/{position:02d}_{asset.pk}{suffix}"
+            destination_role = "principal" if image_index <= 4 else "adicional"
+        else:
+            video_index += 1
+            path = f"videos_autorizados/{video_index:02d}_{asset.pk}{suffix}"
+            destination_role = "video"
         manifest = {
             "id": str(asset.pk),
             "path": path,
@@ -183,6 +224,7 @@ def build_export_payload(machine, version, *, include_private_metadata=False):
             "sha256": sha256(raw).hexdigest(),
             "cover": bool(asset.is_cover and not cover_assigned),
             "position": asset.position,
+            "destination_role": destination_role,
         }
         if manifest["cover"]:
             cover_assigned = True
