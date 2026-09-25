@@ -300,16 +300,31 @@ def _accepted_visual_model_hint(result):
                       and item.get("kind") == "machine"
                       and item.get("relevance") in {"machinery", "related"}}
     readings = {}
+    def evidence_label(evidence):
+        match = re.search(
+            r"(?:r[oó]tulo|modelo|model|label|emblema)\D{0,40}[\"“«]([^\"”»]{2,48})[\"”»]",
+            evidence, flags=re.IGNORECASE)
+        candidate = _identifier(match.group(1)) if match else None
+        key = identifier_key(candidate)
+        return candidate if (candidate and len(key) >= 3 and any(char.isalpha() for char in key)
+                             and any(char.isdigit() for char in key)) else None
+
     for field in result.get("fields", []) if isinstance(result, dict) else []:
         if not isinstance(field, dict):
             continue
         value = _identifier(field.get("value"))
         asset_id = field.get("asset_id")
         evidence = " ".join(str(field.get("evidence", "")).split())
+        # An uncertain label may be retained in the evidence while its value
+        # stays null.  Recover it solely as a search constraint, and only
+        # when this field is already bound to an accepted machine photograph.
+        if not value and asset_id in machine_images:
+            value = evidence_label(evidence)
         value_key = identifier_key(value)
         if (field.get("key") != "model" or field.get("source") != "image"
                 or field.get("review") != "needs_review" or field.get("component") != "machine"
-                or asset_id not in machine_images or not value or len(value_key) < 3
+                or asset_id not in machine_images
+                or not value or len(value_key) < 3
                 or not any(character.isalpha() for character in value_key)
                 or not any(character.isdigit() for character in value_key)
                 or not _contains_identifier(evidence, value)):
@@ -2140,6 +2155,10 @@ def compose_description(data, provenance, category=None, visual_description="", 
             continue
         if meta.get("source") not in {"visual_proposal", "user"}:
             continue
+        if key == "applications" and meta.get("source") == "visual_proposal":
+            # The section already labels these as suggested uses. Keep internal
+            # review instructions out of the owner's short equipment summary.
+            value = re.sub(r"^Usos sugeridos, sujetos a verificaci[oó]n:\s*", "", value, flags=re.I)
         observations.append(f"{label}: {' '.join(value.split()).rstrip('. ')}")
     if observations:
         lines.append(" · ".join(observations[:2]) + ".")

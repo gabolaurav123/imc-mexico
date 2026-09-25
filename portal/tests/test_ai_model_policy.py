@@ -17,9 +17,10 @@ from portal.tests.test_image_relevance import observation, parsed
 
 
 class ModelPolicyTests(SimpleTestCase):
-    def test_visual_and_research_stages_use_gpt6_luna_without_fallback(self):
+    def test_visual_terra_and_research_luna_preserve_requested_policy_without_fallback(self):
         self.assertEqual(image_model(DEFAULT_MODEL), VISION_MODEL)
-        self.assertEqual(DEFAULT_MODEL, 'gpt-6-luna')
+        self.assertEqual(DEFAULT_MODEL, 'gpt-5.6-luna')
+        self.assertEqual(VISION_MODEL, 'gpt-5.6-terra')
         self.assertEqual(image_model('gpt-5.6-luna'), 'gpt-5.6-terra')
         self.assertEqual(image_model('gpt-6-luna-2026-09-24'), 'gpt-6-luna-2026-09-24')
         self.assertEqual(image_model('gpt-4.1-mini'), 'gpt-4.1-mini')
@@ -27,7 +28,7 @@ class ModelPolicyTests(SimpleTestCase):
             image_model('gpt-6-astra')
 
     def test_only_selected_model_and_dated_snapshots_get_reasoning_policy(self):
-        self.assertEqual(DEFAULT_MODEL, "gpt-6-luna")
+        self.assertEqual(DEFAULT_MODEL, "gpt-5.6-luna")
         for model in ("gpt-6-luna", "gpt-6-luna-2026-09-24", "gpt-5.6-luna", "gpt-5.6-luna-2026-09-17", "gpt-5.6-terra", "gpt-5.6-terra-2026-09-17"):
             with self.subTest(model=model):
                 self.assertTrue(is_reasoning_model(model))
@@ -72,7 +73,7 @@ class ModelPolicyTests(SimpleTestCase):
         self.assertEqual(_job_lease_seconds(legacy), 600)
 
 
-@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-6-luna",
+@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-5.6-luna",
                    OPENAI_TIMEOUT=90, AI_JOB_STALE_SECONDS=600)
 class ReasoningModelWorkerTests(TestCase):
     def setUp(self):
@@ -142,6 +143,20 @@ class ReasoningModelWorkerTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, 'completed')
         self.assertEqual([c.kwargs['model'] for c in self.provider.return_value.responses.parse.call_args_list], [DEFAULT_MODEL] * 2)
+
+    def test_historical_gpt6_job_keeps_its_pinned_visual_model_after_default_change(self):
+        with override_settings(OPENAI_MODEL="gpt-6-luna"):
+            job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        self.assertEqual(job.model, "gpt-6-luna")
+        self.assertEqual(job.result["vision_model"], "gpt-6-luna")
+        self.provider.return_value.responses.parse.side_effect = [
+            self.photo(model="gpt-6-luna"), self.photo(model="gpt-6-luna")]
+        self.assertTrue(process_next_job())
+        job.refresh_from_db()
+        self.assertEqual(job.status, "completed")
+        self.assertEqual(job.model, "gpt-6-luna")
+        self.assertEqual([call.kwargs["model"] for call in self.provider.return_value.responses.parse.call_args_list],
+                         ["gpt-6-luna"] * 2)
 
     def test_exact_capacity_admits_one_attempt_but_one_token_short_never_calls_provider(self):
         limits = PlatformSettings.objects.get(pk=1)
@@ -251,5 +266,5 @@ class ReasoningModelWorkerTests(TestCase):
                     self.assertNotIn('private-provider-detail', job.error)
                     self.assertNotIn('do-not-expose', str(job.result))
                     self.assertEqual(self.provider.return_value.responses.parse.call_count, 1)
-                    self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs['model'], DEFAULT_MODEL)
+                    self.assertEqual(self.provider.return_value.responses.parse.call_args.kwargs['model'], VISION_MODEL if mode == 'analysis' else DEFAULT_MODEL)
                     self.provider.return_value.responses.parse.reset_mock()

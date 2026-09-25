@@ -1,6 +1,7 @@
 # Modelo de análisis y búsqueda
 
-Los análisis nuevos de v31 usan **GPT-5.6 Terra** para la lectura visual y
+La política predeterminada vigente, restablecida el 25 de septiembre de 2026 según
+la elección expresa del propietario, usa **GPT-5.6 Terra** para la lectura visual y
 **GPT-5.6 Luna** (`OPENAI_MODEL=gpt-5.6-luna`) para investigación, normalización y
 texto mediante Responses. Es una política por etapa dentro de los dos modelos
 autorizados por el propietario: una sola llamada por foto, sin reintento con
@@ -10,7 +11,8 @@ El propietario retiró Astra por coste y permanece bloqueado.
 
 ## Perfil y control de consumo
 
-- Razonamiento `low` en lectura de fotos, descripción, búsqueda, normalización y valoración.
+- Razonamiento `low` en fotos generales, descripción, búsqueda, normalización y valoración;
+  `medium` para placas con Terra, dentro de la misma llamada visual.
 - 3.500 tokens de margen por llamada para razonamiento/salida y timeout mínimo de 120 segundos.
 - Se conservan las cuotas diarias y las reservas acotadas. La reserva no es una tarifa.
 - Astra está bloqueado antes de encolar y antes de llamar al proveedor, incluidos trabajos antiguos.
@@ -21,13 +23,20 @@ Las tarifas Standard consultadas de Luna son USD 0,20 por millón de tokens de
 entrada y USD 1,20 por millón de salida. Herramientas, caché y contexto largo tienen
 reglas adicionales. Terra tiene una tarifa Standard mayor: USD 2 por millón de
 tokens de entrada y USD 12 por millón de salida, según la documentación consultada
-el 18 de septiembre de 2026. Su uso se limita a la lectura visual.
+el 25 de septiembre de 2026. Su uso se limita a la lectura visual.
 Las pruebas locales usan respuestas simuladas y no acreditan calidad visual real
 ni saldo disponible en la cuenta del proveedor.
 
 Fuentes oficiales:
 - [GPT-5.6 Luna: capacidades y tarifas](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
 - [GPT-5.6 Terra: alternativa compatible](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+
+## Configuración operativa
+
+Establecer `OPENAI_MODEL=gpt-5.6-luna` en web y worker y reiniciar ambos.
+Cambiar sólo el default del código no reemplaza una variable de entorno existente.
+Los trabajos ya encolados conservan `model` y `vision_model`; no se recalculan
+resultados históricos ni se introduce una segunda llamada para cambiar de modelo.
 
 ## Historial de la integración anterior
 

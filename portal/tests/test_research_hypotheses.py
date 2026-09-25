@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from portal.research import (
     ResearchHypothesisCandidate, ResearchHypothesisCandidates,
-    _accepted_visual_model_hint, is_validated_general_context, merge_research, research_machine,
+    _accepted_visual_model_hint, is_validated_general_context, merge_research, research_identity, research_machine,
 )
 
 
@@ -246,6 +246,50 @@ class PhotoModelHypothesisTests(SimpleTestCase):
         merged = merge_research(result, research)
         self.assertEqual(merged["data"]["model"], "320D")
         self.assertEqual(merged["provenance"]["model"]["review"], "needs_review")
+
+    def test_accepted_image_can_constrain_search_from_a_quoted_label_when_value_is_null(self):
+        result = partial_visual_model_result()
+        result["data"]["model"] = None
+        field = result["fields"][0]
+        field.update(value=None)
+
+        hint = _accepted_visual_model_hint(result)
+
+        self.assertEqual(hint["value"], "320D")
+        self.assertEqual(hint["asset_id"], "image_001")
+        identity, basis = research_identity(result, allowed_categories=[CATEGORY])
+        self.assertEqual((identity["model"], basis), (None, "category"))
+
+    def test_quoted_label_without_an_accepted_machine_photo_is_not_a_hint(self):
+        result = partial_visual_model_result()
+        result["data"]["model"] = None
+        result["provenance"]["model"].pop("asset_id")
+        result["fields"][0].update(value=None)
+        result["fields"][0].pop("asset_id")
+
+        self.assertIsNone(_accepted_visual_model_hint(result))
+
+    def test_quoted_label_constrains_catalogue_hypothesis_without_applying_model(self):
+        client = Mock()
+        url = "https://www.cat.com/en_US/products/excavators/320d.html"
+        client.responses.create.return_value = search_response([
+            (url, "CAT 320D hydraulic excavator", "CAT 320D hydraulic excavator."),
+        ])
+        client.responses.parse.return_value = SimpleNamespace(
+            status="completed", output_parsed=ResearchHypothesisCandidates(hypotheses=[
+                ResearchHypothesisCandidate(model="320D", matched_brand="CAT", passage_index=0),
+            ]), usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+        )
+        result = partial_visual_model_result()
+        result["data"]["model"] = None
+        result["fields"][0].update(value=None)
+
+        research, _ = research_machine(client, "gpt-5.6-luna", result, allowed_categories=[CATEGORY])
+
+        self.assertEqual(research["status"], "general_context")
+        self.assertEqual(research["identity"]["model"], None)
+        self.assertEqual([item["model"] for item in research["hypotheses"]], ["320D"])
+        self.assertEqual(json.loads(client.responses.create.call_args.kwargs["input"])["candidate_model_prefix"], "320D")
 
     def test_partial_model_hint_rejects_unaccepted_plate_or_component_readings(self):
         cases = (

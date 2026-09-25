@@ -76,7 +76,7 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
         data = {"brand": "Volvo", "model": "EC210B", "weight": "21 300 kg", "power": "107 kW",
                 "estimated_year_from": "2003", "estimated_year_to": "2009",
                 "estimated_year_basis": "EVIDENCIA INTERNA: periodo documentado; año de la unidad por confirmar.",
-                "visible_components": "Cabina\nBrazo articulado", "applications": "Excavación de zanjas"}
+                "visible_components": "Cabina\nBrazo articulado", "applications": "Usos sugeridos, sujetos a verificación: Excavación de zanjas"}
         provenance = {key: {"source": "user", "review": "confirmed"} for key in data}
         provenance["power"] = {"source": "web", "review": "needs_review"}
         provenance["visible_components"] = {"source": "visual_proposal", "review": "needs_review"}
@@ -88,6 +88,6 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
         self.assertIn("Datos principales: Peso: 21 300 kg; Características de referencia del modelo: Potencia: 107 kW.", description)
         self.assertIn("Año aproximado: 2003–2009.", description)
         self.assertIn("Aplicaciones sugeridas: Excavación de zanjas", description)
-        for hidden in ("por confirmar", "por revisar", "requieren comprobación", "EVIDENCIA INTERNA"):
+        for hidden in ("por confirmar", "por revisar", "requieren comprobación", "sujetos a verificación", "EVIDENCIA INTERNA"):
             self.assertNotIn(hidden, description)
         self.assertEqual((data, provenance), original)

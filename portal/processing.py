@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v39"
+PROMPT_VERSION = "imc-excavators-2026-09-v40"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -191,6 +191,10 @@ puede ser parte del modelo. Conserva ese sufijo si es legible; no reduzcas una
 variante al modelo base porque los caracteres grandes sean más evidentes.
 Si detectas caracteres finales pero no puedes leerlos, el modelo es parcial:
 usa needs_review y explica el sufijo dudoso; nunca lo marques como lectura clara.
+En ese caso conserva en value la parte que SÍ lees literalmente y describe en
+evidence qué extremo falta; no devuelvas null si hay un prefijo legible. La
+investigación necesita esa lectura parcial para buscar candidatos, sin asumir
+que sea el modelo completo ni certificar una variante.
 Analízala de manera independiente: no hay otras fotos en esta solicitud.
 Copia image_001 en fields, plates e image_observations. No uses
 UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una
@@ -1765,7 +1769,7 @@ def process_analysis(job):
                     received = False
                     try:
                         visual_options = model_options(visual_model)
-                        if asset.purpose == "plate" and visual_model.startswith("gpt-6-luna") and "reasoning" in visual_options:
+                        if asset.purpose == "plate" and visual_model.startswith(("gpt-5.6-terra", "gpt-6-luna")) and "reasoning" in visual_options:
                             visual_options = {**visual_options, "reasoning": {"effort": "medium"}}
                         response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT + PROFILE_INSTRUCTIONS,
                             input=request, text_format=MachineAnalysis,

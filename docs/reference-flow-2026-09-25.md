@@ -35,9 +35,11 @@ Detalles y fuentes: [ampliación del catálogo](catalogue-expansion-2026-09-25.m
 
 ## IA y precisión
 
-El modelo predeterminado se fija en **`gpt-6-luna`** para imagen, extracción e investigación. Se conserva Responses API con salida estructurada, esfuerzo de razonamiento bajo —medio en lectura de placa—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay cambio silencioso de modelo si Luna falla. Los trabajos antiguos conservan su política registrada.
+La política predeterminada vigente usa **`gpt-5.6-luna`** para investigación y texto, y **`gpt-5.6-terra`** para la lectura visual, conforme a la elección del propietario. Se conserva Responses API con salida estructurada, razonamiento bajo —medio en lectura de placa con Terra—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay reintento con otro modelo si falla una etapa. Los trabajos antiguos conservan su política registrada, incluidos los ejecutados previamente con GPT-6 Luna. Configurar también `OPENAI_MODEL=gpt-5.6-luna` en web y worker: una variable existente tiene prioridad sobre el default.
 
-Se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva con las credenciales del proyecto también se comprobó en producción: la prueba real registró `gpt-6-luna` tanto como modelo solicitado como modelo respondido. Esto acredita acceso al proveedor; no garantiza una lectura perfecta de cada imagen.
+La política actual se verificó con la documentación de [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) y [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra). Las pruebas históricas descritas a continuación no acreditan una ejecución real de la política actual.
+
+En una configuración anterior, se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva con las credenciales del proyecto también se comprobó en producción: la prueba real registró `gpt-6-luna` tanto como modelo solicitado como modelo respondido. Esto acredita acceso al proveedor; no garantiza una lectura perfecta de cada imagen.
 
 La congruencia distingue compatibilidad, contradicción y evidencia insuficiente mediante comparaciones reales entre lo declarado y lo leído. Una placa de motor no se toma como identificación de la máquina. El resultado muestra el corte temporal del análisis y se retira de la interfaz si cambia la identidad. Un fallo de acceso al modelo conserva la ficha y ofrece un mensaje específico sin exponer detalles del proveedor.
 
