@@ -102,6 +102,38 @@ class PublicCatalogueTests(TestCase):
         self.assertEqual(self.machine.data['power_type'],'net')
         self.assertEqual(self.machine.data['undercarriage'],'crawler')
 
+    def test_public_family_reference_is_labelled_and_exact_model_takes_precedence_without_confirming_condition(self):
+        values={'brand':'CAT','model':None,'model_family':'320D','year':None,'price':None,
+            'estimated_year_from':2006,'estimated_year_to':2026,'estimate_min':'60000',
+            'estimate_max':'75900','estimate_currency':'USD','condition':None,'usage_condition':'Usada',
+            'serial':'PRIVATE-FAMILY-SERIAL','notes':'PRIVATE-FAMILY-NOTE'}
+        for number,exact in ((60,None),(61,'320D L')):
+            with self.subTest(exact_model=exact):
+                version=MachineVersion.objects.create(machine=self.machine,number=number,created_by=self.owner,
+                    data={'title':'Excavadora CAT','category_name':'','data':{**values,'model':exact},'public_asset_ids':[]})
+                self.machine.approved_version=version;self.machine.save(update_fields=['approved_version'])
+                self.publication.version=version;self.publication.save(update_fields=['version'])
+                response=self.client.get(f'/ficha/{self.publication.token}/')
+                self.assertEqual(response.status_code,200)
+                self.assertContains(response,'id="sheet-identification"')
+                if exact:
+                    self.assertContains(response,'<dt>Modelo</dt><dd>320D L</dd>',html=True)
+                    self.assertNotContains(response,'<dt>Familia de modelo</dt>',html=True)
+                else:
+                    self.assertContains(response,'<dt>Familia de modelo</dt><dd>320D</dd>',html=True)
+                    self.assertContains(response,'Variante exacta no identificada; rangos de referencia de la familia.')
+                    self.assertNotContains(response,'<dt>Modelo</dt>',html=True)
+                self.assertContains(response,'<dt>Año aproximado</dt>',html=True)
+                self.assertContains(response,'2006–2026')
+                self.assertContains(response,'<dt>Precio estimado</dt>',html=True)
+                self.assertContains(response,'60000–75900 USD')
+                self.assertContains(response,'<dt>Estado de uso aparente</dt><dd>Usada</dd>',html=True)
+                for hidden in ('PRIVATE-FAMILY-SERIAL','PRIVATE-FAMILY-NOTE','<dt>Año</dt>','<dt>Precio</dt>','<dt>Estado de uso</dt>'):
+                    self.assertNotContains(response,hidden)
+                version.refresh_from_db()
+                self.assertEqual(version.data['data']['model_family'],'320D')
+                self.assertIsNone(version.data['data']['condition'])
+
     def test_revoked_disabled_and_mismatched_publications_are_hidden(self):
         self.publication.enabled = False
         self.publication.save(update_fields=["enabled"])

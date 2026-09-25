@@ -42,8 +42,8 @@ CATALOGUE_TECHNICAL_LABELS = {
     "platform_height": "Altura de plataforma", "horizontal_outreach": "Alcance horizontal",
     "gradeability": "Pendiente superable", "swing": "Giro", "blade_width": "Ancho de hoja",
 }
-DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
-AUTOMATIC_DATA_FIELDS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity",
+DATA_FIELDS = {"brand", "model", "model_family", "year", "serial", "hours", "description", "location", "price", "currency", "condition", "notes", "contact_public", "plate_transcription", "plate_type", "plate_kind", "no_plate", "kilometers", "power", "capacity", "weight", "dimensions", "fuel", "attachments", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
+AUTOMATIC_DATA_FIELDS = {"brand", "model", "model_family", "year", "serial", "hours", "power", "weight", "capacity",
                          "dimensions", "fuel", "kilometers", "engine", "transmission", "description"} | PLATE_TECHNICAL_LABELS.keys()
 WEB_DATA_FIELDS = {"brand", "model", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission"} | PLATE_TECHNICAL_LABELS.keys()
 DATA_FIELDS |= VISUAL_LABELS.keys() | ESTIMATE_LABELS.keys() | AGE_LABELS.keys()
@@ -336,6 +336,50 @@ def _remove_incompatible_valuation(machine):
     return removed
 
 
+def _family_identity_unchanged(machine, manifest):
+    """A family proposal never becomes a model identifier or ignores an edit."""
+    from .family_reference import family_identity_matches
+    if not isinstance(manifest, dict) or not family_identity_matches(machine.data, manifest):
+        return False
+    if _human_provenance(machine, "model_family") and not machine.data.get("model_family"):
+        return False
+    category = manifest.get("identity", {}).get("category")
+    return bool(machine.category_id and category and _reference_text(category) in {
+        _reference_text(machine.category.name), _reference_text(machine.category.slug)})
+
+
+def _remove_incompatible_family_values(machine):
+    """Retire automatic family ranges after corrections; keep human declarations."""
+    if not any(isinstance(meta, dict) and meta.get("source") == "family_reference"
+               for meta in machine.provenance.values()):
+        return []
+    from .family_reference import is_validated_family_field
+    ids = set()
+    for meta in machine.provenance.values():
+        if isinstance(meta, dict) and meta.get("source") == "family_reference" and meta.get("analysis_id"):
+            try:
+                ids.add(UUID(meta["analysis_id"]))
+            except (ValueError, TypeError, AttributeError):
+                pass
+    jobs = {str(job.pk): job for job in AnalysisJob.objects.filter(pk__in=ids, machine=machine)}
+    identity_valid = {key: _family_identity_unchanged(machine, job.result.get("family_reference", {}))
+                      for key, job in jobs.items()}
+    removed = []
+    for key, meta in list(machine.provenance.items()):
+        if not isinstance(meta, dict) or meta.get("source") != "family_reference" or _human_provenance(machine, key):
+            continue
+        job = jobs.get(meta.get("analysis_id"))
+        valid = bool(job and identity_valid.get(str(job.pk))
+                     and is_validated_family_field(job.result, key, machine.data.get(key), meta))
+        if key in AGE_LABELS and machine.data.get("year") not in (None, ""):
+            valid = False
+        if not valid:
+            machine.data.pop(key, None)
+            machine.provenance.pop(key, None)
+            removed.append(key)
+    return removed
+
+
 def _remove_incompatible_age(machine):
     """Retire automatic age proposals when identity changes or an exact year arrives."""
     job_ids = set()
@@ -471,7 +515,7 @@ def _automatic_field_record(machine, key):
     value = machine.title if key == "title" else machine.category_id if key == "category" else machine.data.get(key)
     meta = machine.provenance.get(key, {})
     if (value in (None, "") or not isinstance(meta, dict) or _human_provenance(machine, key)
-            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web", "valuation"}
+            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web", "valuation", "family_reference"}
             or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]):
         return None
     return {"value": value, "provenance": deepcopy(meta)}
@@ -546,6 +590,16 @@ def _clear_automatic_field(machine, job, key, value, meta):
     if _analysis_relevance_status(job) in {"unrelated", "uncertain"} or _analysis_excludes_asset(job, meta):
         return False
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
+        return False
+    if meta.get("source") == "family_reference":
+        from .family_reference import is_validated_family_field
+        return (key in {"model_family", *AGE_LABELS, *ESTIMATE_LABELS}
+                and key != "estimate_suggested_price"
+                and _family_identity_unchanged(machine, job.result.get("family_reference", {}))
+                and _web_value_keeps_serial_private(machine, job, value)
+                and is_validated_family_field(job.result, key, value, meta))
+    if key == "model_family":
+        # Neither a raw visual guess nor an exact-model reference can create it.
         return False
     if key in VALUATION_KEYS:
         from .valuation import is_validated_estimate
@@ -773,7 +827,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     # can receive its own research, while human identity changes still reject it.
     candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
                              (2 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "valuation" else
-                              1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "web" else 0)))
+                              1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") in {"web", "family_reference"} else 0)))
     for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
             continue
@@ -853,8 +907,9 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     valuation = job.result.get("valuation", {})
     range_keys = [key for key in ("estimate_min", "estimate_max", "estimate_currency") if not estimate_protected and key in candidates
                   and _clear_automatic_field(machine, job, key, candidates[key], provenance.get(key, {}))
-                  and _valuation_identity_matches(machine.data, valuation) and can_fill(key)]
-    if len(range_keys) == 3:
+                  and (provenance.get(key, {}).get("source") == "family_reference"
+                       or _valuation_identity_matches(machine.data, valuation)) and can_fill(key)]
+    if len(range_keys) == 3 and len({provenance[key].get("source") for key in range_keys}) == 1:
         candidate = deepcopy(machine)
         try:
             _validate_payload(candidate, {"data": {key: candidates[key] for key in range_keys},
@@ -878,7 +933,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine)
+    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:
@@ -980,6 +1035,9 @@ def _validate_payload(machine, payload, trusted_provenance=False):
         if not isinstance(data, dict) or set(data) - allowed:
             raise ValidationError({"data": "Los datos contienen campos no admitidos para esta categoría."})
         clean = {}
+        if "model_family" in data and data["model_family"] not in (None, "") and (
+                not isinstance(data["model_family"], str) or len(data["model_family"].strip()) > 100):
+            raise ValidationError({"model_family": "Escribe una familia de modelo de hasta 100 caracteres."})
         for key, value in data.items():
             if value is not None and not isinstance(value, (str, int, float, bool)):
                 raise ValidationError({"data": f"El campo {key} debe contener texto o un número."})
@@ -1062,7 +1120,7 @@ def _validate_payload(machine, payload, trusted_provenance=False):
             raise ValidationError({"provenance": "La procedencia contiene campos no admitidos."})
         valid_assets = {str(pk) for pk in machine.assets.values_list("id", flat=True)}
         for key, value in provenance.items():
-            meta_keys = {"source", "review", "review_reason", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id", "confidence"}
+            meta_keys = {"source", "review", "review_reason", "asset_id", "source_url", "source_title", "source_date", "scope", "basis", "match", "matched_serial", "label", "component", "transcription", "evidence", "analysis_id", "confidence", "identity_scope"}
             if trusted_provenance and key in AGE_LABELS:
                 meta_keys |= {"period_origin", "period_records"}
             if not isinstance(value, dict) or set(value) - meta_keys:
@@ -1121,7 +1179,8 @@ def save_draft(machine, user, payload, expected_revision):
     invalidated_web = _remove_incompatible_web_values(machine)
     _remove_incompatible_valuation(machine)
     invalidated_age = _remove_incompatible_age(machine)
-    if (invalidated_web or invalidated_age or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
+    invalidated_family = _remove_incompatible_family_values(machine)
+    if (invalidated_web or invalidated_age or invalidated_family or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
         from .research import compose_description
         machine.data["description"] = compose_description(machine.data, machine.provenance,
             machine.category.name if machine.category_id else None, private_identifiers=[machine.data.get("serial")])
@@ -1162,7 +1221,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
     if set(fields) & AGE_LABELS.keys() and not AGE_LABELS.keys() <= set(fields):
         raise ValidationError("Aplica el rango de año aproximado junto con su explicación.")
     for amount_keys, currency_key in (({"price"}, "currency"), ({"estimate_min", "estimate_max"}, "estimate_currency")):
-        if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") == "valuation" for key in set(fields) & amount_keys)
+        if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") in {"valuation", "family_reference"} for key in set(fields) & amount_keys)
                 and currency_key not in fields and machine.data.get(currency_key) != result_data.get(currency_key)):
             raise ValidationError("Aplica el importe junto con su moneda de referencia.")
     payload = {"data": {}, "provenance": {}}
@@ -1174,6 +1233,9 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
             raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
         if key in VISUAL_LABELS.keys() | AGE_LABELS.keys() and not _clear_automatic_field(machine, job, key, value, result_provenance.get(key, {})):
             raise ValidationError("La observación visual no está validada para esta fotografía.")
+        if result_provenance.get(key, {}).get("source") == "family_reference" and not _clear_automatic_field(
+                machine, job, key, value, result_provenance[key]):
+            raise ValidationError("La referencia de familia no está validada para estos datos y esta maquinaria.")
         if result_provenance.get(key, {}).get("source") == "valuation" and (
                 not _clear_automatic_field(machine, job, key, value, result_provenance[key])
                 or not _valuation_identity_matches(machine.data, job.result.get("valuation", {}))):
@@ -1192,7 +1254,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         provenance["analysis_id"] = str(job.pk)
         payload["provenance"][key] = provenance
     _validate_payload(machine, payload, trusted_provenance=True)
-    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine)
+    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine)
     if invalidated and _automatic_description_record(machine):
         from .research import compose_description
         machine.data["description"] = compose_description(machine.data, machine.provenance,

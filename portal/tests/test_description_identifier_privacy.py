@@ -91,3 +91,25 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
         for hidden in ("por confirmar", "por revisar", "requieren comprobación", "sujetos a verificación", "EVIDENCIA INTERNA"):
             self.assertNotIn(hidden, description)
         self.assertEqual((data, provenance), original)
+
+    def test_family_description_stays_approximate_without_private_basis_and_exact_model_has_priority(self):
+        data = {'brand':'CAT','model':None,'model_family':'320D','serial':'PRIVATE-SERIAL-320',
+                'estimated_year_from':2006,'estimated_year_to':2020,
+                'estimated_year_basis':'PRIVATE-SERIAL-320 https://private.example.com/internal por confirmar'}
+        provenance = {key:{'source':'family_reference','review':'needs_review'} for key in data}
+        provenance['brand']={'source':'image','review':'clear'}
+        original = deepcopy((data, provenance))
+        text = compose_description(data, provenance, 'Excavadoras')
+        self.assertEqual(text.splitlines()[0], 'Excavadora CAT · familia 320D.')
+        self.assertIn('Año aproximado: 2006–2020.', text)
+        for private in ('PRIVATE-SERIAL-320','https://','private.example.com','por confirmar'):
+            self.assertNotIn(private, text)
+        self.assertEqual((data, provenance), original)
+        data['model']='320D L'
+        provenance['model']={'source':'user','review':'confirmed'}
+        exact = compose_description(data, provenance, 'Excavadoras')
+        self.assertEqual(exact.splitlines()[0], 'Excavadora CAT 320D L.')
+        self.assertNotIn('familia', exact)
+        data['model']=None
+        data['model_family']=data['serial']
+        self.assertNotIn(data['serial'], compose_description(data, provenance, 'Excavadoras'))

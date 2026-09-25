@@ -134,6 +134,7 @@
   const ageLabels = { estimated_year_from:'Año aproximado desde',estimated_year_to:'Año aproximado hasta',estimated_year_basis:'Indicios para el año aproximado' };
   const catalogueTechnicalLabels = { engine_displacement:'Cilindrada',boom_length:'Longitud de pluma',stick_length:'Longitud de brazo',maximum_reach_ground:'Alcance máximo a nivel de suelo',maximum_loading_height:'Altura máxima de carga',bucket_digging_force:'Fuerza de excavación del cucharón',stick_digging_force:'Fuerza de excavación del brazo',hydraulic_flow:'Caudal hidráulico',swing_speed:'Velocidad de giro',drum_width:'Ancho de tambor',drum_diameter:'Diámetro de tambor',travel_speed:'Velocidad de desplazamiento',fuel_capacity:'Capacidad de combustible',water_tank_capacity:'Capacidad de tanque de agua',platform_height:'Altura de plataforma',horizontal_outreach:'Alcance horizontal',gradeability:'Pendiente superable',swing:'Giro',blade_width:'Ancho de hoja' };
   Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels,catalogueTechnicalLabels);
+  keyLabels.model_family = 'Familia de modelo';
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -156,7 +157,7 @@
     if (!editable || submitting || deleting) return;
     const input = event.target, key = input.dataset.field || input.dataset.topField;
     if (!key) return;
-    if (['category','brand','model','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
+    if (['category','brand','model','model_family','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
     pending.set(key,{value:readInput(input),sequence:++sequence});
     renderPreview();
     if (conflict) return;
@@ -684,7 +685,7 @@
     if (list.children.length) target.append(list);
   }
   function valuationIdentityOf(snapshot) {
-    return JSON.stringify([snapshot.category,...['brand','model','serial'].map(key => snapshot.data?.[key])].map(value => String(value ?? '').trim()));
+    return JSON.stringify([snapshot.category,...['brand','model','model_family','serial'].map(key => snapshot.data?.[key])].map(value => String(value ?? '').trim()));
   }
   function renderValuation(value) {
     const data = value.data, feedback = $('#valuation-status'), disclaimer = $('#valuation-disclaimer'), target = $('#valuation-comparables');
@@ -842,6 +843,10 @@
     target.append(el('summary','',observations.length ? `Detalles · ${observations.length} ${observations.length === 1 ? 'observación' : 'observaciones'}` : 'Detalles de la preparación'),el('p','small muted','Los datos quedan pendientes de revisión y no certifican la condición del equipo.'));
     renderIntegrityAlerts(job,target);
     renderResearch(result.research,target);
+    if (result.family_reference?.status === 'family_reference' && state.data?.model_family && !state.data?.model) {
+      const brief = $('#research-brief');
+      if (brief) { brief.hidden = false; brief.textContent = `Identificamos la familia ${state.data.model_family}. Los rangos usan referencias compatibles; puedes indicar el modelo, año o precio exactos si los conoces.`; }
+    }
     if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
     if (Array.isArray(metadata.proposals) && metadata.proposals.length) target.append(el('p','small','Las propuestas que contradicen tu ficha quedan aquí para revisarlas juntas; los datos no conflictivos se conservaron sin pedirte confirmar cada uno.'));
     renderConflictBatch(job,target,metadata);
@@ -855,6 +860,7 @@
     renderPreview();
   }
   function previewSource(meta) {
+    if (meta?.source === 'family_reference') return 'Referencia de la familia';
     if (!meta || !meta.source || meta.source === 'unknown') return '';
     if (meta.source === 'web' || meta.source === 'web_model' || meta.source === 'web_serial') return (meta.scope === 'model' || meta.source === 'web_model' ? 'Referencia del modelo' : meta.scope === 'exact_serial' || meta.source === 'web_serial' ? 'Referencia de la unidad' : 'Fuente web') + (meta.review === 'confirmed' ? ' · confirmado por ti' : ' · por confirmar');
     if (meta.source === 'plate') return 'Lectura de placa' + (meta.review === 'needs_review' ? ' · por revisar' : '');
@@ -886,7 +892,12 @@
     }
     $('#preview-image-caption').textContent=images.length?'Primeras cuatro fotos · desliza o usa las flechas.':'Puedes agregar fotos aquí mismo. La placa se conserva privada.';
     const serialChoice=$('.share-serial-choice',wizard); if(serialChoice)serialChoice.hidden=missing(data.serial);
-    const conditionNote=$('#ready-condition-note');if(conditionNote)conditionNote.textContent=missing(data.condition)&&!missing(data.usage_condition)&&data.usage_condition!=='Por confirmar'?`Apreciación de las fotos: ${data.usage_condition.toLowerCase()}. Puedes confirmarla o cambiarla.`:'';
+    const familyField=$('#model-family-field'), familyOnly=missing(data.model)&&!missing(data.model_family);
+    if(familyField)familyField.hidden=!familyOnly;
+    if($('#model-label'))$('#model-label').textContent=familyOnly?'Modelo exacto, si lo conoces':'Modelo';
+    const apparentCondition=missing(data.condition)&&!missing(data.usage_condition)&&data.usage_condition!=='Por confirmar'?data.usage_condition:'';
+    const conditionPlaceholder=$('#condition option[value=""]');if(conditionPlaceholder)conditionPlaceholder.textContent=apparentCondition?`${apparentCondition} (aparente)`:'Sin indicar';
+    const conditionNote=$('#ready-condition-note');if(conditionNote)conditionNote.textContent=apparentCondition?'Apreciación de las fotos. Puedes confirmarla o cambiarla.':'';
     const priceSummary=$('#ready-estimate');if(priceSummary){const low=data.estimate_min,high=data.estimate_max,format=x=>new Intl.NumberFormat('es-MX',{maximumFractionDigits:0}).format(Number(x));priceSummary.textContent=!missing(low)&&!missing(high)?`${format(low)}–${format(high)} ${data.estimate_currency||''}`:!missing(low)?`Desde ${format(low)} ${data.estimate_currency||''}`:!missing(high)?`Hasta ${format(high)} ${data.estimate_currency||''}`:'Sin rango respaldado todavía';}
     function addField(target,key,text,label=keyLabels[key] || key) {
       if (missing(text)) return;

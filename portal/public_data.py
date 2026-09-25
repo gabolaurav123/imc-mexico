@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 
 
 PUBLIC_KEYS = frozenset({
-    "brand", "model", "variant", "year", "estimated_year_from", "estimated_year_to",
+    "brand", "model", "model_family", "variant", "year", "estimated_year_from", "estimated_year_to",
     "hours", "undercarriage", "power", "weight", "weight_kg", "capacity",
     "digging_depth", "digging_depth_m", "location", "location_country",
     "location_region", "location_city", "country_of_origin", "condition",
@@ -33,6 +33,7 @@ PRIVATE_KEYS = frozenset({
     "notes", "document", "owner_email", "owner_phone", "email", "phone",
     "contact_public", "research", "web_research", "provenance", "valuation",
     "comparables", "sources", "internal_messages", "estimate_basis", "estimate_missing_info",
+    "family_reference", "identity_scope", "family_reference_proposals",
 })
 PLACEHOLDERS = {"n/a", "na", "n.d.", "nd", "por definir", "pendiente", "sin información",
                 "sin informacion", "desconocido", "no indicado", "no identificada", "por confirmar",

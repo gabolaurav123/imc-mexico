@@ -442,7 +442,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     labels={**{key:labels[key] for key in ('weight','digging_depth')}, **PROFILE_FIELD_LABELS, **labels}
     extra_fields=[{'key':key,'label':label,'value':display_field_value(key,data[key]),'source_label':'' if public else field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
     display_location=data.get('location') or ', '.join(str(data[key]) for key in ('location_city','location_region','location_country') if data.get(key))
-    has_identification=bool(category_name or any(data.get(key) not in (None,'') for key in ('brand','model','year','hours','condition','price','estimate_min','estimate_max','estimated_year_from','estimated_year_to','location','location_country','location_region','location_city')) or data.get('usage_condition') not in (None,'','Por confirmar') or not public)
+    has_identification=bool(category_name or any(data.get(key) not in (None,'') for key in ('brand','model','model_family','year','hours','condition','price','estimate_min','estimate_max','estimated_year_from','estimated_year_to','location','location_country','location_region','location_city')) or data.get('usage_condition') not in (None,'','Por confirmar') or not public)
     # The helper needs private exclusions, but returns only allowlisted reading aids.
     technical_interpretation=build_sheet_details(original_data,field_provenance,category=category_name)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}

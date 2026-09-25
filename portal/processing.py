@@ -37,6 +37,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
+from .family_reference import build_family_reference, merge_family_reference
 
 PROMPT_VERSION = "imc-excavators-2026-09-v40"
 MIN_JOB_LEASE_SECONDS = 600
@@ -1919,6 +1920,13 @@ def process_analysis(job):
                 result["provenance"]["estimate_suggested_price"] = {"source": "valuation", "review": "needs_review", "component": "machine"}
         elif job.mode == "analysis" and research_requested:
             result["valuation"] = {"status": "not_run", "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
+        if job.mode == "analysis" and not image_pipeline_interrupted:
+            # A legible family with an unread suffix can still use reviewed
+            # family references. This local lookup never promotes a variant or
+            # spends another provider call; its signed scope survives autofill.
+            family = build_family_reference(result, snapshot, category=job.machine.category)
+            if family:
+                merge_family_reference(result, family, snapshot)
         if not str(result["data"].get("title", "")).strip() and job.mode == "analysis":
             result["data"]["title"] = result.get("category") or "Maquinaria para revisión"
             result["title"] = result["data"]["title"]

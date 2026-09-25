@@ -2091,6 +2091,11 @@ def compose_description(data, provenance, category=None, visual_description="", 
                 and (provenance.get(key, {}).get("source") == "user" or provenance.get(key, {}).get("review") in {"clear", "confirmed"})]
     if identity:
         heading += " " + " ".join(identity)
+    family = _identifier(data.get("model_family"))
+    family_meta = provenance.get("model_family", {})
+    if (not data.get("model") and family and not contains_private_identifier(family)
+            and isinstance(family_meta, dict) and family_meta.get("source") in {"user", "family_reference"}):
+        heading += " · familia " + family
     # Public copy is a compact equipment summary, not a transcription of the
     # photograph or of every structured row.  Keep at most four model/unit
     # essentials; tire sizes, maker addresses and other evidence remain in the
@@ -2137,7 +2142,7 @@ def compose_description(data, provenance, category=None, visual_description="", 
         value, meta = str(data.get(key) or ''), provenance.get(key, {})
         if (re.fullmatch(r'\d{4}', value) and 1900 <= int(value) <= timezone.now().year
                 and not contains_private_identifier(value)
-                and (meta.get('source') in {'user', 'web', 'visual_proposal'} or meta.get('review') == 'confirmed')):
+                and (meta.get('source') in {'user', 'web', 'visual_proposal', 'family_reference'} or meta.get('review') == 'confirmed')):
             approximate[key] = value
     start, end = approximate.get('estimated_year_from'), approximate.get('estimated_year_to')
     if approximate and not (start and end and int(start) > int(end)):
