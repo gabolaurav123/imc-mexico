@@ -23,7 +23,7 @@ class PublishEntryTests(TestCase):
         response = self.client.get('/')
         self.assertContains(response, 'Publica tu maquinaria')
         self.assertContains(response, 'href="/publicar/"')
-        self.assertContains(response, 'Enviar la ficha no la publica de inmediato')
+        self.assertContains(response, 'IMC México revisa y autoriza la publicación en el catálogo')
         entry = self.client.get('/publicar/')
         self.assertRedirects(entry, '/registro/?next=/panel/maquinarias/nueva/')
         for model in (User, Machine, AnalysisJob, Notification, Publication):
