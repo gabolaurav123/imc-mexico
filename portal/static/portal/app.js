@@ -252,15 +252,54 @@
   };
   function displayStep(step,scroll=true) {
     currentStep = Number(step) > 1 ? 2 : 1;
+    const photoSlot = $(currentStep === 1 ? '#entry-photos-slot' : '#ready-photos-slot');
+    const serialSlot = $(currentStep === 1 ? '#entry-serial-slot' : '#ready-serial-slot');
+    if (photoSlot && $('#photo-manager')) photoSlot.append($('#photo-manager'));
+    if (serialSlot && $('#serial-editor')) serialSlot.append($('#serial-editor'));
     $$('[data-step-panel]',wizard).forEach(panel => { panel.hidden = Number(panel.dataset.stepPanel) !== currentStep; });
     $$('.wizard-progress [data-step-to]',wizard).forEach(button => { if (Number(button.dataset.stepTo) === currentStep) button.setAttribute('aria-current','step'); else button.removeAttribute('aria-current'); });
     $('#step-prev').hidden = currentStep === 1;
     const url = new URL(location.href); url.searchParams.set('paso',currentStep); url.searchParams.delete('step'); history.replaceState(null,'',url);
     if (currentStep === 2) renderPreview();
+    organizePhotos();
     if (scroll) $('.wizard-progress').scrollIntoView({behavior:'smooth',block:'start'});
   }
   $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => displayStep(button.dataset.stepTo)));
   $('#step-prev').addEventListener('click',() => displayStep(1));
+  $$('[data-submit-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#submit-machine').click()));
+  $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
+  let sharedUrl='';
+  const shareStatus=message=>{const target=$('#share-feedback');if(target)target.textContent=message;};
+  $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
+    if(guest){keepGuestResult();return;}
+    if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
+    button.disabled=true; clearProblem();
+    try{
+      await uploadsReady();await save();
+      const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:Boolean($('#contact-consent')?.checked)});
+      updateRevision(result);sharedUrl=new URL(result.url,location.origin).href;
+      $('#share-short-url').value=sharedUrl;
+      $('#share-whatsapp').href=`https://wa.me/?text=${encodeURIComponent(`${collect().title}\n${sharedUrl}`)}`;
+      $('#share-facebook').href=`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(sharedUrl)}`;
+      $('#share-options').hidden=false;$('#share-options').scrollIntoView({behavior:'smooth',block:'center'});
+      shareStatus('Enlace preparado. Elige dónde compartirlo.');
+    }catch(error){problem(error.message);}finally{button.disabled=false;}
+  }));
+  async function copyShareLink(){
+    if(!sharedUrl)return;
+    try{await navigator.clipboard.writeText(sharedUrl);shareStatus('Enlace copiado. Puedes pegarlo en un mensaje o en Instagram.');}
+    catch{$('#share-short-url').focus();$('#share-short-url').select();shareStatus('Selecciona y copia el enlace que aparece arriba.');}
+  }
+  $('#copy-sheet-link')?.addEventListener('click',copyShareLink);
+  $('#share-native')?.addEventListener('click',async()=>{
+    if(!sharedUrl)return;
+    if(navigator.share){try{await navigator.share({title:collect().title,url:sharedUrl});}catch(error){if(error.name!=='AbortError')await copyShareLink();}}
+    else await copyShareLink();
+  });
+  $('#revoke-sheet-link')?.addEventListener('click',async()=>{
+    try{await uploadsReady();await save();const result=await api(`${base}compartir/`,{revision:state.revision,action:'disable'});updateRevision(result);sharedUrl='';$('#share-options').hidden=true;toast('Enlace desactivado. Las personas que lo recibieron ya no pueden abrir la ficha.');}
+    catch(error){problem(error.message);}
+  });
   function updateRevision(result) { if (result.revision !== undefined) state.revision = Math.max(Number(state.revision),Number(result.revision)); }
   function mutateAsset(action) {
     const task = performAssetMutation(action);
@@ -284,11 +323,11 @@
     let count=0, internal=0;
     for (const card of orderedCards()) {
       const isPhoto=card.dataset.kind==='image' && !['plate','document'].includes(card.dataset.purpose);
-      if (isPhoto && count++ < 10) (count<=4 ? main : extra).append(card);
+      if (isPhoto && count++ < 10) (currentStep===1 || count<=4 ? main : extra).append(card);
       else { privateGrid.append(card); internal++; }
     }
     $('#private-photos').hidden=!internal;
-    $('#photo-count-status').textContent=`${Math.min(count,4)} de 4 vistas principales · ${Math.max(0,Math.min(count-4,6))} adicionales. Puedes empezar con una sola foto.`;
+    $('#photo-count-status').textContent=currentStep===1 ? `${count} ${count===1?'fotografía del equipo':'fotografías del equipo'} guardadas${internal ? ` · ${internal} archivo(s) privados` : ''}.` : `${Math.min(count,4)} de 4 vistas principales · ${Math.max(0,Math.min(count-4,6))} adicionales.`;
   }
   function assetSummary(card) {
     const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
@@ -345,6 +384,7 @@
     });
   }
   function queueFiles(files) {
+    if(currentStep===2 && $('#ready-photo-editor')) $('#ready-photo-editor').open=true;
     if (!editable) return;
     if (preparing || submitting || downloading || deleting) return problem('Espera a que termine la operación en curso antes de agregar más archivos.');
     for (const file of files) {
@@ -366,7 +406,7 @@
       retry.addEventListener('click',enqueue); enqueue();
     }
   }
-  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting && !downloading && !deleting) $(`#${button.dataset.fileOpen}`).click(); }));
+  $$('[data-file-open]',wizard).forEach(button => button.addEventListener('click',() => { if (editable && !preparing && !submitting && !downloading && !deleting) { if (button.dataset.uploadPurpose) $('#upload-purpose').value=button.dataset.uploadPurpose; $(`#${button.dataset.fileOpen}`).click(); } }));
   for (const input of [$('#gallery-input'),$('#camera-input')]) input.addEventListener('change',() => { queueFiles([...input.files]); input.value = ''; });
   const drop = $('#drop-zone');
   for (const name of ['dragenter','dragover']) drop.addEventListener(name,event => { event.preventDefault(); drop.classList.add('drag-over'); });
@@ -489,7 +529,7 @@
     if (!deleting) displayStep(1);
     return true;
   }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Completar con IA ✧'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
@@ -566,12 +606,13 @@
       await uploadsReady(); await save();
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
       const mode = assetIds.length ? 'analysis' : 'description';
-      if (!assetIds.length && !['brand','model','serial','description'].some(key => String(collect().data[key] || '').trim())) throw new Error('Agrega una fotografía o algún dato del equipo para completar la ficha con IA.');
+      if (!collect().category) throw new Error('Selecciona el tipo de máquina antes de generar la ficha.');
+      if (!assetIds.length && !String(collect().data.serial || '').trim()) throw new Error('Agrega al menos una fotografía o escribe el número de serie para generar la ficha.');
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode});
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
       displayStep(2); setAnalysisLoading(true,'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.'); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
-    } catch (error) { analysisOutcome = 'failed'; setAnalysisLoading(false); renderPreview(); problem(error.message); analysisStatus('No se pudo preparar toda la información. Tus datos y fotos recibidas siguen guardados; puedes enviar la ficha para revisión.','failed'); }
+    } catch (error) { analysisOutcome = 'failed'; setAnalysisLoading(false); renderPreview(); problem(error.message); analysisStatus('Tus datos se conservan. Completa la información indicada y vuelve a generar la ficha.','failed'); }
     finally { preparing = false; prepareLabel(); }
   });
   function researchHypothesesOf(research) {
@@ -827,24 +868,26 @@
     const selectedCategory = $('#category')?.selectedOptions[0];
     const categoryLabel = value.category && selectedCategory?.value ? selectedCategory.textContent.trim() : 'Maquinaria';
     $('#preview-category').textContent = categoryLabel;
-    const allImages = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document');
+    const allImages = orderedCards().filter(card => card.dataset.kind==='image' && card.dataset.purpose !== 'document');
     const isPlate = card => previewImageKinds.get(card.dataset.assetId) === 'plate' || card.dataset.purpose === 'plate';
-    const machineImages = allImages.filter(card => !isPlate(card));
-    const images = machineImages.length ? machineImages : allImages;
-    const cover = images.find(card => !$('.asset-cover',card).hidden) || images[0], coverBox = $('#preview-cover');
-    if (cover) {
-      if ($('img',coverBox)?.dataset.assetId !== cover.dataset.assetId) {
-        const link = el('a'), image = el('img');
-        link.href = `${assetUrl(cover.dataset.assetId)}?original=1`; link.target = '_blank'; link.rel = 'noopener';
-        image.src = assetUrl(cover.dataset.assetId); image.dataset.assetId = cover.dataset.assetId;
-        link.append(image); coverBox.replaceChildren(link);
-      }
-      $('img',coverBox).alt = isPlate(cover) ? 'Placa de identificación de esta ficha' : 'Fotografía aportada de la maquinaria';
-      $('#preview-image-caption').textContent = isPlate(cover) ? 'Placa de identificación · privada. No sustituye una vista general del equipo.' : 'Fotografía aportada · pulsa para ampliar el original.';
-    } else {
-      coverBox.replaceChildren(el('span','preview-photo-placeholder','Sin fotografía general de la maquinaria'));
-      $('#preview-image-caption').textContent = 'Los archivos originales se conservan en esta ficha interna.';
+    const machineImages = allImages.filter(card => !isPlate(card) && !['other','document','unknown'].includes(previewImageKinds.get(card.dataset.assetId)));
+    const cover = machineImages.find(card => !$('.asset-cover',card).hidden);
+    const images = cover ? [cover,...machineImages.filter(card=>card!==cover)] : machineImages;
+    const coverBox = $('#preview-cover'), signature=images.slice(0,10).map(card=>card.dataset.assetId).join('|');
+    if(coverBox.dataset.photos!==signature || !coverBox.children.length){
+      coverBox.dataset.photos=signature;coverBox.replaceChildren();
+      const controls=$('#preview-carousel-controls'), extra=$('#preview-extra-grid');controls?.replaceChildren();extra?.replaceChildren();
+      const makePhoto=card=>{const link=el('a','ready-slide'),image=el('img');link.href=`${assetUrl(card.dataset.assetId)}?original=1`;link.target='_blank';link.rel='noopener';image.src=assetUrl(card.dataset.assetId);image.dataset.assetId=card.dataset.assetId;image.alt='Fotografía de la maquinaria';link.append(image);return link;};
+      images.slice(0,4).forEach(card=>coverBox.append(makePhoto(card)));
+      if(extra)images.slice(4,10).forEach(card=>extra.append(makePhoto(card)));
+      if($('#ready-additional-photos'))$('#ready-additional-photos').hidden=images.length<=4;
+      if(!images.length){const placeholder=el('div','preview-photo-placeholder');placeholder.append(el('strong','','Añade fotografías de tu máquina'));const add=el('button','button button-outline','Elegir fotografías');add.type='button';add.addEventListener('click',()=>{if(editable&&!preparing&&!submitting&&!deleting){$('#upload-purpose').value='general';$('#gallery-input').click();}});placeholder.append(add);coverBox.append(placeholder);}
+      if(controls && images.length){let index=0;const count=Math.min(images.length,4),previous=el('button','button button-outline button-small','←'),next=el('button','button button-outline button-small','→'),label=el('span');previous.type=next.type='button';previous.setAttribute('aria-label','Fotografía anterior');next.setAttribute('aria-label','Fotografía siguiente');label.setAttribute('aria-live','polite');const update=()=>{label.textContent=`${index+1} / ${count}`;previous.disabled=index===0;next.disabled=index===count-1;};const go=delta=>{index=Math.max(0,Math.min(count-1,index+delta));coverBox.scrollTo({left:coverBox.clientWidth*index,behavior:'smooth'});update();};previous.addEventListener('click',()=>go(-1));next.addEventListener('click',()=>go(1));coverBox.onscroll=()=>{index=Math.max(0,Math.min(count-1,Math.round(coverBox.scrollLeft/Math.max(1,coverBox.clientWidth))));update();};controls.append(previous,label,next);update();}
     }
+    $('#preview-image-caption').textContent=images.length?'Primeras cuatro fotos · desliza o usa las flechas.':'Puedes agregar fotos aquí mismo. La placa se conserva privada.';
+    const serialChoice=$('.share-serial-choice',wizard); if(serialChoice)serialChoice.hidden=missing(data.serial);
+    const conditionNote=$('#ready-condition-note');if(conditionNote)conditionNote.textContent=missing(data.condition)&&!missing(data.usage_condition)&&data.usage_condition!=='Por confirmar'?`Apreciación de las fotos: ${data.usage_condition.toLowerCase()}. Puedes confirmarla o cambiarla.`:'';
+    const priceSummary=$('#ready-estimate');if(priceSummary){const low=data.estimate_min,high=data.estimate_max,format=x=>new Intl.NumberFormat('es-MX',{maximumFractionDigits:0}).format(Number(x));priceSummary.textContent=!missing(low)&&!missing(high)?`${format(low)}–${format(high)} ${data.estimate_currency||''}`:!missing(low)?`Desde ${format(low)} ${data.estimate_currency||''}`:!missing(high)?`Hasta ${format(high)} ${data.estimate_currency||''}`:'Sin rango respaldado todavía';}
     function addField(target,key,text,label=keyLabels[key] || key) {
       if (missing(text)) return;
       const control = $(`[data-field="${key}"]`,wizard);
@@ -864,13 +907,13 @@
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
     renderResearchHypotheses(value);
     const ageFrom = data.estimated_year_from, ageTo = data.estimated_year_to;
-    const hasAgeRange = !missing(ageFrom) || !missing(ageTo);
+    const hasAgeRange = missing(data.year) && (!missing(ageFrom) || !missing(ageTo));
     $('#preview-age-range').textContent = !missing(ageFrom) && !missing(ageTo) ? `${ageFrom}–${ageTo}` : !missing(ageFrom) ? `Desde ${ageFrom}` : !missing(ageTo) ? `Hasta ${ageTo}` : '';
     $('#preview-age-range').hidden = !hasAgeRange;
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';
     $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
-    for (const key of ['machine_family','boom_configuration','stick_configuration','size_class','application','depth_configuration','power_type','power','weight','capacity','digging_depth','vibration_frequency','centrifugal_force','compaction_depth','dimensions','fuel','kilometers','engine','transmission','attachments',...Object.keys(additionalPlateLabels),...Object.keys(catalogueTechnicalLabels)]) addField(technical,key,data[key]);
+    for (const key of ['weight','power','capacity','digging_depth','lift_height','working_height','drum_width','engine','fuel','dimensions'].filter(key=>!missing(data[key])).slice(0,6)) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
     const condition = $('#preview-condition-specs'); condition.replaceChildren();
     for (const key of ['preservation_notes','visible_defects','visible_components','attachments','applications']) addField(condition,key,data[key]);
@@ -883,8 +926,8 @@
     renderValuation(value);
     const commercial = $('#preview-commercial-specs'); commercial.replaceChildren();
     for (const key of ['location_country','location_region','location_city']) addField(commercial,key,data[key]);
-    addField(commercial,'location',data.location || 'No indicada','Ubicación actual');
-    addField(commercial,'country_of_origin',data.country_of_origin || 'No identificado','País de fabricación');
+    addField(commercial,'location',data.location,'Ubicación actual');
+    addField(commercial,'country_of_origin',data.country_of_origin,'País de fabricación');
   }
   $('#submit-machine').addEventListener('click',async () => {
     if (guest) { try { await uploadsReady(); await save(); keepGuestResult(); } catch (error) { problem(error.message); } return; }
@@ -894,7 +937,7 @@
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
     try {
       await uploadsReady(); await save();
-      if (!$('.asset-card[data-kind=image][data-purpose=general],.asset-card[data-kind=image][data-purpose=detail]',wizard)) { displayStep(1); throw new Error('Agrega al menos una fotografía general o de detalle antes de enviar.'); }
+      if (!$('.asset-card[data-kind=image]',wizard) && !String(collect().data.serial || '').trim()) { displayStep(1); throw new Error('Agrega una fotografía o el número de serie antes de enviar.'); }
       const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
       pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
     } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a revisión ↗'; }
@@ -973,7 +1016,7 @@
     const lines = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : [];
     target.replaceChildren(); target.hidden = !lines.length;
     if (!lines.length) return;
-    target.append(el('strong','',`Fotos útiles para ${category?.name || 'este equipo'}`));
+    target.append(el('summary','',`Consejos de fotos para ${category?.name || 'este equipo'}`));
     const list = el('ul'); lines.forEach(line => list.append(el('li','',typeof line === 'string' ? line : String(line?.label || line?.text || '')))); target.append(list);
   }
   function openInformation(targetId, fieldId) {
@@ -1008,6 +1051,8 @@
   let initialJob = null;
   try { if ($('#current-job')) initialJob = JSON.parse($('#current-job').textContent); } catch { /* Manual editing remains available. */ }
   const params = new URL(location.href).searchParams, explicitStep = params.get('paso') || params.get('step');
+  if($('#entry-serial-slot')) $('#entry-serial-slot').hidden=params.get('entrada')==='photos' && missing(state.data.serial);
+  if(params.get('entrada')==='plate' && !initialJob && $('#upload-purpose')) $('#upload-purpose').value='plate';
   displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
   if (initialJob) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
   prepareLabel(); renderPreview();

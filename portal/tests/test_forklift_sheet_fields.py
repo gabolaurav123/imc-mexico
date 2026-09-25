@@ -90,7 +90,7 @@ class ForkliftSheetFieldsTests(TestCase):
         self.assertEqual(self.machine.data["rear_tire_size"], PLATE_VALUES["rear_tire_size"])
         self.assertEqual(result["field_reasons"]["rear_tire_size"], "conflicting_reading")
 
-    def test_virtual_sheet_and_public_snapshot_render_all_fields_without_compactor_links(self):
+    def test_virtual_sheet_keeps_essential_fields_while_snapshot_preserves_literal_plate_values(self):
         self.machine = save_draft(self.machine, self.owner, {"data": {**PLATE_VALUES, "weight": "4500 kg"}}, self.machine.revision)
         version = snapshot(self.machine, self.owner)
         for public in (False, True):
@@ -100,9 +100,13 @@ class ForkliftSheetFieldsTests(TestCase):
                 values = {field["key"]: field["value"] for field in context["extra_fields"]}
                 self.assertEqual({key: values[key] for key in PLATE_VALUES}, PLATE_VALUES)
                 html = render_to_string("portal/sheet.html", context)
-                for key, value in PLATE_VALUES.items():
-                    self.assertIn(value, html)
-                    self.assertIn(PLATE_TECHNICAL_LABELS[key], html)
+                for field in context["essential_fields"]:
+                    self.assertIn(field["value"], html)
+                    self.assertIn(field["label"], html)
+                self.assertIn("4500 kg", html)
+                self.assertIn("188 in", html)
+                for key in ("manufacturer_address", "front_tire_size", "rear_tire_size", "battery_weight"):
+                    self.assertNotIn(PLATE_VALUES[key], html)
                 self.assertNotIn("husqvarna", html.lower())
                 self.assertNotIn("wacker", html.lower())
                 self.assertEqual(context["data"].get("location"), None)

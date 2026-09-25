@@ -131,7 +131,7 @@ class AgeAutofillTests(TestCase):
         self.assertEqual(self.machine.data['estimated_year_from'], 1996)
         self.assertEqual(self.machine.data['estimated_year_to'], 2002)
         self.assertNotIn('year', self.machine.data)
-        self.assertIn('Año aproximado: 1996–2002 (por confirmar)', self.machine.data['description'])
+        self.assertIn('Año aproximado: 1996–2002.', self.machine.data['description'])
         snap = {'data': self.machine.data, 'provenance': self.machine.provenance,
                 'web_research': web_research_for_provenance(self.machine.provenance)}
         self.assertEqual({r['field'] for r in public_web_references(snap)}, set(AGE_LABELS))
@@ -182,7 +182,7 @@ class AgeAutofillTests(TestCase):
             self.assertEqual(self.machine.provenance[key]['review'], 'needs_review')
             records = self.machine.provenance[key]['period_records']
             self.assertEqual({record['source_url'] for record in records}, {source['url'] for source in sources})
-        self.assertIn('Año aproximado: 1996–2007 (por confirmar)', self.machine.data['description'])
+        self.assertIn('Año aproximado: 1996–2007.', self.machine.data['description'])
         before = deepcopy(self.machine.provenance)
         self.machine = save_draft(self.machine, self.user,
             {'provenance': {key: {'source': 'user', 'review': 'confirmed'} for key in AGE_LABELS}},

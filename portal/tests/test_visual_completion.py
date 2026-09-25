@@ -63,7 +63,7 @@ class VisualCompletionTests(TestCase):
     def test_general_photos_without_identifiers_preserve_visual_description_and_stay_private(self):
         summary = self.apply(self.job(self.result()))
         self.assertIn("description", summary["applied_fields"])
-        self.assertIn(VISIBLE, self.machine.data["description"])
+        self.assertNotIn(VISIBLE, self.machine.data["description"])
         self.assertNotIn("999", self.machine.data["description"])
         self.assertEqual(self.machine.category, self.category)
         self.assertEqual(self.machine.provenance["description"]["review"], "needs_review")
@@ -72,7 +72,7 @@ class VisualCompletionTests(TestCase):
         self.assertEqual(self.machine.status, "draft")
         self.assertFalse(Publication.objects.exists())
         submission = submit_machine(self.machine, self.owner, True)
-        self.assertIn(VISIBLE, submission.version.data["data"]["description"])
+        self.assertNotIn(VISIBLE, submission.version.data["data"]["description"])
         self.assertFalse(Publication.objects.exists())
 
     def test_category_context_does_not_apply_generic_specs_as_unit_values(self):
@@ -87,7 +87,7 @@ class VisualCompletionTests(TestCase):
         summary = self.apply(self.job(result))
         self.assertNotIn("power", summary["applied_fields"])
         self.assertNotIn("power", self.machine.data)
-        self.assertIn(VISIBLE, self.machine.data["description"])
+        self.assertNotIn(VISIBLE, self.machine.data["description"])
         self.assertNotIn("500", self.machine.data["description"])
 
     def test_closed_visual_profile_classifications_apply_as_unconfirmed_proposals_only(self):
@@ -134,7 +134,7 @@ class VisualCompletionTests(TestCase):
         self.assertNotIn("serial", summary["applied_fields"])
         self.assertNotIn("OWNER-123", self.machine.data["description"])
         self.assertNotIn("OCR-OTHER999", self.machine.data["description"])
-        self.assertIn(VISIBLE, self.machine.data["description"])
+        self.assertNotIn(VISIBLE, self.machine.data["description"])
 
     def test_serial_changed_while_running_blocks_old_unit_reference_without_losing_user_value(self):
         self.machine = save_draft(self.machine, self.owner,

@@ -15,7 +15,7 @@ from django_otp.oath import totp
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from PIL import Image
 
-from portal.models import (AnalysisJob, Asset, AuditEvent, Machine, Message, Notification,
+from portal.models import (AnalysisJob, Asset, AuditEvent, Category, Machine, Message, Notification,
                            Publication, Submission, User, PlatformSettings, Lead)
 from portal.services import (record_local_duplicate_review, review_submission, set_advertiser_status,
                              set_publication, submit_machine)
@@ -170,7 +170,8 @@ class WebSecurityTests(TestCase):
         self.assertEqual(user.consents.count(),2)
         self.assertTrue(Notification.objects.filter(user=user,kind="verify",status="pending").exists())
         self.assertTrue(AuditEvent.objects.filter(actor=user,action="account.register").exists())
-        response=self.post_json("/api/maquinarias/",{})
+        category=Category.objects.create(name="Excavadoras",slug="registration-excavators")
+        response=self.post_json("/api/maquinarias/",{"category":category.pk})
         self.assertEqual(response.status_code,201)
         self.assertTrue(Machine.objects.filter(owner=user,status="draft").exists())
         self.assertEqual(self.client.get("/operaciones/").status_code,403)

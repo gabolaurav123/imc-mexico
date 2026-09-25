@@ -8,6 +8,8 @@ legacy fields; a profile only adds an opt-in vocabulary for its own slug.
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+from pathlib import Path
 import unicodedata
 
 
@@ -186,6 +188,29 @@ MOTOR_GRADER_PROFILE = {
 PROFILES = {"excavadoras": EXCAVATOR_PROFILE, "compactadores": COMPACTOR_PROFILE,
             "plataformas-elevadoras": PLATFORM_PROFILE, "minicargadores": LOADER_PROFILE,
             "montacargas": FORKLIFT_PROFILE, "motoniveladoras": MOTOR_GRADER_PROFILE}
+
+# The release file records IMC's actual public catalogue vocabulary. Keep a
+# canonical family for retrieval (e.g. all excavators), while making every
+# construction subtype searchable without creating duplicate category rows.
+IMC_TYPE_TAXONOMY = json.loads((Path(__file__).parent / "data" / "imc_type_taxonomy.json").read_text(encoding="utf-8"))
+IMC_TYPES_BY_CATEGORY = {item["category_slug"]: item for item in IMC_TYPE_TAXONOMY["types"]}
+_ESSENTIAL_LABELS = {
+    "power": "Potencia", "weight": "Peso", "capacity": "Capacidad",
+    "working_width": "Ancho de trabajo", "dimensions": "Dimensiones",
+    "horizontal_outreach": "Alcance horizontal", "digging_depth": "Profundidad de excavación",
+    "lift_height": "Altura de elevación", "vibration_frequency": "Frecuencia de vibración",
+}
+for _slug, _type in IMC_TYPES_BY_CATEGORY.items():
+    _profile = PROFILES.setdefault(_slug, {
+        "key": _slug, "label": _type["label"], "classification": {},
+        "fields": [{"key": key, "label": _ESSENTIAL_LABELS[key], "kind": "text", "optional": True}
+                   for key in _type["fields"]],
+        "ai_instructions": "Investiga sólo la familia elegida y conserva el modelo y la configuración documentados. No derives horas, ubicación ni funcionamiento de un catálogo de modelos.",
+        "sources": [],
+        "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+    })
+    _profile["aliases"] = list(dict.fromkeys([*_profile.get("aliases", []), *_type["imc_types"], *_type["aliases"]]))
+    _profile["imc_types"] = list(_type["imc_types"])
 
 PROFILE_FIELD_LABELS = {item["key"]: item["label"] for profile in PROFILES.values() for item in profile["fields"]}
 PROFILE_FIELD_LABELS.update(power_type="Tipo de potencia", depth_configuration="Configuración de profundidad")

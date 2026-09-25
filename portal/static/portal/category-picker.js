@@ -45,12 +45,21 @@
       const option = document.createElement('button'); option.type = 'button'; option.className = 'category-result'; option.setAttribute('role','option'); option.textContent = item.name;
       option.addEventListener('click', () => setSelected(item)); results.append(option);
     }
-    if (!matches.length) results.append(Object.assign(document.createElement('p'), {className:'small muted category-no-results', textContent:'No vemos una coincidencia exacta. Puedes continuar y la identificaremos con fotos.'}));
+    if (!matches.length) results.append(Object.assign(document.createElement('p'), {className:'small muted category-no-results', textContent:'No hay coincidencias. Prueba con un nombre más general, como grúa, excavadora o compactador.'}));
     results.hidden = false; input.setAttribute('aria-expanded', 'true');
   }
   input.addEventListener('input', show);
-  input.addEventListener('focus', () => { if (input.value.trim()) show(); });
-  input.addEventListener('keydown', event => { if (event.key === 'Escape') { results.hidden = true; input.setAttribute('aria-expanded','false'); } });
+  input.addEventListener('focus', () => { if (input.value.trim() && !value.value) show(); });
+  input.addEventListener('keydown', event => {
+    if(event.key==='ArrowDown'&&!results.hidden){event.preventDefault();results.querySelector('button')?.focus();}
+    if(event.key==='Enter'&&!results.hidden&&results.querySelector('button')){event.preventDefault();results.querySelector('button').click();}
+    if (event.key === 'Escape') { results.hidden = true; input.setAttribute('aria-expanded','false'); }
+  });
+  results.addEventListener('keydown',event=>{
+    const options=[...results.querySelectorAll('button')], index=options.indexOf(document.activeElement);
+    if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();options[Math.max(0,Math.min(options.length-1,index+(event.key==='ArrowDown'?1:-1)))]?.focus();}
+    if(event.key==='Escape'){results.hidden=true;input.setAttribute('aria-expanded','false');input.focus();}
+  });
   document.addEventListener('click', event => { if (!root.contains(event.target)) { results.hidden = true; input.setAttribute('aria-expanded','false'); } });
   unsure?.addEventListener('click', () => setSelected(null));
 })();

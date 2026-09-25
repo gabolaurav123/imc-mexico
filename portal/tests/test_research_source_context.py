@@ -138,6 +138,17 @@ class SourceTitleContextTests(SimpleTestCase):
                                    identity=identity, item=candidate(matched_model="420F2 IT"))
                 self.assertEqual(result["fields"][0]["value"], "70 kW")
 
+    def test_parenthetical_generation_is_a_complete_model_identifier(self):
+        identity = {"serial": None, "brand": "Volvo", "model": "ECR58 (first generation)"}
+        item = ResearchCandidate(key="power", value="38,2 kW", scope="model", passage_index=0,
+                                 matched_serial=None, matched_brand="Volvo", matched_model="ECR58 (first generation)")
+        exact = normalize(body="Volvo ECR58 (first generation): potencia 38,2 kW.",
+                          title="Volvo ECR58 first generation archive", identity=identity, item=item)
+        self.assertEqual(exact["fields"][0]["value"], "38,2 kW")
+        other = normalize(body="Volvo ECR58 (second generation): potencia 38,2 kW.",
+                          title="Volvo ECR58 archive", identity=identity, item=item)
+        self.assertEqual(other["fields"], [])
+
     def test_engine_code_units_and_document_format_do_not_become_model_variants(self):
         for body, title in (("Caterpillar 420F2: motor C4.4, potencia 70 kW.", TITLE),
                             ("Caterpillar 420F2 has power 70 kW.", TITLE),
@@ -155,6 +166,15 @@ class SourceTitleContextTests(SimpleTestCase):
                                                   matched_model="420F2 IT"))
                 self.assertEqual(result["fields"][0]["key"], "engine")
                 self.assertEqual(result["fields"][0]["scope"], "model")
+
+    def test_retained_engine_display_copy_does_not_become_another_machine_model(self):
+        identity = {"serial": None, "brand": "Volvo", "model": "L110E"}
+        body = "Volvo L110E: Engine: Volvo D7D LB E2. Valor métrico conservado: Volvo D7D LB E2."
+        item = ResearchCandidate(key="engine", value="Volvo D7D LB E2", scope="model", passage_index=0,
+                                 matched_serial=None, matched_brand="Volvo", matched_model="L110E")
+        result = normalize(body=body, title="Volvo L110E product archive", identity=identity, item=item)
+        self.assertEqual([(field["key"], field["value"]) for field in result["fields"]],
+                         [("engine", "Volvo D7D LB E2")])
 
     def test_hyphenated_serial_after_model_is_not_truncated_into_a_variant_suffix(self):
         result = normalize(body="Caterpillar 420F2 CAT-SN1234: potencia 70 kW.",

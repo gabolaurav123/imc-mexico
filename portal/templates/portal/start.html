@@ -1,35 +1,25 @@
-{% extends 'portal/panel_base.html' %}{% load static %}{% block title %}Publicar maquinaria · IMC México{% endblock %}{% block panel_content %}
-<div class="page-heading"><div><p class="eyebrow">PUBLICAR MAQUINARIA</p><h1>Comienza por el tipo de máquina.</h1><p>Así preparamos preguntas y una ficha que correspondan a tu equipo. No necesitas conocer la marca, el modelo ni la configuración todavía.</p></div></div>
-<div class="empty-state start-intake" data-intake-start><h2>¿Qué tipo de máquina quieres anunciar?</h2><p>Busca el tipo que más se parece a tu equipo. Puedes cambiarlo después si las fotos muestran algo distinto.</p>
-  <form method="post" id="start-machine-form" class="category-picker-form">{% csrf_token %}
-    <details class="more-details"><summary>Ya conozco la marca, el modelo o algún detalle <span class="optional">opcional</span></summary><div class="form-grid"><div class="form-field"><label for="start-brand">Marca</label><input id="start-brand" name="brand" maxlength="120" autocomplete="off"></div><div class="form-field"><label for="start-model">Modelo</label><input id="start-model" name="model" maxlength="120" autocomplete="off"></div></div><div class="form-field"><label for="start-description">Lo que sabes de la máquina</label><textarea id="start-description" name="description" rows="2" maxlength="2000"></textarea></div></details>
-    <input id="start-serial" name="serial" type="hidden" value="">
-    <div class="form-field category-picker" data-category-picker data-intake-stage="category">
-      <label for="start-category-search">Tipo de máquina <span class="optional">opcional</span></label>
-      <input id="start-category-search" type="search" autocomplete="off" placeholder="Ej. excavadora, minicargador o montacargas" aria-describedby="start-category-help" aria-controls="start-category-results" aria-expanded="false">
-      <input id="start-category" name="category" type="hidden" value="">
-      <p id="start-category-help" class="field-help">Busca por su nombre en español o inglés dentro de nuestra base de tipos de maquinaria.</p>
-      <div id="start-category-results" class="category-results" role="listbox" aria-label="Tipos de máquina sugeridos" hidden></div>
-      <p id="start-category-selection" class="category-selection" role="status" aria-live="polite"></p>
-      <button type="button" class="link-button category-unsure" data-category-unsure>No estoy seguro · lo identificaré con fotos</button>
-    </div>
-    <button class="button button-red" type="button" id="start-category-next">Continuar →</button>
-    <section class="intake-question" id="identifier-question" hidden aria-labelledby="identifier-title">
-      <p class="eyebrow">ANTES DE LAS FOTOS</p><h2 id="identifier-title">¿Tienes el número de serie o una foto de la placa?</h2><p>Es opcional. Puede ayudar a identificar el equipo; la serie y la placa se conservan privadas.</p>
-      <div class="button-row"><button class="button button-navy" type="button" data-identifier-answer="yes">Sí</button><button class="button button-outline" type="button" data-identifier-answer="no">No</button></div>
+{% extends 'portal/panel_base.html' %}{% load static %}
+{% block title %}Publicar maquinaria · IMC México{% endblock %}
+{% block head %}<link rel="stylesheet" href="{% static 'portal/publication-flow.css' %}?v=20260925">{% endblock %}
+{% block panel_content %}
+<div class="publication-start" data-intake-start>
+  <header class="publication-intro"><p class="eyebrow">PUBLICAR MAQUINARIA</p><h1>Tu máquina, lista para anunciar.</h1><p>Selecciona el tipo de equipo y agrega su serie o sus fotos. Prepararemos una ficha que podrás editar y compartir.</p></header>
+  <form method="post" id="start-machine-form" class="intake-card">{% csrf_token %}
+    <input id="start-serial" name="serial" type="hidden" value=""><input id="start-entry-mode" name="entry_mode" type="hidden" value="photos">
+    <section id="type-question" data-intake-stage="category">
+      <p class="eyebrow">1 · TIPO DE MÁQUINA</p><h2>¿Qué máquina quieres anunciar?</h2>
+      <div class="form-field category-picker" data-category-picker><label for="start-category-search">Busca el tipo de máquina</label>
+        <input id="start-category-search" type="search" autocomplete="off" placeholder="Escribe excavadora, grúa, compactadora…" aria-describedby="start-category-help" aria-controls="start-category-results" aria-expanded="false">
+        <input id="start-category" name="category" type="hidden" value="">
+        <p id="start-category-help" class="field-help">Las opciones aparecen mientras escribes. No necesitas conocer la marca ni el modelo.</p>
+        <div id="start-category-results" class="category-results" role="listbox" aria-label="Tipos de máquina sugeridos" hidden></div>
+        <p id="start-category-selection" class="category-selection" role="status" aria-live="polite"></p>
+      </div><button class="button button-red" type="button" id="start-category-next">Continuar →</button>
     </section>
-    <section class="intake-question" id="identifier-yes" hidden aria-labelledby="identifier-yes-title">
-      <p class="eyebrow">IDENTIFICACIÓN OPCIONAL</p><h2 id="identifier-yes-title">¿Cómo quieres agregarlo?</h2><div class="button-row"><button class="button button-navy" type="button" data-identifier-choice="typed">Escribir el número de serie</button><button class="button button-outline" type="button" data-identifier-choice="plate">Subir foto de la placa después</button></div>
-      <div id="typed-serial-wrap" class="form-field" hidden><label for="typed-serial">Número de serie <span class="optional">opcional</span></label><input id="typed-serial" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Escríbelo tal como aparece"><span class="field-help">Podrás agregar una foto de la placa cuando subas las fotografías.</span></div>
-      <button class="button button-red intake-finish" type="submit" hidden>Continuar con las fotografías →</button>
-    <button type="button" class="link-button" data-identifier-back>← Volver a la pregunta</button>
-    </section>
-    <section class="intake-question" id="identifier-no" hidden aria-labelledby="identifier-no-title">
-      <p class="eyebrow">FOTOS GENERALES</p><h2 id="identifier-no-title">¿Puedes agregar fotos generales del equipo?</h2><p>Una vista general es suficiente para empezar. Si no tienes fotos ahora, tu borrador también quedará guardado.</p><div class="button-row"><button class="button button-navy intake-finish" type="submit">Sí, tengo fotos</button><button class="button button-outline intake-finish" type="submit">Continuar sin fotos por ahora</button></div>
-    <button type="button" class="link-button" data-identifier-back>← Volver a la pregunta</button>
-    </section>
-  </form>
-  <p class="small muted">Una foto general es suficiente para empezar. La placa y el número de serie son opcionales; después podrás corregir la información, consultar la ficha virtual y enviarla al equipo para revisión.</p><a class="text-link" href="/panel/maquinarias/">Continuar una ficha guardada →</a><p class="small muted">Este paso crea un borrador privado. La publicación requiere revisión de IMC México.</p></div>
-{{ categories_json|json_script:'category-data' }}
-{% endblock %}
-{% block scripts %}{{ block.super }}<script src="{% static 'portal/category-picker.js' %}" defer></script><script src="{% static 'portal/start-intake.js' %}" defer></script>{% endblock %}
+    <section class="intake-question" id="identifier-question" hidden aria-labelledby="identifier-title"><p class="eyebrow">2 · INFORMACIÓN DISPONIBLE</p><h2 id="identifier-title">¿Tienes el número de serie?</h2><p>Puedes escribirlo o subir una foto de la placa. Si no lo tienes, usaremos fotografías de la máquina.</p><div class="intake-choices"><button class="intake-choice" type="button" data-identifier-answer="yes"><b>Sí, tengo la serie o la placa</b><span>Escribir el número o fotografiarlo →</span></button><button class="intake-choice" type="button" data-identifier-answer="no"><b>No, tengo fotos del equipo</b><span>Continuar con mis fotografías →</span></button></div><button type="button" class="link-button" data-type-back>← Cambiar tipo de máquina</button></section>
+    <section class="intake-question" id="identifier-yes" hidden aria-labelledby="identifier-yes-title"><p class="eyebrow">2 · IDENTIFICACIÓN</p><h2 id="identifier-yes-title">Agrega la identificación que tienes</h2><div class="button-row"><button class="button button-outline" type="button" data-identifier-choice="typed">Escribir la serie</button><button class="button button-outline" type="button" data-identifier-choice="plate">Fotografiar la placa</button></div><div id="typed-serial-wrap" class="form-field" hidden><label for="typed-serial">Número de serie</label><input id="typed-serial" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Tal como aparece en la máquina"><p class="field-help">Podrás añadir fotografías en el siguiente paso.</p></div><button class="button button-red intake-finish" type="submit" hidden>Continuar →</button><button type="button" class="link-button" data-identifier-back>← Volver</button></section>
+    <section class="intake-question" id="identifier-no" hidden aria-labelledby="identifier-no-title"><p class="eyebrow">2 · FOTOGRAFÍAS</p><h2 id="identifier-no-title">Agrega fotos de tu máquina</h2><p>Una foto general sirve para comenzar. Varias vistas y un acercamiento a los letreros ayudan a identificar mejor el equipo.</p><button class="button button-red intake-finish" type="submit">Elegir fotografías →</button><button type="button" class="link-button" data-identifier-back>← Volver</button></section>
+  </form><p class="intake-reassurance">Tus datos se guardan en tu cuenta. Tú decides cuándo compartir la ficha o enviarla a revisión.</p>
+  <a class="text-link" href="/panel/maquinarias/">Continuar una ficha guardada →</a>
+</div>{{ categories_json|json_script:'category-data' }}
+{% endblock %}{% block scripts %}{{ block.super }}<script src="{% static 'portal/category-picker.js' %}?v=20260925" defer></script><script src="{% static 'portal/start-intake.js' %}?v=20260925" defer></script>{% endblock %}

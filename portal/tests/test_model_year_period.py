@@ -193,10 +193,11 @@ class DocumentedModelPeriodTests(SimpleTestCase):
                   'estimated_year_basis': 'Periodo documentado del modelo; año de esta unidad por confirmar'}
         provenance = {key: {'source': 'user', 'review': 'confirmed'} for key in values}
         text = compose_description(values, provenance, 'Motoniveladoras')
-        self.assertIn('Año aproximado: 1996–2002 (por confirmar).', text)
-        self.assertIn(values['estimated_year_basis'], text)
+        self.assertIn('Año aproximado: 1996–2002.', text)
+        self.assertNotIn(values['estimated_year_basis'], text)
+        self.assertNotIn('por confirmar', text)
         self.assertNotIn('año: 1996', text)
         values.pop('estimated_year_to')
-        self.assertIn('Año aproximado: desde 1996 (por confirmar).', compose_description(values, provenance))
+        self.assertIn('Año aproximado: desde 1996.', compose_description(values, provenance))
         values['estimated_year_from'], values['estimated_year_to'] = '2002', '1996'
         self.assertNotIn('Año aproximado:', compose_description(values, provenance))

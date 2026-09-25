@@ -3,6 +3,7 @@
 {% block content %}
 <section class="wrap catalogue-page" aria-labelledby="catalogue-heading">
   <h1 id="catalogue-heading">Maquinaria disponible</h1>
+  <p class="notice">Este catálogo muestra las fichas publicadas en este módulo como referencia. Consulta la oferta del sitio principal en <a href="https://www.imcmexico.com.mx/catalogo-de-maquinaria" target="_blank" rel="noopener noreferrer">el catálogo de IMC México ↗</a>.</p>
   <form method="get" role="search" class="catalogue-filters">
     <div><label for="category">Categoría</label><select id="category" name="category"><option value="">Cualquiera</option>{% for category in categories %}<option value="{{ category.id }}" {% if filters.category == category.id|stringformat:'s' %}selected{% endif %}>{{ category.name }}</option>{% endfor %}</select></div>
     <div><label for="brand">Marca</label><input id="brand" name="brand" value="{{ filters.brand }}" placeholder="Marca"></div>

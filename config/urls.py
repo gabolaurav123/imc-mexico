@@ -5,11 +5,15 @@ from portal.analytics import preferences as analytics_preferences
 from portal import catalog_views
 from portal import integration_views
 from portal import machine_api
+from portal import sharing
 
 admin.site.site_header='IMC México · Administración'
 admin.site.site_title='IMC México'
 admin.site.index_title='Operación de la plataforma'
 urlpatterns=[
+ path('api/maquinarias/<uuid:pk>/compartir/',sharing.manage,name='prepared_share_manage'),
+ path('s/<slug:code>/',sharing.sheet,name='prepared_share'),
+ path('s/<slug:code>/archivo/<uuid:pk>/',sharing.asset,name='prepared_share_asset'),
  path('operaciones/integracion/',integration_views.integration_index,name='integration_index'),
  path('operaciones/integracion/<uuid:pk>/',integration_views.integration_detail,name='integration_detail'),
  path('panel/vinculos/imc/',integration_views.main_record_return,name='main_record_return'),

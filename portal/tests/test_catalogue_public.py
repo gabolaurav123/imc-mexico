@@ -53,13 +53,54 @@ class PublicCatalogueTests(TestCase):
             self.assertNotContains(response,text)
         self.assertNotContains(response,'id="sheet-identification"')
 
-    def test_specialized_fields_and_declared_location_render_in_spanish(self):
+    def test_public_partial_identification_displays_available_values_without_private_placeholders(self):
+        examples=(
+            ({'hours':0},'Horas de uso','0'),
+            ({'price':0,'currency':'USD'},'Precio','0 USD'),
+            ({'estimate_min':1000,'estimate_max':2000,'estimate_currency':'USD'},'Precio estimado','1000–2000 USD'),
+            ({'estimated_year_from':2004},'Año aproximado','Desde 2004'),
+            ({'estimated_year_to':2009},'Año aproximado','Hasta 2009'),
+            ({'usage_condition':'Usada'},'Estado de uso aparente','Usada'),
+            ({'location_country':'MX'},'País','MX'),
+            ({'location_region':'Quintana Roo'},'Estado / provincia','Quintana Roo'),
+            ({'location_city':'Cancún'},'Ciudad','Cancún'),
+            ({'location':'Cancún, México'},'Ubicación','Cancún, México'),
+        )
+        for number,(values,label,value) in enumerate(examples,start=30):
+            with self.subTest(values=values):
+                version=MachineVersion.objects.create(machine=self.machine,number=number,created_by=self.owner,
+                    data={'title':'Equipo','category_name':'','data':{**values,'serial':'PRIVATE-UNIT',
+                        'notes':'PRIVATE-NOTES','operating_status':'Pendiente de confirmar'},'public_asset_ids':[]})
+                self.machine.approved_version=version;self.machine.save(update_fields=['approved_version'])
+                self.publication.version=version;self.publication.save(update_fields=['version'])
+                response=self.client.get(f'/ficha/{self.publication.token}/')
+                self.assertEqual(response.status_code,200)
+                self.assertContains(response,'id="sheet-identification"')
+                self.assertContains(response,f'<dt>{label}</dt>',html=True)
+                self.assertContains(response,f'<dd>{value}</dd>',html=True)
+                for hidden in ('PRIVATE-UNIT','PRIVATE-NOTES','Pendiente de confirmar'):
+                    self.assertNotContains(response,hidden)
+
+    def test_brief_sheet_keeps_essential_fields_and_structured_location_without_losing_specialized_data(self):
         self.client.force_login(self.owner)
         self.machine.data={**self.machine.data,'boom_configuration':'two_piece','power_type':'net'}
         self.machine.save(update_fields=['data'])
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/ficha/')
-        for text in ('Orugas','Pluma de dos piezas','Potencia neta','Cancún, Quintana Roo, MX'):
-            self.assertContains(response,text)
+        self.assertEqual(response.status_code,200)
+        for label,value in (('País','MX'),('Estado / provincia','Quintana Roo'),('Ciudad','Cancún'),
+                            ('Peso','22000 kg'),('Profundidad máxima de excavación','6.7 m'),('Horas de uso','0')):
+            self.assertContains(response,f'<div><dt>{label}</dt><dd>{value}</dd></div>',html=True)
+        # Specialized attributes remain translated and available to the editor,
+        # snapshots and catalogue filters; the shared sheet presents essentials.
+        fields={field['key']:field['value'] for field in response.context['extra_fields']}
+        for key,value in (('undercarriage','Orugas'),('boom_configuration','Pluma de dos piezas'),('power_type','Potencia neta')):
+            self.assertEqual(fields[key],value)
+            self.assertNotContains(response,value)
+        self.assertEqual(response.context['display_location'],'Cancún, Quintana Roo, MX')
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.data['boom_configuration'],'two_piece')
+        self.assertEqual(self.machine.data['power_type'],'net')
+        self.assertEqual(self.machine.data['undercarriage'],'crawler')
 
     def test_revoked_disabled_and_mismatched_publications_are_hidden(self):
         self.publication.enabled = False

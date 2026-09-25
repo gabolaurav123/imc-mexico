@@ -171,6 +171,19 @@ def _model_identifier_pattern(identifier):
     ``307-5``.
     """
     identifier = str(identifier or "")
+    # Historical manufacturer archives sometimes distinguish a model with a
+    # literal parenthetical generation, e.g. ``ECR58 (first generation)``.
+    # Preserve that qualifier; a base-code match cannot borrow its figures.
+    qualifier = re.fullmatch(r"(.+?)\s+\(([^()]+)\)", identifier)
+    if qualifier:
+        base = _model_identifier_pattern(qualifier.group(1))
+        detail = qualifier.group(2)
+        if not base or not re.fullmatch(r"[A-Za-zÀ-ÿ0-9\s-]{1,40}", detail):
+            return ""
+        characters = [character for character in detail if character.isalnum()]
+        if not characters:
+            return ""
+        return base + r"\s*\(\s*" + r"[\s-]*".join(re.escape(character) for character in characters) + r"\s*\)"
     if not re.fullmatch(r"[\w\s.-]+", identifier, re.UNICODE) or "_" in identifier:
         return ""
     pieces = identifier.split(".")
@@ -214,7 +227,7 @@ def _identifier(value, serial=False):
     if not isinstance(value, str):
         return None
     value = " ".join(value.split())
-    pattern = r"[A-Za-z0-9][A-Za-z0-9/-]{3,39}" if serial else r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .+/-]{1,63}"
+    pattern = r"[A-Za-z0-9][A-Za-z0-9/-]{3,39}" if serial else r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9 .+()/\-]{1,63}"
     if not re.fullmatch(pattern, value) or (not serial and len(value.split()) > 5):
         return None
     if re.search(r"https?|www\.|ignore|instruction|instrucci|prompt|system|secret|password|ilegible|unknown|unreadable", value, re.I):
@@ -529,6 +542,14 @@ def _authority(url, brand):
 
 def _conflicting_explicit_model_reason(evidence, identity, *, in_title=False):
     """A missing provider match label cannot hide another explicit model."""
+    # Bundled manufacturer rows retain the original label/value followed by a
+    # display-only normalized copy (``Valor métrico conservado``).  The copy
+    # can repeat an engine maker/code without its ``Engine`` label, which must
+    # not turn that engine into a second machine model.  Only the source row
+    # establishes identity; ordinary external evidence is left untouched.
+    evidence = str(evidence or "").replace("\ufeff", "")
+    evidence = re.split(r"\bvalor\s+m[eé]trico\s+conservado\s*:", evidence,
+                        maxsplit=1, flags=re.I)[0]
     model = identity.get("model")
     if not model:
         return ""
@@ -688,7 +709,7 @@ def machine_capacity_evidence(value, evidence):
     def fold(text):
         text = unicodedata.normalize("NFKD", text).casefold()
         text = "".join(char for char in text if not unicodedata.combining(char))
-        return " ".join(text.translate(str.maketrans({"*": "", "_": ""})).split())
+        return " ".join(text.translate(str.maketrans({"*": "", "_": "", "³": "3", "²": "2"})).split())
 
     # Source titles may identify the model, never the meaning of a body value.
     body = re.split(r"fragmento citado\s*:", evidence, flags=re.I)[-1]
@@ -712,6 +733,26 @@ def machine_capacity_evidence(value, evidence):
         if re.search(r"\b(?:capacity|capacidad)\b", clause) and re.search(
                 r"\d\s*(?:kg|kgs|lb|lbs|t|ton|tons|tonnes|toneladas?)(?:\b|/)", wanted):
             return True
+    # Some manufacturer tables put the unit in the label rather than beside
+    # the number: ``Payload, t: 27,0``.  The imported evidence preserves that
+    # row and then appends a normalized display value after a full stop.  Keep
+    # this bounded to explicit payload/bucket/hopper labels and require every
+    # literal numeric part and its unit in the source row; engine/fluid labels
+    # above still veto the value.
+    source_row = re.split(r"\bvalor\s+m[eé]trico\s+conservado\s*:", body, maxsplit=1, flags=re.I)[0]
+    source_row = fold(source_row)
+    if re.search(r"\b(?:payload|bucket\s+(?:capacity|volume)|hopper\s+capacity|"
+                 r"capacidad\s+(?:de\s+)?(?:carga|cucharon|cazo|cubeta|tolva))\b", source_row):
+        if re.search(r"\b(?:cilindrada|displacement|combustible|fuel|aceite|oil|refrigerante|coolant|"
+                     r"lubricante|lubricant|deposito|tank|reservoir|sump|crankcase|bateria|battery|"
+                     r"hydraulic\s+(?:system|fluid|pump|capacity)|sistema\s+hidraulico)\b", source_row):
+            return False
+        numbers = [number.replace(",", ".") for number in re.findall(r"\d+(?:[.,]\d+)?", wanted)]
+        row_numbers = {number.replace(",", ".") for number in re.findall(r"\d+(?:[.,]\d+)?", source_row)}
+        units = re.findall(r"(?<![a-z0-9])(?:m3|yd3|ft3|kg|kgs|lb|lbs|t|ton(?:nes)?|tons?|lit(?:er|re)?s?|l)(?![a-z0-9])", wanted)
+        if numbers and all(number in row_numbers for number in numbers) and units:
+            return all(re.search(r"(?<![a-z0-9])" + re.escape(unit) + r"(?![a-z0-9])", source_row)
+                       for unit in set(units))
     return False
 
 
@@ -848,6 +889,128 @@ def normalize_model_hypotheses(parsed, identity, sources, search_text, cited_pas
         hypotheses.append(hypothesis)
     hypotheses.sort(key=lambda item: (-item["support_count"], identifier_key(item["model"])))
     return hypotheses[:8]
+
+
+def _model_extension(declared, candidate):
+    """True only for a literal suffix that may have been missed in a reading.
+
+    This deliberately does not treat a family number as interchangeable with a
+    variant.  It merely recognizes the narrow ``2EC2`` -> ``2EC25`` shape as
+    a review lead when a public record also carries the exact serial.
+    """
+    declared_key, candidate_key = identifier_key(declared), identifier_key(candidate)
+    return bool(len(declared_key) >= 4 and candidate_key.startswith(declared_key)
+                and len(candidate_key) > len(declared_key))
+
+
+def serial_model_extension_leads(identity, passages, sources, source_titles=None):
+    """Find literal, serial-bound longer model readings without changing identity.
+
+    A page may expose a suffix obscured in a plate photograph.  It is useful
+    to query official/canonical documentation for that suffix, but one public
+    listing never corrects the plate value or contributes technical fields.
+    """
+    identity = identity if isinstance(identity, dict) else {}
+    declared, serial, brand = identity.get("model"), identity.get("serial"), identity.get("brand")
+    declared_key = identifier_key(declared)
+    if (not declared_key or len(declared_key) < 4 or not declared_key.isalnum()
+            or not serial or not brand):
+        return []
+    source_by_url = {item.get("url"): item for item in sources if isinstance(item, dict)}
+    pattern = re.compile(r"(?<![A-Za-z0-9])(" + re.escape(declared_key) + r"[A-Za-z0-9]{1,8})(?![A-Za-z0-9])", re.I)
+    leads = {}
+    for passage in passages[:MAX_CITED_PASSAGES]:
+        if not isinstance(passage, dict):
+            continue
+        url = passage.get("source_url")
+        source = source_by_url.get(url)
+        evidence = " ".join(str(passage.get("text", "")).split())
+        title = str((source_titles or {}).get(url) or (source or {}).get("title") or "")
+        if (not source or not safe_public_url(url) or not evidence
+                or not _contains_identifier(evidence, serial)
+                or not (_contains_brand(evidence, brand) or _contains_brand(title, brand))):
+            continue
+        for match in pattern.finditer(evidence):
+            candidate = _identifier(match.group(1))
+            if not candidate or not _model_extension(declared, candidate):
+                continue
+            key = identifier_key(candidate)
+            if key not in leads:
+                leads[key] = {"model": candidate, "source_url": url,
+                              "source_title": source.get("title", ""), "evidence": evidence}
+    return list(leads.values())[:4]
+
+
+def serial_model_extension_hypotheses(parsed, identity, sources, search_text, cited_passages,
+                                      source_titles=None, *, leads=(), category=None):
+    """Corroborate serial-bound suffix leads with official/catalog passages.
+
+    The return value uses the existing signed hypothesis shape.  It never
+    contains technical fields: even a supported suffix remains a prompt to
+    compare the plate, not an automatic model replacement.
+    """
+    leads = [item for item in leads if isinstance(item, dict)]
+    if not leads:
+        return []
+    identity = identity if isinstance(identity, dict) else {}
+    brand = identity.get("brand")
+    if not brand:
+        return []
+    source_by_url = {source.get("url"): source for source in sources if isinstance(source, dict)}
+    text_key = " ".join(str(search_text or "").split()).casefold()
+    grouped = {}
+    for lead in leads:
+        model = _identifier(lead.get("model"))
+        url = lead.get("source_url")
+        source = source_by_url.get(url)
+        evidence = " ".join(str(lead.get("evidence", "")).split())
+        if (not model or not source or not safe_public_url(url) or not evidence
+                or not _model_extension(identity.get("model"), model)):
+            continue
+        grouped[identifier_key(model)] = {"model": model, "lead": {
+            "source_url": url, "source_title": source.get("title", ""), "evidence": evidence,
+        }, "support": []}
+    if not grouped:
+        return []
+    from .research_sources import source_kind
+    for item in list(_get(parsed, "fields", []) or [])[:40]:
+        index, candidate_brand = _get(item, "passage_index"), _get(item, "matched_brand")
+        candidate_model = _identifier(_get(item, "matched_model"))
+        if not candidate_model and _get(item, "key") == "model":
+            candidate_model = _identifier(_get(item, "value"))
+        key = identifier_key(candidate_model)
+        if (key not in grouped or type(index) is not int or index < 0
+                or index >= min(len(cited_passages), MAX_CITED_PASSAGES)
+                or not isinstance(candidate_brand, str) or _brand_key(candidate_brand) != _brand_key(brand)):
+            continue
+        passage = cited_passages[index]
+        url = passage.get("source_url")
+        source = source_by_url.get(url)
+        evidence = " ".join(str(passage.get("text", "")).split())
+        title = str((source_titles or {}).get(url) or (source or {}).get("title") or "")
+        if (not source or not evidence or evidence.casefold() not in text_key
+                or not _contains_identifier(evidence, candidate_model)
+                or not (_contains_brand(evidence, brand) or _contains_brand(title, brand))
+                or source_kind(url, brand, category) not in {"manufacturer", "technical_catalog"}):
+            continue
+        records = grouped[key]["support"]
+        if url != grouped[key]["lead"]["source_url"] and not any(record["source_url"] == url for record in records):
+            records.append({"source_url": url, "source_title": source.get("title", ""), "evidence": evidence})
+    hypotheses = []
+    for item in grouped.values():
+        records = [item["lead"], *item["support"]]
+        lead = item["lead"]
+        hypotheses.append({
+            "model": item["model"], "status": "hypothesis",
+            "confidence": "supported" if item["support"] else "lead",
+            "support_count": len(records), "source_url": lead["source_url"],
+            "source_title": lead["source_title"], "source_date": timezone.localdate().isoformat(),
+            "evidence": lead["evidence"],
+            "supporting_sources": [{"url": record["source_url"], "title": record["source_title"]}
+                                   for record in records],
+            "relation": "serial_model_extension",
+        })
+    return hypotheses[:4]
 
 
 def _model_period_basis(start, end, url):
@@ -1905,24 +2068,6 @@ def compose_description(data, provenance, category=None, visual_description="", 
         normalized = identifier_key(value)
         return any(identifier in normalized for identifier in private_keys)
 
-    visible, references = [], []
-    for key in ("brand", "model", "year", "power", "weight", "capacity", "dimensions", "fuel", "engine", "transmission",
-                "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
-                "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread", "manufacturer", "manufacturer_address",
-                "voltage", "lift_height", "load_center", "battery_weight", "battery_capacity", "fork_length",
-                "digging_depth", "hydraulic_system"):
-        value, meta = data.get(key), provenance.get(key, {})
-        if value in (None, "") or not isinstance(value, (str, int, float)) or contains_private_identifier(value):
-            continue
-        value = str(value).strip()[:300]
-        if re.search(r"https?://|@|[<>\r\n]", value):
-            continue
-        if meta.get("source") == "web":
-            references.append(f"{LABELS[key].lower()}: {value}")
-        elif meta.get("source") == "user" or meta.get("review") in {"clear", "confirmed"}:
-            visible.append(f"{LABELS[key].lower()}: {value}")
-    technical_values = [data.get(key) for key in LABELS]
-    visual = sanitize_visual_description(visual_description, private_values, technical_values)
     heading = equipment_category_label(category)
     if contains_private_identifier(heading):
         heading = "Maquinaria"
@@ -1931,15 +2076,47 @@ def compose_description(data, provenance, category=None, visual_description="", 
                 and (provenance.get(key, {}).get("source") == "user" or provenance.get(key, {}).get("review") in {"clear", "confirmed"})]
     if identity:
         heading += " " + " ".join(identity)
-    visible = [value for value in visible if not value.startswith(("marca:", "modelo:"))]
-    text = heading + ". " + (visual + " " if visual else "")
-    if visible:
-        sentence = "; ".join(visible)
-        text += (sentence[:1].upper() + sentence[1:]).rstrip(". ") + ". "
-    elif not identity and not references and not visual:
-        text += "Fotografías disponibles para identificar sus características. "
-    if references:
-        text += "Referencia técnica del modelo o documentación consultada: " + "; ".join(references) + ". Estos datos requieren comprobación en esta unidad."
+    # Public copy is a compact equipment summary, not a transcription of the
+    # photograph or of every structured row.  Keep at most four model/unit
+    # essentials; tire sizes, maker addresses and other evidence remain in the
+    # structured sheet where they are useful without overwhelming the summary.
+    by_category = {
+        "Excavadoras": ("weight", "power", "digging_depth", "maximum_reach_ground", "capacity"),
+        "Retroexcavadoras": ("weight", "power", "digging_depth", "capacity", "lift_height"),
+        "Montacargas": ("capacity", "lift_height", "load_center", "voltage", "weight"),
+        "Camiones": ("capacity", "weight", "power", "dimensions", "engine"),
+        "Cargadores frontales": ("weight", "power", "capacity", "bucket_digging_force", "hydraulic_flow"),
+        "Minicargadores": ("weight", "power", "capacity", "lift_height", "hydraulic_flow"),
+        "Motoniveladoras": ("weight", "power", "blade_width", "dimensions", "engine"),
+        "Compactadores": ("weight", "power", "working_width", "centrifugal_force", "compaction_depth"),
+    }
+    priorities = by_category.get(category, ("weight", "power", "capacity", "digging_depth",
+                                            "lift_height", "working_width", "horizontal_outreach", "engine"))
+    essentials, reference_essentials = [], []
+    for key in priorities:
+        value, meta = data.get(key), provenance.get(key, {})
+        if (value in (None, "") or not isinstance(value, (str, int, float))
+                or contains_private_identifier(value)):
+            continue
+        value = str(value).strip()
+        if not value or len(value) > 160 or re.search(r"https?://|@|[<>\r\n]", value):
+            continue
+        if not (meta.get("source") in {"user", "web"} or meta.get("review") in {"clear", "confirmed"}):
+            continue
+        destination = reference_essentials if meta.get("source") == "web" else essentials
+        destination.append(f"{LABELS[key]}: {value}")
+        if len(essentials) + len(reference_essentials) == 4:
+            break
+    lines = [heading + "."]
+    if essentials or reference_essentials:
+        details = []
+        if essentials:
+            details.append("Datos principales: " + " · ".join(essentials))
+        if reference_essentials:
+            details.append("Características de referencia del modelo: " + " · ".join(reference_essentials))
+        lines.append("; ".join(details) + ".")
+    elif not identity:
+        lines.append("Fotografías disponibles para identificar sus características.")
     approximate = {}
     for key in ('estimated_year_from', 'estimated_year_to'):
         value, meta = str(data.get(key) or ''), provenance.get(key, {})
@@ -1950,24 +2127,26 @@ def compose_description(data, provenance, category=None, visual_description="", 
     start, end = approximate.get('estimated_year_from'), approximate.get('estimated_year_to')
     if approximate and not (start and end and int(start) > int(end)):
         interval = f'{start}–{end}' if start and end else f'desde {start}' if start else f'hasta {end}'
-        text = text.rstrip() + f'\n\nAño aproximado: {interval} (por confirmar).'
-        period_basis = data.get('estimated_year_basis')
-        basis_meta = provenance.get('estimated_year_basis', {})
-        if (isinstance(period_basis, str) and period_basis.strip() and len(period_basis) <= 1000
-                and not contains_private_identifier(period_basis) and not re.search(r'https?://|@|[<>\r\n]', period_basis)
-                and (basis_meta.get('source') in {'user', 'web', 'visual_proposal'} or basis_meta.get('review') == 'confirmed')):
-            text += ' ' + period_basis.strip().rstrip('. ') + '.'
+        # The approximation label carries the uncertainty. Detailed evidence
+        # and review status stay in their structured fields, outside this copy.
+        lines.append(f'Año aproximado: {interval}.')
     from .commercial import VISUAL_LABELS
     observations = []
     for key, label in VISUAL_LABELS.items():
         value, meta = data.get(key), provenance.get(key, {})
         if not isinstance(value, str) or not value.strip() or contains_private_identifier(value) or re.search(r"https?://|@|[<>]", value):
             continue
+        if key not in {"attachments", "visible_components", "applications"}:
+            continue
         if meta.get("source") not in {"visual_proposal", "user"}:
             continue
-        if key == "operating_status" and meta.get("source") != "user":
-            value = "Pendiente de confirmar"
-        observations.append(f"{label}: {value.strip().rstrip('. ')}")
+        observations.append(f"{label}: {' '.join(value.split()).rstrip('. ')}")
     if observations:
-        text = text.rstrip() + "\n\n" + ". ".join(observations) + "."
-    return text.strip()
+        lines.append(" · ".join(observations[:2]) + ".")
+    # Avoid a hard truncation that could split a number and its unit.  Omit
+    # optional trailing lines until the concise public summary fits.
+    while len("\n".join(lines)) > 650 and len(lines) > 1:
+        lines.pop()
+    if len(lines) == 2 and lines[1] == "Fotografías disponibles para identificar sus características.":
+        return " ".join(lines)
+    return "\n".join(lines).strip()

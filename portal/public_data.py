@@ -4,6 +4,7 @@ Public responses are an allowlist.  Internal provenance, plate material,
 valuation comparables, and placeholder prose never cross this boundary.
 """
 from copy import deepcopy
+from decimal import Decimal, InvalidOperation
 
 
 PUBLIC_KEYS = frozenset({
@@ -78,6 +79,15 @@ def public_projection(snapshot):
         result.pop("price", None)
     if "price" not in result:
         result.pop("currency", None)
+    # A market range is useful public information but never an asking price.
+    # Only show a complete ordered range with an explicit supported currency.
+    try:
+        low, high = Decimal(str(raw.get('estimate_min'))), Decimal(str(raw.get('estimate_max')))
+        currency = raw.get('estimate_currency')
+        if low.is_finite() and high.is_finite() and 0 < low <= high and currency in {'USD', 'MXN', 'EUR'}:
+            result.update(estimate_min=raw['estimate_min'], estimate_max=raw['estimate_max'], estimate_currency=currency)
+    except (InvalidOperation, ValueError, TypeError):
+        pass
     return result
 
 

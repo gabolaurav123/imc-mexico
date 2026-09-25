@@ -1,0 +1,704 @@
+{
+  "schema_version": 1,
+  "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria",
+  "secondary_source_url": "https://www.imcmexico.com.mx/solicitud-de-maquinaria",
+  "observed_at": "2026-09-25",
+  "source_sha256": "5343a3851fb427bf57ff2559af2b056624b25037c6f908c744ac5a008a5ab714",
+  "purpose": "Mapeo de denominaciones del catálogo IMC a familias para búsqueda. No es inventario ni especificaciones de unidades.",
+  "types": [
+    {
+      "category_slug": "excavadoras",
+      "label": "Excavadoras",
+      "imc_types": [
+        "EXCAVADORAS HIDRAULICAS",
+        "EXCAVADORA SOBRE RUEDAS",
+        "EXCAVADORAS ANFIBIO"
+      ],
+      "aliases": [
+        "excavadora hidráulica",
+        "excavadora sobre ruedas",
+        "excavadora anfibia",
+        "excavator",
+        "wheeled excavator",
+        "amphibious excavator",
+        "mini excavadora",
+        "miniexcavadora"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "tractores",
+      "label": "Tractores",
+      "imc_types": [
+        "TRACTORES SOBRE ORUGAS",
+        "TRACTORES SOBRE RUEDAS"
+      ],
+      "aliases": [
+        "bulldozer",
+        "bulldózer",
+        "topador",
+        "dozer",
+        "tractor de orugas"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "cargadores",
+      "label": "Cargadores",
+      "imc_types": [
+        "CARGADORAS SOBRE RUEDAS",
+        "CARGADORAS SOBRE ORUGAS"
+      ],
+      "aliases": [
+        "cargador frontal",
+        "pala cargadora",
+        "wheel loader",
+        "track loader",
+        "cargadora de orugas"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "accesorios",
+      "label": "Accesorios de maquinaria",
+      "imc_types": [
+        "ACCESORIOS",
+        "CUCHARON",
+        "MARTILLO HIDRAULICO",
+        "RIPPER"
+      ],
+      "aliases": [
+        "cucharón",
+        "martillo hidráulico",
+        "escarificador",
+        "hydraulic hammer",
+        "bucket",
+        "attachment"
+      ],
+      "fields": [
+        "weight",
+        "dimensions"
+      ]
+    },
+    {
+      "category_slug": "maquinaria-agricola",
+      "label": "Maquinaria agrícola",
+      "imc_types": [
+        "AGRICULTURA MAQUINAS"
+      ],
+      "aliases": [
+        "agricultura",
+        "tractor agrícola",
+        "agricultural equipment"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "bandas-transportadoras",
+      "label": "Bandas transportadoras",
+      "imc_types": [
+        "BANDAS TRANSPORTADORAS"
+      ],
+      "aliases": [
+        "cinta transportadora",
+        "conveyor"
+      ],
+      "fields": [
+        "power",
+        "capacity",
+        "working_width"
+      ]
+    },
+    {
+      "category_slug": "barredoras",
+      "label": "Barredoras",
+      "imc_types": [
+        "BARREDORAS"
+      ],
+      "aliases": [
+        "barredora vial",
+        "road sweeper"
+      ],
+      "fields": [
+        "power",
+        "working_width",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "bombas-concreto",
+      "label": "Bombas para concreto",
+      "imc_types": [
+        "BOMBAS PARA CONCRETO"
+      ],
+      "aliases": [
+        "bomba de hormigón",
+        "concrete pump"
+      ],
+      "fields": [
+        "power",
+        "capacity",
+        "horizontal_outreach"
+      ]
+    },
+    {
+      "category_slug": "remolques",
+      "label": "Remolques y camas bajas",
+      "imc_types": [
+        "CAMA BAJA O LOWBOYS"
+      ],
+      "aliases": [
+        "cama baja",
+        "lowboy",
+        "low bed",
+        "trailer",
+        "plataforma de transporte"
+      ],
+      "fields": [
+        "capacity",
+        "dimensions",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "camiones",
+      "label": "Camiones",
+      "imc_types": [
+        "CAMION CON PIPA",
+        "CAMIONES DE CARGA",
+        "CAMIONETAS",
+        "RECOLECTOR DE BASURA",
+        "TRACTOCAMION"
+      ],
+      "aliases": [
+        "camión articulado",
+        "camión de volteo",
+        "dumper",
+        "articulated hauler",
+        "off highway truck",
+        "pipa",
+        "tractocamión",
+        "recolector"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "compactadores",
+      "label": "Compactadores",
+      "imc_types": [
+        "COMPACTADORA CON LLANTAS",
+        "COMPACTADORA DE DOBLE RODILLO",
+        "COMPACTADORA VIBRATORIA",
+        "COMPACTADORAS SUELOS Y RELLENOS"
+      ],
+      "aliases": [
+        "compactadora neumática",
+        "rodillo tándem",
+        "pata de cabra",
+        "rodillo liso",
+        "apisonador",
+        "placa compactadora",
+        "soil compactor",
+        "pneumatic roller",
+        "tandem roller"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "compresores",
+      "label": "Compresores",
+      "imc_types": [
+        "COMPRESORES"
+      ],
+      "aliases": [
+        "compresor de aire",
+        "air compressor"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "cribas",
+      "label": "Cribas",
+      "imc_types": [
+        "CRIBAS"
+      ],
+      "aliases": [
+        "cribadora",
+        "zaranda",
+        "screening plant",
+        "screen"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "dosificadoras-agregados",
+      "label": "Dosificadoras de agregados",
+      "imc_types": [
+        "DOSIFICADORAS DE AGREGADOS"
+      ],
+      "aliases": [
+        "dosificadora",
+        "aggregate feeder"
+      ],
+      "fields": [
+        "capacity",
+        "power"
+      ]
+    },
+    {
+      "category_slug": "dragas",
+      "label": "Dragas",
+      "imc_types": [
+        "DRAGAS"
+      ],
+      "aliases": [
+        "draga de succión",
+        "dredger"
+      ],
+      "fields": [
+        "power",
+        "digging_depth",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "equipos-lodos",
+      "label": "Equipos de lodos",
+      "imc_types": [
+        "EQUIPO DE LODOS"
+      ],
+      "aliases": [
+        "equipo de lodos",
+        "mud equipment",
+        "mezclador de lodos"
+      ],
+      "fields": [
+        "power",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "tendido-cables",
+      "label": "Equipos de tendido de cables",
+      "imc_types": [
+        "EQUIPOS DE TENDIDO PARA CABLES SUBTERRANEOS"
+      ],
+      "aliases": [
+        "tendido de cables",
+        "cable plow",
+        "cable puller"
+      ],
+      "fields": [
+        "power",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "recicladoras-estabilizadoras",
+      "label": "Recicladoras y estabilizadoras de suelos",
+      "imc_types": [
+        "ESTABILIZADOR DE SUELOS",
+        "RECICLADORAS",
+        "RECUPERADORES DE CAMINOS"
+      ],
+      "aliases": [
+        "estabilizadora de suelo",
+        "recicladora",
+        "recuperadora de caminos",
+        "road reclaimer",
+        "soil stabilizer"
+      ],
+      "fields": [
+        "power",
+        "weight",
+        "working_width"
+      ]
+    },
+    {
+      "category_slug": "maquinaria-forestal",
+      "label": "Maquinaria forestal",
+      "imc_types": [
+        "FORESTALES MAQUINAS"
+      ],
+      "aliases": [
+        "forestal",
+        "forestry equipment"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "fresadoras",
+      "label": "Fresadoras de pavimento",
+      "imc_types": [
+        "FRESADORAS"
+      ],
+      "aliases": [
+        "fresadora de asfalto",
+        "cold planer",
+        "milling machine"
+      ],
+      "fields": [
+        "power",
+        "weight",
+        "working_width"
+      ]
+    },
+    {
+      "category_slug": "generadores",
+      "label": "Generadores",
+      "imc_types": [
+        "GENERADORES"
+      ],
+      "aliases": [
+        "grupo electrógeno",
+        "generador eléctrico",
+        "generator",
+        "genset"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "gruas",
+      "label": "Grúas",
+      "imc_types": [
+        "GRUA TIPO PORTICO",
+        "GRUAS"
+      ],
+      "aliases": [
+        "grúa de pórtico",
+        "grúa móvil",
+        "grúa telescópica",
+        "crane",
+        "gantry crane"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "proyectadoras-mortero",
+      "label": "Proyectadoras de yeso y mortero",
+      "imc_types": [
+        "LANZADORAS DE YESO"
+      ],
+      "aliases": [
+        "lanzadora de yeso",
+        "proyector de mortero",
+        "plaster sprayer"
+      ],
+      "fields": [
+        "power",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "manipuladores-telescopicos",
+      "label": "Manipuladores telescópicos",
+      "imc_types": [
+        "MANIPULADOR TELESCOPICO"
+      ],
+      "aliases": [
+        "manipulador telescópico",
+        "telehandler"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "mezcladoras-concreto",
+      "label": "Mezcladoras de concreto",
+      "imc_types": [
+        "MEZCLADORAS DE CONCRETO"
+      ],
+      "aliases": [
+        "revolvedora",
+        "hormigonera",
+        "concrete mixer"
+      ],
+      "fields": [
+        "power",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "minicargadores",
+      "label": "Minicargadores",
+      "imc_types": [
+        "MINICARGADORES"
+      ],
+      "aliases": [
+        "minicargadora",
+        "skid steer",
+        "compact track loader"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "montacargas",
+      "label": "Montacargas",
+      "imc_types": [
+        "MONTACARGAS"
+      ],
+      "aliases": [
+        "forklift",
+        "carretilla elevadora"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "motoniveladoras",
+      "label": "Motoniveladoras",
+      "imc_types": [
+        "MOTOCONFORMADORAS"
+      ],
+      "aliases": [
+        "motoconformadora",
+        "motor grader"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "niveladoras-laser",
+      "label": "Niveladoras láser para concreto",
+      "imc_types": [
+        "NIVELADORAS LASSER"
+      ],
+      "aliases": [
+        "niveladora láser",
+        "laser screed"
+      ],
+      "fields": [
+        "power",
+        "working_width",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "motores",
+      "label": "Motores",
+      "imc_types": [
+        "MOTORES"
+      ],
+      "aliases": [
+        "motor industrial",
+        "industrial engine"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "pavimentadoras",
+      "label": "Pavimentadoras",
+      "imc_types": [
+        "PAVIMENTADORAS"
+      ],
+      "aliases": [
+        "pavimentadora de asfalto",
+        "asphalt paver",
+        "finisher"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "perforadoras",
+      "label": "Perforadoras",
+      "imc_types": [
+        "PERFORADORAS"
+      ],
+      "aliases": [
+        "perforadora rotatoria",
+        "drilling rig"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "petrolizadoras",
+      "label": "Petrolizadoras",
+      "imc_types": [
+        "PETROLIZADORA"
+      ],
+      "aliases": [
+        "distribuidor de asfalto",
+        "asphalt distributor"
+      ],
+      "fields": [
+        "capacity",
+        "working_width"
+      ]
+    },
+    {
+      "category_slug": "plantas-asfalto",
+      "label": "Plantas de asfalto",
+      "imc_types": [
+        "PLANTAS DE ASFALTO"
+      ],
+      "aliases": [
+        "planta asfáltica",
+        "asphalt plant"
+      ],
+      "fields": [
+        "power",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "plantas-concreto",
+      "label": "Plantas de concreto",
+      "imc_types": [
+        "PLANTAS DE CONCRETO"
+      ],
+      "aliases": [
+        "planta de hormigón",
+        "concrete batching plant"
+      ],
+      "fields": [
+        "power",
+        "capacity"
+      ]
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "label": "Plataformas elevadoras",
+      "imc_types": [
+        "PLATAFORMA TIPO TIJERA",
+        "PLATAFORMAS ELEVADORAS"
+      ],
+      "aliases": [
+        "plataforma tijera",
+        "plataforma articulada",
+        "plataforma telescópica",
+        "scissor lift",
+        "boom lift"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "portacontenedores",
+      "label": "Portacontenedores",
+      "imc_types": [
+        "PORTA CONTENEDORES"
+      ],
+      "aliases": [
+        "reach stacker",
+        "container handler"
+      ],
+      "fields": [
+        "capacity",
+        "lift_height",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "retroexcavadoras",
+      "label": "Retroexcavadoras",
+      "imc_types": [
+        "RETROEXCAVADORAS"
+      ],
+      "aliases": [
+        "retroexcavadora cargadora",
+        "backhoe loader"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "mototraillas",
+      "label": "Mototraíllas",
+      "imc_types": [
+        "SCREPERS"
+      ],
+      "aliases": [
+        "scraper",
+        "mototrailla",
+        "traílla",
+        "screper"
+      ],
+      "fields": [
+        "power",
+        "capacity",
+        "weight"
+      ]
+    },
+    {
+      "category_slug": "selladoras-asfalto",
+      "label": "Selladoras de asfalto",
+      "imc_types": [
+        "SELLADORA DE ASFALTO"
+      ],
+      "aliases": [
+        "selladora de grietas",
+        "crack sealer"
+      ],
+      "fields": [
+        "capacity",
+        "power"
+      ]
+    },
+    {
+      "category_slug": "tiendetubos",
+      "label": "Tiendetubos",
+      "imc_types": [
+        "TIENDE TUBOS"
+      ],
+      "aliases": [
+        "tiende tubos",
+        "pipelayer",
+        "sideboom"
+      ],
+      "fields": [
+        "capacity",
+        "weight",
+        "power"
+      ]
+    },
+    {
+      "category_slug": "trituradoras",
+      "label": "Trituradoras",
+      "imc_types": [
+        "TRITURADORAS"
+      ],
+      "aliases": [
+        "trituradora de mandíbulas",
+        "trituradora de cono",
+        "crusher"
+      ],
+      "fields": []
+    },
+    {
+      "category_slug": "vibradores-concreto",
+      "label": "Vibradores de concreto",
+      "imc_types": [
+        "VIBRADOR DE CONCRETO"
+      ],
+      "aliases": [
+        "vibrador de hormigón",
+        "concrete vibrator"
+      ],
+      "fields": [
+        "power",
+        "vibration_frequency"
+      ]
+    },
+    {
+      "category_slug": "zanjadoras",
+      "label": "Zanjadoras",
+      "imc_types": [
+        "ZANJADORA"
+      ],
+      "aliases": [
+        "zanjadora de cadena",
+        "trencher"
+      ],
+      "fields": []
+    }
+  ],
+  "excluded": [
+    {
+      "imc_type": "AVIONETA",
+      "reason": "Fuera de maquinaria de construcción"
+    },
+    {
+      "imc_type": "VEHICULO MARINO",
+      "reason": "Fuera de maquinaria de construcción"
+    },
+    {
+      "imc_type": "OFERTA ESPECIAL",
+      "reason": "Etiqueta comercial; no es un tipo de máquina"
+    }
+  ]
+}

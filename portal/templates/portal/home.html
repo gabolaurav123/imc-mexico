@@ -4,8 +4,8 @@
 <section class="wrap publishing-intro" aria-labelledby="publish-heading">
   <div>
     <p class="eyebrow">SERVICIO DE PUBLICACIÓN · IMC MÉXICO</p>
-    <h1 id="publish-heading">Publica tu maquinaria<br>con ayuda de tus fotos.</h1>
-    <p class="hero-lead">Sube fotografías y obtén una ficha técnica y comercial editable.</p>
+    <h1 id="publish-heading">Publica tu maquinaria<br>con serie o fotografías.</h1>
+    <p class="hero-lead">Elige el tipo de máquina, aporta su número de serie o fotografías y obtén una ficha editable.</p>
     <p class="hero-description">La IA identifica los datos disponibles, consulta referencias y propone una descripción. Puedes corregir la ficha y enviarla al equipo de IMC México para su revisión.</p>
     <div class="hero-actions"><a class="button button-red" href="{% url 'publish_start' %}">Publicar maquinaria <span aria-hidden="true">→</span></a></div>
     <p class="small publishing-resume">{% if user.is_authenticated %}<a class="text-link" href="/panel/maquinarias/">Continuar una ficha guardada →</a>{% else %}¿Ya tienes una cuenta? <a class="text-link" href="/iniciar-sesion/?next=/panel/maquinarias/nueva/">Inicia sesión →</a>{% endif %}</p>
@@ -16,17 +16,17 @@
     <h2 id="route-heading">De tu máquina a una solicitud de publicación</h2>
     <ol>
       <li><strong>Tu cuenta y contacto</strong><span>Nombre, correo y celular con prefijo internacional.</span></li>
-      <li><strong>Fotos de la maquinaria</strong><span>Una vista general permite empezar. Añade placa o serie si las tienes.</span></li>
-      <li><strong>Ficha automática y editable</strong><span>Revisa identificación, características, descripción, condición y propuesta de precio cuando haya información suficiente. Consulta y comparte la ficha virtual cuando esté aprobada.</span></li>
+      <li><strong>Tipo de máquina y serie o fotos</strong><span>Busca el tipo de máquina. Después, escribe su serie o sube fotografías; la foto de la placa es opcional.</span></li>
+      <li><strong>Ficha automática y editable</strong><span>Revisa identificación, características, descripción, condición y propuesta de precio cuando haya información suficiente. Consulta y comparte tu ficha mediante un enlace corto, que puedes desactivar.</span></li>
       <li><strong>Envío y seguimiento</strong><span>IMC México revisa la solicitud. Recibe observaciones en tus notificaciones y responde desde tu cuenta.</span></li>
     </ol>
-    <p class="small muted">Enviar la ficha no la publica de inmediato: IMC México autoriza su difusión después de revisarla.</p>
+    <p class="small muted">Compartir tu ficha y publicarla en el catálogo son acciones distintas. IMC México revisa y autoriza la publicación en el catálogo.</p>
   </aside>
 </section>
 <section class="wrap publishing-help" aria-labelledby="prepare-heading">
   <h2 id="prepare-heading">Qué necesitas para empezar</h2>
   <div class="publishing-help-grid">
-    <article><h3>Una fotografía útil</h3><p>Muestra la máquina completa. Puedes añadir detalles y una placa legible para obtener más datos.</p><a class="text-link" href="/guia-de-fotos/">Guía de fotografías →</a></article>
+    <article><h3>Serie o fotografías</h3><p>Puedes comenzar con la serie o con fotos de la máquina. Añade detalles y una placa legible cuando los tengas.</p><a class="text-link" href="/guia-de-fotos/">Guía de fotografías →</a></article>
     <article><h3>La información que conozcas</h3><p>Si conoces la serie, escríbela sin necesidad de una foto de la placa. Agrega ubicación, precio y observaciones si las tienes. Los datos desconocidos no bloquean la preparación de la ficha.</p><a class="text-link" href="/ejemplo-de-ficha/">Ver una ficha de ejemplo →</a></article>
     <article><h3>Un contacto para el seguimiento</h3><p>En tu cuenta encontrarás borradores, solicitudes y mensajes. Puedes continuar más tarde o eliminar un borrador.</p><a class="text-link" href="/contacto/">Necesito ayuda →</a></article>
   </div>

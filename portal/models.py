@@ -1,4 +1,5 @@
 import uuid
+import secrets
 from datetime import timedelta
 from decimal import Decimal
 from string import Template
@@ -538,6 +539,28 @@ class Submission(models.Model):
 
     def __str__(self):
         return f"{self.machine.folio} · {self.get_status_display()}"
+
+
+def prepared_share_code():
+    # 96 random bits, short enough to copy without exposing sequential IDs.
+    return secrets.token_urlsafe(12)
+
+
+class PreparedShare(models.Model):
+    """Owner-authorized web snapshot; never an approved catalogue publication."""
+    machine = models.OneToOneField(Machine, on_delete=models.PROTECT, related_name="prepared_share")
+    authorized_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    code = models.CharField(max_length=20, unique=True, default=prepared_share_code, editable=False)
+    enabled = models.BooleanField(default=False)
+    revision = models.PositiveIntegerField()
+    snapshot = models.JSONField(default=dict)
+    include_serial = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "enlace de ficha preparada"
+        verbose_name_plural = "enlaces de fichas preparadas"
 
 
 class Publication(models.Model):

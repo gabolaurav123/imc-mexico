@@ -233,10 +233,13 @@ class ExcavatorIntegrationTests(TestCase):
             apply_analysis_suggestions(applied,self.owner,job,['model'],applied.revision)
 
     def test_category_choice_starts_without_plate_or_paid_work(self):
+        self.owner.phone = '+525512345678'
+        self.owner.save(update_fields=['phone'])
         self.client.force_login(self.owner)
         response = self.client.get('/panel/maquinarias/nueva/')
-        self.assertContains(response, '¿Qué tipo de máquina quieres anunciar?')
-        self.assertContains(response, 'No estoy seguro')
+        self.assertContains(response, 'Busca el tipo de máquina')
+        self.assertContains(response, 'id="start-category-results"')
+        self.assertNotContains(response, 'No estoy seguro')
         response = self.client.post('/api/maquinarias/', {'category': self.category.pk}, content_type='application/json')
         self.assertEqual(response.status_code, 201)
         created = Machine.objects.get(pk=response.json()['id'])
@@ -245,5 +248,5 @@ class ExcavatorIntegrationTests(TestCase):
         self.assertFalse(created.assets.exists())
         self.assertFalse(AnalysisJob.objects.exists())
         unknown = self.client.post('/api/maquinarias/', {'category':'unsure'}, content_type='application/json')
-        self.assertEqual(unknown.status_code,201)
-        self.assertIsNone(Machine.objects.get(pk=unknown.json()['id']).category_id)
+        self.assertEqual(unknown.status_code,400)
+        self.assertFalse(Machine.objects.filter(owner=self.owner,category__isnull=True).exists())

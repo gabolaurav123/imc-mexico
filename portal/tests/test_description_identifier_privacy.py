@@ -37,19 +37,57 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
                 self.assertNotIn("PRIVATE-FORK1234", description)
                 self.assertEqual(description, "Montacargas. Fotografías disponibles para identificar sus características.")
 
-    def test_legitimate_manufacturer_address_and_literal_technical_values_remain(self):
+    def test_summary_keeps_identity_but_leaves_plate_details_in_structured_fields(self):
         data = {"serial": "PRIVATE-FORK1234", "brand": "Caterpillar", "model": "2EC25",
                 "manufacturer_address": "Houston, USA", "manufacturer": "Fabricante de prueba Inc.",
                 "front_tire_size": "21x7x15", "mast_tilt": "Rearward 6 deg", "battery_weight": "MIN 1800 lb / MAX 2200 lb"}
         provenance = {key: {"source": "plate", "review": "clear"} for key in data}
         description = compose_description(data, provenance, "Montacargas")
-        for key, value in data.items():
-            if key != "serial":
-                self.assertIn(value, description)
+        self.assertIn("Caterpillar 2EC25", description)
         self.assertNotIn(data["serial"], description)
+        for value in (data["manufacturer_address"], data["manufacturer"], data["front_tire_size"],
+                      data["mast_tilt"], data["battery_weight"]):
+            self.assertNotIn(value, description)
         self.assertNotIn("país de fabricación", description.lower())
         self.assertNotIn("ubicación", description.lower())
 
     def test_private_category_text_does_not_leak_into_heading(self):
         description = compose_description({"serial": "PRIVATE-FORK1234"}, {}, "PRIVATE-FORK1234")
         self.assertNotIn("PRIVATE-FORK1234", description)
+
+    def test_public_summary_uses_four_essentials_and_skips_photo_prose(self):
+        data = {"brand": "Volvo", "model": "EC210B", "weight": "21 300 kg", "power": "107 kW",
+                "digging_depth": "6,7 m", "maximum_reach_ground": "9,9 m", "capacity": "1,0 m³",
+                "manufacturer_address": "Houston, USA"}
+        provenance = {key: {"source": "web", "review": "needs_review"} for key in data}
+        provenance["brand"] = {"source": "image", "review": "clear"}
+        provenance["model"] = {"source": "image", "review": "clear"}
+        description = compose_description(data, provenance, "Excavadoras",
+                                          visual_description="Excavadora amarilla con suciedad y pintura gastada.")
+        self.assertLessEqual(len(description), 650)
+        self.assertEqual(description.splitlines()[0], "Excavadora Volvo EC210B.")
+        self.assertIn("Peso: 21 300 kg", description)
+        self.assertIn("Profundidad máxima de excavación: 6,7 m", description)
+        self.assertNotIn("1,0 m³", description)  # Fifth priority is structured-only.
+        self.assertNotIn("Houston", description)
+        self.assertNotIn("suciedad", description)
+
+    def test_compact_summary_distinguishes_model_references_and_approximate_age_without_review_instructions(self):
+        data = {"brand": "Volvo", "model": "EC210B", "weight": "21 300 kg", "power": "107 kW",
+                "estimated_year_from": "2003", "estimated_year_to": "2009",
+                "estimated_year_basis": "EVIDENCIA INTERNA: periodo documentado; año de la unidad por confirmar.",
+                "visible_components": "Cabina\nBrazo articulado", "applications": "Excavación de zanjas"}
+        provenance = {key: {"source": "user", "review": "confirmed"} for key in data}
+        provenance["power"] = {"source": "web", "review": "needs_review"}
+        provenance["visible_components"] = {"source": "visual_proposal", "review": "needs_review"}
+        provenance["applications"] = {"source": "visual_proposal", "review": "needs_review"}
+        original = deepcopy((data, provenance))
+        description = compose_description(data, provenance, "Excavadoras")
+        self.assertEqual(len(description.splitlines()), 4)
+        self.assertLessEqual(len(description), 650)
+        self.assertIn("Datos principales: Peso: 21 300 kg; Características de referencia del modelo: Potencia: 107 kW.", description)
+        self.assertIn("Año aproximado: 2003–2009.", description)
+        self.assertIn("Aplicaciones sugeridas: Excavación de zanjas", description)
+        for hidden in ("por confirmar", "por revisar", "requieren comprobación", "EVIDENCIA INTERNA"):
+            self.assertNotIn(hidden, description)
+        self.assertEqual((data, provenance), original)

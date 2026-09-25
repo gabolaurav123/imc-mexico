@@ -91,8 +91,9 @@ class InternalWebReferenceTests(TestCase):
         prior_sources = deepcopy({key: self.machine.provenance[key] for key in ('power', 'weight')})
         self.apply(self.job(self.ocr_result()))
         description = self.machine.data['description']
-        for value in ('Fabricante de prueba Inc.', '70 kW', '8000 kg', 'requieren comprobación'):
+        for value in ('70 kW', '8000 kg'):
             self.assertIn(value, description)
+        self.assertEqual(self.machine.data['manufacturer'], 'Fabricante de prueba Inc.')
         self.assertNotIn('Sólo fabricante recién leído.', description)
         self.assertNotIn('CAT-SN1234', description)
         self.assertEqual({key: self.machine.provenance[key] for key in prior_sources}, prior_sources)

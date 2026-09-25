@@ -138,6 +138,9 @@ def activate(request,uidb64,token):
 
 @login_required
 def profile(request):
+    next_url=safe_next_url(request,request.POST.get('next') or request.GET.get('next')) if (request.POST.get('next') or request.GET.get('next')) else ''
+    if next_url.split('?',1)[0] in {'/panel/perfil/', '/registro/', '/iniciar-sesion/'}:
+        next_url=''
     form=ProfileForm(request.POST or None,instance=request.user)
     if request.method=='POST' and form.is_valid():
         old_marketing=User.objects.get(pk=request.user.pk).marketing_consent
@@ -145,8 +148,9 @@ def profile(request):
         if old_marketing!=user.marketing_consent:Consent.objects.create(user=user,kind='marketing',granted=user.marketing_consent)
         audit(user,'profile.updated',user)
         messages.success(request,'Guardamos tus datos de contacto.')
-        return redirect('/panel/perfil/')
-    return render(request,'portal/profile.html',{'form':form})
+        return redirect(next_url or '/panel/perfil/')
+    return render(request,'portal/profile.html',{'form':form, 'next_url':next_url,
+        'title':'Datos de contacto' if next_url else 'Mi cuenta'})
 
 @login_required
 def security(request):

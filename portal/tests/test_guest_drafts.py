@@ -11,7 +11,7 @@ from PIL import Image
 from unittest.mock import patch
 
 from portal.guest import purge_expired_guest_drafts
-from portal.models import AnalysisJob, Asset, Consent, GuestDraft, Machine, PlatformSettings, User
+from portal.models import AnalysisJob, Asset, Category, Consent, GuestDraft, Machine, PlatformSettings, User
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, STORAGES={
@@ -21,17 +21,18 @@ from portal.models import AnalysisJob, Asset, Consent, GuestDraft, Machine, Plat
 class GuestDraftTests(TestCase):
     def setUp(self):
         PlatformSettings.objects.create(pk=1)
+        self.category = Category.objects.create(name="Excavadoras", slug="guest-excavators")
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.media = override_settings(MEDIA_ROOT=self.directory.name, PRIVATE_S3_BUCKET="")
         self.media.enable()
         self.addCleanup(self.media.disable)
         self.image_index = 0
-        self.real_user = User.objects.create_user(email="owner@example.invalid", password="Guest-claim-password-123!")
+        self.real_user = User.objects.create_user(email="owner@example.invalid", password="Guest-claim-password-123!", phone="+525512345678")
 
     def start(self, client=None, **values):
         client = client or self.client
-        body = {"brand": "CAT", "model": "320", "description": "Excavadora con datos declarados.", **values}
+        body = {"category": self.category.pk, "brand": "CAT", "model": "320", "description": "Excavadora con datos declarados.", **values}
         response = client.post("/api/invitados/", data=json.dumps(body), content_type="application/json")
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()
@@ -189,13 +190,13 @@ class GuestDraftTests(TestCase):
         existing = Machine.objects.create(owner=self.real_user, data={"currency": "MXN"})
         self.client.force_login(self.real_user)
         response = self.client.post("/panel/maquinarias/nueva/", {
-            "brand": "CAT", "model": "320", "description": "Declaración manual",
+            "category": self.category.pk, "brand": "CAT", "model": "320", "description": "Declaración manual",
         })
         created = Machine.objects.exclude(pk=existing.pk).get()
         self.assertRedirects(response, f"/panel/maquinarias/{created.pk}/")
         self.assertEqual(created.data, {"currency": "USD", "brand": "CAT", "model": "320", "description": "Declaración manual"})
         self.assertEqual(Machine.objects.get(pk=existing.pk).data["currency"], "MXN")
-        api = self.client.post("/api/maquinarias/", data=json.dumps({}), content_type="application/json")
+        api = self.client.post("/api/maquinarias/", data=json.dumps({"category": self.category.pk}), content_type="application/json")
         self.assertEqual(api.status_code, 201)
         self.assertEqual(Machine.objects.get(pk=api.json()["id"]).data["currency"], "USD")
 
@@ -211,7 +212,7 @@ class GuestDraftTests(TestCase):
         self.assertContains(page, 'data-max-images="3"')
 
         saved = self.client.post(f"/api/invitados/{draft.pk}/guardar/", data=json.dumps({
-            "revision": draft.machine.revision, "title": "CAT 320 declarada", "category": None,
+            "revision": draft.machine.revision, "title": "CAT 320 declarada", "category": self.category.pk,
             "data": {"brand": "CAT", "model": "320", "description": "Declaración manual"},
             "provenance": {"brand": {"source": "user", "review": "confirmed"},
                            "model": {"source": "user", "review": "confirmed"},
@@ -256,8 +257,8 @@ class GuestDraftTests(TestCase):
         job_id = analysis.json()["id"]
         self.assertEqual(self.client.get(f"/api/invitados/{draft.pk}/analisis/{job_id}/").status_code, 200)
 
-    def test_declared_data_without_photos_uses_normal_description_analysis(self):
-        payload = self.start(brand="Komatsu", model="PC210", description="Excavadora declarada por su propietaria")
+    def test_declared_serial_without_photos_uses_normal_description_analysis(self):
+        payload = self.start(brand="Komatsu", model="PC210", serial="SN-123456", description="Excavadora declarada por su propietaria")
         draft = GuestDraft.objects.get(pk=payload["id"])
         captured = {}
 

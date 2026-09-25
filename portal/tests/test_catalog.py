@@ -21,7 +21,9 @@ class CatalogReferenceTests(TestCase):
         self.assertEqual((Brand.objects.count(), EquipmentModel.objects.count()), counts)
         self.assertGreaterEqual(Brand.objects.count(),9)
         self.assertGreaterEqual(EquipmentModel.objects.count(),9)
-        self.assertEqual(Category.objects.count(),23)
+        # The expanded IMC taxonomy groups the source types into 44 canonical
+        # equipment families plus the free-text "Otra maquinaria" category.
+        self.assertEqual(Category.objects.count(),45)
         for category in Category.objects.all():self.assertLessEqual(set(category.fields),DATA_FIELDS)
         for model in (Machine,MachineVersion,Asset,Publication,User):self.assertEqual(model.objects.count(),0)
 

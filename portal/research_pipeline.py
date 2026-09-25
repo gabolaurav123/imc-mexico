@@ -11,6 +11,7 @@ from .research import (
     _contains_identifier, _get, _identifier, _manifest, _retrieved_url_identity,
     _source_title_context, citation_passages, empty_research, normalize_candidates,
     response_sources, identifier_key, normalize_direct_fields, research_reservation, web_search_completed,
+    serial_model_extension_hypotheses, serial_model_extension_leads,
 )
 
 
@@ -90,7 +91,7 @@ def _source_plan(identity, stage, category=None):
     return [], list(profile.documentation_urls) if profile else []
 
 
-def _stage_request(identity, stage, result, category=None):
+def _stage_request(identity, stage, result, category=None, candidate_models=()):
     identifiers = dict(identity)
     # A failed serial lookup must not constrain the separate model searches.
     if stage != "serial" and identity.get("brand") and identity.get("model"):
@@ -123,6 +124,14 @@ def _stage_request(identity, stage, result, category=None):
     }
     if category in category_terms:
         query += " " + category_terms[category]
+    candidate_models = [model for model in candidate_models if _identifier(model)]
+    if candidate_models and stage in {"manufacturer", "catalogs", "manuals"}:
+        # A serial-bound longer reading is a review lead only.  It broadens
+        # the existing documentation stages; it never replaces identity.
+        query += " " + " ".join(f'"{model}"' for model in candidate_models[:2])
+        objective += (" Existe una lectura externa de sufijo vinculada a la serie que requiere contraste; "
+                      "busca documentación del fabricante o catálogo para ese candidato, sin sustituir el "
+                      "modelo de placa ni atribuir especificaciones a la unidad.")
     if not identity.get("model"):
         objective += " Falta identificar el modelo: busca una vinculación documental con la serie; no elijas modelos similares ni apliques cifras genéricas."
     if category == "Montacargas" and identifier_key(identity.get("brand")) in {"cat", "caterpillar"}:
@@ -133,6 +142,7 @@ def _stage_request(identity, stage, result, category=None):
         "identifiers": identifiers, "research_stage": stage, "query": query,
         "objective": objective, "documentation_entry_points": entries,
         "priority_missing_fields": missing,
+        "candidate_models_for_review": candidate_models[:2],
     }, domains
 
 
@@ -189,7 +199,8 @@ def _can_allocate(model, usage, legacy_allocation, *, reserve_final=False, obser
     return usage.input_tokens + usage.output_tokens + allocation + headroom <= research_reservation(model)
 
 
-def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None, direct_fields=()):
+def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None,
+               direct_fields=(), serial_model_leads=(), category=None):
     if not _can_allocate(model, usage, NORMALIZE_RESERVATION):
         raise ResearchBudgetExhausted('Research extraction allocation unavailable')
     received = False
@@ -224,6 +235,20 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
                     rejected_identity.append(key)
         normalized = normalize_candidates(response.output_parsed, identity, basis, sources,
                                           search_text, passages, titles, direct_fields=direct_fields)
+        hypotheses = serial_model_extension_hypotheses(
+            response.output_parsed, original_identity or identity, sources, search_text, passages, titles,
+            leads=serial_model_leads, category=category)
+        if hypotheses:
+            normalized["hypotheses"] = hypotheses
+            hypothesis_urls = {record["url"] for hypothesis in hypotheses
+                               for record in hypothesis["supporting_sources"]}
+            retained = {source["url"]: source for source in normalized.get("sources", [])}
+            retained.update({source["url"]: source for source in sources if source.get("url") in hypothesis_urls})
+            normalized["sources"] = list(retained.values())
+            normalized["diagnostics"]["serial_model_extension_hypothesis_count"] = len(hypotheses)
+            normalized["warnings"].append(
+                "Una fuente de serie muestra un sufijo de modelo distinto. Se conserva como candidato para revisar la placa; no se aplicaron especificaciones, año ni precio de ese candidato.")
+            normalized["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(normalized), compress=True)
         if rejected_identity:
             normalized["diagnostics"]["discovered_identity_rejected"] = rejected_identity
             normalized["warnings"].append("La identificación encontrada por serie no pudo confirmarse al contrastar las fuentes; no se aplicaron datos dependientes de ella.")
@@ -246,6 +271,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     attempts = []
     retrieved, document_attempts = [], []
     discovery = None
+    serial_model_leads = []
     interrupted = False
     observed_search_cost = 0
     from .research_documents import collect_registered_fields
@@ -264,11 +290,13 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                              observed_cost=observed_search_cost):
             attempts.append({'stage': stage, 'status': 'budget_unavailable'})
             break
-        payload, domains = _stage_request(identity, stage, result, category)
+        payload, domains = _stage_request(identity, stage, result, category,
+                                          [lead["model"] for lead in serial_model_leads])
         # Unknown brands have no invented official domain. Broader technical
         # documentation is still searched in a separate final stage.
         if stage == "catalogs" and (not identity.get("brand") or not identity.get("model")):
-            payload, domains = _stage_request(identity, "manuals", result, category)
+            payload, domains = _stage_request(identity, "manuals", result, category,
+                                              [lead["model"] for lead in serial_model_leads])
             stage = "manuals"
         tool = {"type": "web_search", "search_context_size": "low"}
         if domains:
@@ -313,6 +341,9 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                     retrieved.append(source)
             attempt.update(metrics)
             attempt["status"] = "evidence_found" if metrics["retained_passage_count"] else "no_results"
+            if stage == "serial":
+                serial_model_leads = serial_model_extension_leads(identity, passages, sources, titles)
+                attempt["serial_model_extension_lead_count"] = len(serial_model_leads)
         except Exception as exc:
             if not received:
                 usage.estimate(token_reservation(model, SEARCH_RESERVATION))
@@ -359,7 +390,8 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                     outcome = normalize_direct_fields(original_identity, basis, sources,
                         "\n\n".join(p["text"] for p in passages), passages, titles, direct_fields=direct_fields)
                 else:
-                    outcome = _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity, direct_fields)
+                    outcome = _normalize(client, model, identity, basis, sources, passages, titles, usage,
+                                         original_identity, direct_fields, serial_model_leads, category)
             except Exception as exc:
                 outcome = normalize_direct_fields(original_identity, basis, sources,
                     "\n\n".join(p["text"] for p in passages), passages, titles, direct_fields=direct_fields)
@@ -387,6 +419,6 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     )
     outcome["usage"] = usage.as_dict()
     # Sign any partial result too; only evidence fields enter the signed manifest.
-    if outcome["fields"]:
+    if outcome["fields"] or outcome.get("hypotheses"):
         outcome["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(outcome), compress=True)
     return outcome, usage

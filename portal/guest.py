@@ -379,23 +379,17 @@ def analyze(request, pk):
             selected = body.get("asset_ids")
             if selected is not None and (not isinstance(selected, list) or len(selected) > MAX_GUEST_IMAGES):
                 raise ValidationError("Selecciona hasta tres fotografías.")
-            has_images = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document").exists()
-            declared = {key: value for key, value in machine.data.items() if key != "currency" and value not in (None, "")}
-            if not has_images and not declared:
-                raise ValidationError("Escribe marca, modelo, serie o una breve descripción antes de preparar la ficha sin fotografías.")
-            requested_mode = body.get("mode") or ("analysis" if has_images else "description")
+            from .intake import preparation_mode
+            mode = preparation_mode(machine, selected)
+            has_images = mode == "analysis"
+            requested_mode = body.get("mode") or mode
             if requested_mode not in {"analysis", "description"}:
                 raise ValidationError("Este borrador aún no puede usar ese tipo de análisis.")
-            # A client can keep its last visual-mode selection while the visitor
-            # removes the final photo.  Safely downgrade that request to the
-            # declared-data path instead of blocking a useful manual result.
-            mode = requested_mode if has_images else "description"
             if body.get("auto_apply", True) is not True:
                 raise ValidationError("El borrador temporal sólo puede aplicar propuestas automáticamente.")
-            # A declared model without photos still deserves a useful, bounded
-            # result.  It uses the normal description/research path, never makes
-            # up a visual identification.
-            research = body.get("research", not has_images)
+            # A typed serial without photos uses the bounded research path;
+            # photographs always use visual analysis regardless of client mode.
+            research = body.get("research", True)
             if type(research) is not bool:
                 raise ValidationError("Indica si deseas consultar referencias públicas.")
             job = enqueue_analysis(machine, draft.owner, selected, mode, auto_apply=True,

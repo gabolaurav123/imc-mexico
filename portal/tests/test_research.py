@@ -342,7 +342,8 @@ class ResearchValidationTests(SimpleTestCase):
         result = merge_research(vision(), normalized())
         description = compose_description(result["data"], result["provenance"])
         self.assertIn("70 kW", description)
-        self.assertIn("comprobación en esta unidad", description)
+        self.assertIn("Características de referencia del modelo: Potencia: 70 kW", description)
+        self.assertNotIn("requieren comprobación", description)
 
     def test_search_requests_only_identifiers_and_accounts_all_calls(self):
         client = Mock()

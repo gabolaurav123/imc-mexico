@@ -45,9 +45,10 @@ class PlateEquipmentTests(SimpleTestCase):
             self.assertEqual(result["provenance"][key]["review"], "clear")
         self.assertEqual(result["visual_description"], "")
         self.assertEqual(result["visual_features"], [])
-        self.assertIn("frecuencia de vibración", result["data"]["description"])
-        for value in ("4200 VPM", "13 kN", "30 cm", "4.8 kW"):
+        self.assertNotIn("frecuencia de vibración", result["data"]["description"])
+        for value in ("13 kN", "30 cm", "4.8 kW"):
             self.assertIn(value, result["data"]["description"])
+        self.assertEqual(result["data"]["vibration_frequency"], "4200 VPM")
         for value in (VALUES["serial"], "metal", "tornillos", "letras"):
             self.assertNotIn(value, result["data"]["description"])
         self.assertEqual(research_identity(result)[1], "exact_serial")

@@ -15,7 +15,7 @@ from django.core.management import call_command
 from django.test import Client,TestCase,override_settings
 from PIL import Image
 
-from portal.models import (AnalysisJob,Asset,Consent,Machine,MachineVersion,
+from portal.models import (AnalysisJob,Asset,Category,Consent,Machine,MachineVersion,
                            Notification,PlatformSettings,Publication,SiteContent,Submission,User)
 from portal.processing import process_next_job
 
@@ -29,7 +29,7 @@ class IntakeHTML(HTMLParser):
     def handle_starttag(self,tag,attrs):
         attrs=dict(attrs)
         for ancestor_tag,ancestor_attrs in reversed(self.stack):
-            if ancestor_tag=='article' and 'professional-preview' in ancestor_attrs.get('class','').split():
+            if ancestor_tag=='article' and ancestor_attrs.get('aria-label')=='Ficha técnica y comercial de la maquinaria':
                 if attrs.get('id'):self.preview_article_for[attrs['id']]=ancestor_attrs.get('aria-label','')
                 break
         if 'data-step-panel' in attrs:self.panels.append(attrs['data-step-panel'])
@@ -54,7 +54,8 @@ class IntakeHTML(HTMLParser):
 class QuickIntakeTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.owner=User.objects.create_user(email='quick-intake@example.invalid',password=None,is_test=True)
+        cls.owner=User.objects.create_user(email='quick-intake@example.invalid',password=None,is_test=True,phone='+525512345678')
+        cls.category=Category.objects.create(name='Excavadoras',slug='quick-excavators')
 
     def setUp(self):
         directory=TemporaryDirectory(prefix='imc-quick-intake-')
@@ -62,7 +63,7 @@ class QuickIntakeTests(TestCase):
         media=override_settings(MEDIA_ROOT=directory.name);media.enable();self.addCleanup(media.disable)
         self.platform=PlatformSettings.objects.create(ai_enabled=True,ai_daily_token_limit=1000000)
         self.client.force_login(self.owner)
-        response=self.post('/api/maquinarias/',{})
+        response=self.post('/api/maquinarias/',{'category':self.category.pk})
         self.assertEqual(response.status_code,201)
         self.machine=Machine.objects.get(pk=response.json()['id'])
         self.base=f'/api/maquinarias/{self.machine.pk}'
@@ -92,11 +93,14 @@ class QuickIntakeTests(TestCase):
         for obsolete in ('ai-consent','advertise-consent','no-plate'):
             self.assertNotIn(obsolete,dom.inputs)
         checkboxes={attrs.get('id') for attrs in dom.checkboxes}
-        self.assertEqual(checkboxes,{'contact-consent'})
+        self.assertEqual(checkboxes,{'contact-consent','share-serial'})
         self.assertNotIn('checked',dom.inputs['contact-consent'])
+        self.assertNotIn('checked',dom.inputs['share-serial'])
         self.assertIn('contact-details',dom.details)
         self.assertNotIn('open',dom.details['contact-details'])
-        self.assertContains(response,'OpenAI')
+        self.assertContains(response,'Generar ficha de maquinaria')
+        self.assertContains(response,'consulta de referencias técnicas y de mercado')
+        self.assertNotContains(response,'Completar con IA')
         self.assertContains(response,'Enviar a revisión')
         self.assertNotContains(response,'id="download-draft-pdf"')
         self.assertNotContains(response,'id="analysis-assets"')
@@ -105,25 +109,28 @@ class QuickIntakeTests(TestCase):
 
     def test_intake_asks_about_identification_before_upload_and_keeps_it_optional(self):
         response=self.client.get('/panel/maquinarias/nueva/')
-        self.assertContains(response,'¿Tienes el número de serie o una foto de la placa?')
-        self.assertContains(response,'¿Puedes agregar fotos generales del equipo?')
+        self.assertContains(response,'¿Tienes el número de serie?')
+        self.assertContains(response,'No, tengo fotos del equipo')
+        self.assertContains(response,'Agrega fotos de tu máquina')
         self.assertContains(response,'id="typed-serial"')
         self.assertContains(response,'portal/start-intake.js')
-        response=self.client.post('/panel/maquinarias/nueva/',{'serial':'SERIE-PRUEBA-01'})
+        response=self.client.post('/panel/maquinarias/nueva/',{'category':self.category.pk,'serial':'SERIE-PRUEBA-01','entry_mode':'serial'})
         self.assertEqual(response.status_code,302)
         created=Machine.objects.filter(owner=self.owner).order_by('-created_at').first()
         self.assertEqual(created.data['serial'],'SERIE-PRUEBA-01')
         self.assertEqual(created.provenance['serial'],{'source':'user','review':'confirmed'})
+        self.assertEqual(response.url, f'/panel/maquinarias/{created.pk}/?entrada=serial')
         response=self.client.get(f'/panel/maquinarias/{created.pk}/')
         self.assertContains(response,'id="analysis-loading"')
         self.assertNotContains(response,'¿Tienes una foto de la placa de identificación o conoces el número de serie?')
-        self.assertContains(response,'Añadir placa o nueva información')
+        self.assertContains(response,'Añadir una placa')
 
     def test_editable_commercial_estimator_stays_inside_the_single_preview_sheet(self):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')
         self.assertEqual(response.status_code,200)
         dom=IntakeHTML();dom.feed(response.content.decode())
-        self.assertEqual(dom.preview_article_for.get('preview-commercial-specs'),'Ficha técnica y comercial de la maquinaria')
+        for field in ('price','currency','year','estimated_year_from','estimated_year_to','description','location_country','location_region','location_city'):
+            self.assertEqual(dom.preview_article_for.get(field),'Ficha técnica y comercial de la maquinaria')
         self.assertEqual(dom.preview_article_for.get('auto-valuation-section'),'Ficha técnica y comercial de la maquinaria')
         self.assertEqual(dom.preview_article_for.get('preview-valuation-specs'),'Ficha técnica y comercial de la maquinaria')
         self.assertEqual(response.content.decode().count('id="auto-valuation-section"'),1)

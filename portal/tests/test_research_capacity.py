@@ -102,6 +102,19 @@ class ResearchCapacityTests(SimpleTestCase):
                 merged = merge_research({"data": {}, "provenance": {}, "fields": [], "warnings": []}, result)
                 self.assertTrue(is_validated_web_field(merged, "capacity", value, merged["provenance"]["capacity"]))
 
+    def test_manufacturer_rows_may_put_payload_or_bucket_unit_in_the_label(self):
+        # Volvo CE historical tables use this label/value layout. The retained
+        # display copy is not relied on: the source row still contains the
+        # explicit capacity kind, its unit and each numeric endpoint.
+        self.assertTrue(machine_capacity_evidence(
+            "27,0 t", "Volvo A30C: Payload, t: 27,0. Valor métrico conservado: 27,0 t."))
+        self.assertTrue(machine_capacity_evidence(
+            "2,6–9,5 m³", "Volvo L120E: Bucket capacity, m3: 2,6–9,5. Valor métrico conservado: 2,6–9,5 m³."))
+        self.assertFalse(machine_capacity_evidence(
+            "27 kg", "Volvo A30C: Payload, t: 27,0. Valor métrico conservado: 27 kg."))
+        self.assertFalse(machine_capacity_evidence(
+            "5.2 litres", "Payload, t: 27,0; Engine displacement: 5.2 litres."))
+
     def test_different_row_or_document_title_cannot_supply_capacity_meaning(self):
         evidence = "Bucket capacity: 80 L; Engine displacement: 5.2 litres."
         self.assertFalse(machine_capacity_evidence("5.2 litres", evidence))

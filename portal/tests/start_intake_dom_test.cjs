@@ -11,17 +11,23 @@ const $=selector=>document.querySelector(selector),form=$('#start-machine-form')
 function submit(button){const event=new window.SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:button});form.dispatchEvent(event);return event.defaultPrevented;}
 assert.equal($('#identifier-question').hidden,true);
 assert.equal(submit($('#identifier-yes .intake-finish')),true,'implicit Enter on hidden default button never creates a draft');
-assert.equal($('#identifier-question').hidden,false);
+assert.equal($('#identifier-question').hidden,true,'machine type is required before the series question');
+assert.equal($('#type-question').hidden,false);
 const search=$('#start-category-search'); search.value='excavadora'; search.dispatchEvent(new window.Event('input',{bubbles:true}));
 $('#start-category-results button').click(); $('#start-category-next').click();
 assert.equal($('#start-category').value,'1');
+assert.equal($('#type-question').hidden,true);
+assert.equal($('#identifier-question').hidden,false);
 $('[data-identifier-answer="no"]').click();
 assert.equal($('#identifier-no').hidden,false); assert.equal($('#identifier-yes').hidden,true);
 assert.equal(submit($('#identifier-no .intake-finish')),false);
 assert.equal($('#start-serial').value,'');
 $('#identifier-no [data-identifier-back]').click(); $('[data-identifier-answer="yes"]').click();
 assert.equal(submit($('#identifier-yes .intake-finish')),true,'yes must choose plate or typed input before uploading');
-$('[data-identifier-choice="typed"]').click(); $('#typed-serial').value='  SERIAL-QA-001  ';
+$('[data-identifier-choice="typed"]').click();
+assert.equal(submit($('#identifier-yes .intake-finish')),true,'typed route requires an actual series');
+$('#typed-serial').value='  SERIAL-QA-001  ';
+$('#typed-serial').dispatchEvent(new window.Event('input',{bubbles:true}));
 assert.equal(submit($('#identifier-yes .intake-finish')),false); assert.equal($('#start-serial').value,'SERIAL-QA-001');
 $('#identifier-yes [data-identifier-back]').click(); $('[data-identifier-answer="no"]').click();
 assert.equal($('#typed-serial').value,''); assert.equal(submit($('#identifier-no .intake-finish')),false); assert.equal($('#start-serial').value,'');

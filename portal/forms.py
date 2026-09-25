@@ -131,12 +131,14 @@ class LoginForm(AuthenticationForm):
     def clean_username(self): return self.cleaned_data['username'].strip().lower()
 
 class ProfileForm(PhoneFieldsMixin, forms.ModelForm):
+    email = forms.EmailField(label='Correo de contacto y acceso', disabled=True,
+        help_text='Usaremos este correo para dar seguimiento a tus fichas.')
     phone_prefix = PhoneFieldsMixin.phone_prefix
     phone_national = PhoneFieldsMixin.phone_national
     phone = PhoneFieldsMixin.phone
     class Meta:
         model=User
-        fields=('first_name','last_name','phone_prefix','phone_national','phone','company','contact_preference','marketing_consent')
+        fields=('first_name','last_name','email','phone_prefix','phone_national','phone','company','contact_preference','marketing_consent')
         labels={'first_name':'Nombre','last_name':'Apellidos','phone':'Celular','company':'Empresa (opcional)','contact_preference':'Preferencia de contacto','marketing_consent':'Deseo recibir información comercial'}
 
 class ContactForm(forms.ModelForm):

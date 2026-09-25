@@ -224,6 +224,8 @@ class AutomaticCompletionTests(TestCase):
         self.assertEqual(AnalysisJob.objects.count(), 1)
 
     def test_explicit_new_button_consent_renews_latest_revocation(self):
+        self.machine.category = self.category
+        self.machine.save(update_fields=["category"])
         Consent.objects.create(user=self.owner, machine=self.machine, kind="ai", granted=False)
         self.client.force_login(self.owner)
         response = self.client.post(f"/api/maquinarias/{self.machine.pk}/analizar/",

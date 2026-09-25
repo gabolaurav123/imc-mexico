@@ -5,7 +5,7 @@ import uuid
 from django.test import TestCase
 
 from portal.models import AnalysisJob, Asset, Consent, Machine, User
-from portal.research import empty_research
+from portal.research import compose_description, empty_research
 from portal.services import apply_analysis_automatically, automatic_application_snapshot, save_draft
 
 
@@ -42,7 +42,7 @@ class AutomaticDescriptionRefreshTests(TestCase):
         self.assertIn("description", job.application_snapshot["eligible_fields"])
         summary = self.apply(job)
         self.assertEqual(summary["applied_fields"], ["description"])
-        self.assertIn("Ruedas visibles", self.machine.data["description"])
+        self.assertEqual(self.machine.data["description"], compose_description({}, {}, None))
         self.assertNotIn("Cabina cerrada", self.machine.data["description"])
         self.assertEqual(self.machine.provenance["description"]["analysis_id"], str(job.pk))
         self.assertEqual(self.machine.title, "Título conservado")
@@ -78,11 +78,11 @@ class AutomaticDescriptionRefreshTests(TestCase):
         older = self.job("Texto visible de un trabajo anterior.")
         newer = self.job("Cabina cerrada.")
         self.apply(newer)
-        self.assertEqual(self.machine.data["description"], OLD)
+        self.assertEqual(self.machine.data["description"], compose_description({}, {}, None))
         self.assertEqual(self.machine.provenance["description"]["analysis_id"], str(newer.pk))
         summary = self.apply(older)
         self.assertNotIn("description", summary["applied_fields"])
-        self.assertEqual(self.machine.data["description"], OLD)
+        self.assertEqual(self.machine.data["description"], compose_description({}, {}, None))
         self.assertEqual(self.machine.provenance["description"]["analysis_id"], str(newer.pk))
 
     def test_legacy_job_without_durable_refresh_record_never_replaces_existing_ai_text(self):

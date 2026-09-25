@@ -16,7 +16,7 @@ from django.db.models import Max,Q
 from django.utils import timezone
 
 from .models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Machine, MachineVersion,
-                     Message, Notification, NotificationTemplate, Publication, Submission, User, WorkflowStatus)
+                     Message, Notification, NotificationTemplate, PreparedShare, Publication, Submission, User, WorkflowStatus)
 from .commercial import VISUAL_LABELS, VISUAL_CHOICES, ESTIMATE_LABELS, VALUATION_KEYS, AGE_LABELS
 from .analysis_specialization import EXCAVATOR_FIELDS, SPECIALIZED_FIELDS
 
@@ -1248,8 +1248,11 @@ def submit_machine(machine, user, advertise_consent, contact_consent=False):
         raise ValidationError("Tu permiso de anunciante necesita revisión de IMC antes de enviar otra solicitud.")
     if advertise_consent is not True:
         raise ValidationError("Autoriza el envío de la ficha para revisión y difusión.")
+    from .intake import require_consistent_photos
+    require_consistent_photos(machine)
     if not machine.assets.filter(kind="image", processing_status="ready", purpose__in=["general", "detail"]).exists():
-        raise ValidationError("Agrega al menos una fotografía general o de detalle del equipo.")
+        from .intake import require_prepared_serial
+        require_prepared_serial(machine)
     # A failed or unavailable analysis must not turn unknown specifications into
     # mandatory manual work. These neutral labels make no claim about the machine.
     fallback_fields = []
@@ -1424,6 +1427,7 @@ def set_availability(machine, user, value):
     machine.save(update_fields=["availability", "updated_at"])
     if value == "withdrawn":
         machine.publications.update(enabled=False, status="disabled")
+        PreparedShare.objects.filter(machine=machine).update(enabled=False)
     audit(user, "machine.availability", machine, {"from": previous, "to": value})
     return machine
 
@@ -1479,6 +1483,8 @@ def set_advertiser_status(user, actor, status, reason=""):
     user.save(update_fields=["advertiser_status"])
     if status != "approved":
         Publication.objects.filter(machine__owner=user).update(enabled=False, status="disabled")
+    if status in {"rejected", "suspended"}:
+        PreparedShare.objects.filter(machine__owner=user).update(enabled=False)
     audit(actor, "advertiser.status_changed", user, {"from": previous, "to": status, "reason": reason})
     _notify(user, None, "advertiser", "Actualización de tu permiso de anunciante", reason)
     return user
@@ -1520,6 +1526,7 @@ def reassign_machine(machine, actor, new_owner, reason):
         raise ValidationError("La maquinaria ya pertenece a esta cuenta.")
     previous_owner=machine.owner
     machine.publications.update(enabled=False,status="disabled")
+    PreparedShare.objects.filter(machine=machine).update(enabled=False)
     for submission in machine.submissions.filter(status__in=["submitted","in_review"]):
         submission.status="cancelled"
         submission.message="Solicitud cancelada por reasignación administrativa: "+str(reason).strip()

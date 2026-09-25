@@ -123,6 +123,215 @@
         "engine"
       ],
       "source_url": "https://www.imcmexico.com.mx/catalogo-de-forestales-maquinas"
+    },
+    {
+      "slug": "accesorios",
+      "name": "Accesorios de maquinaria",
+      "fields": [
+        "weight",
+        "dimensions"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "bandas-transportadoras",
+      "name": "Bandas transportadoras",
+      "fields": [
+        "power",
+        "capacity",
+        "working_width"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "barredoras",
+      "name": "Barredoras",
+      "fields": [
+        "power",
+        "working_width",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "bombas-concreto",
+      "name": "Bombas para concreto",
+      "fields": [
+        "power",
+        "capacity",
+        "horizontal_outreach"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "remolques",
+      "name": "Remolques y camas bajas",
+      "fields": [
+        "capacity",
+        "dimensions",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "dosificadoras-agregados",
+      "name": "Dosificadoras de agregados",
+      "fields": [
+        "capacity",
+        "power"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "dragas",
+      "name": "Dragas",
+      "fields": [
+        "power",
+        "digging_depth",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "equipos-lodos",
+      "name": "Equipos de lodos",
+      "fields": [
+        "power",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "tendido-cables",
+      "name": "Equipos de tendido de cables",
+      "fields": [
+        "power",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "recicladoras-estabilizadoras",
+      "name": "Recicladoras y estabilizadoras de suelos",
+      "fields": [
+        "power",
+        "weight",
+        "working_width"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "fresadoras",
+      "name": "Fresadoras de pavimento",
+      "fields": [
+        "power",
+        "weight",
+        "working_width"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "proyectadoras-mortero",
+      "name": "Proyectadoras de yeso y mortero",
+      "fields": [
+        "power",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "mezcladoras-concreto",
+      "name": "Mezcladoras de concreto",
+      "fields": [
+        "power",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "niveladoras-laser",
+      "name": "Niveladoras láser para concreto",
+      "fields": [
+        "power",
+        "working_width",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "petrolizadoras",
+      "name": "Petrolizadoras",
+      "fields": [
+        "capacity",
+        "working_width"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "plantas-asfalto",
+      "name": "Plantas de asfalto",
+      "fields": [
+        "power",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "plantas-concreto",
+      "name": "Plantas de concreto",
+      "fields": [
+        "power",
+        "capacity"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "portacontenedores",
+      "name": "Portacontenedores",
+      "fields": [
+        "capacity",
+        "lift_height",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "mototraillas",
+      "name": "Mototraíllas",
+      "fields": [
+        "power",
+        "capacity",
+        "weight"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "selladoras-asfalto",
+      "name": "Selladoras de asfalto",
+      "fields": [
+        "capacity",
+        "power"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "tiendetubos",
+      "name": "Tiendetubos",
+      "fields": [
+        "capacity",
+        "weight",
+        "power"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
+    },
+    {
+      "slug": "vibradores-concreto",
+      "name": "Vibradores de concreto",
+      "fields": [
+        "power",
+        "vibration_frequency"
+      ],
+      "source_url": "https://www.imcmexico.com.mx/catalogo-de-maquinaria"
     }
   ],
   "models": [

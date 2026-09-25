@@ -74,7 +74,8 @@ class WebAutofillTests(TestCase):
         self.assertEqual(self.machine.provenance['power']['scope'],'model')
         self.assertEqual(self.machine.provenance['power']['review'],'needs_review')
         self.assertIn('70 kW',self.machine.data['description'])
-        self.assertIn('requieren comprobación',self.machine.data['description'])
+        self.assertIn('Características de referencia del modelo:',self.machine.data['description'])
+        self.assertNotIn('requieren comprobación',self.machine.data['description'])
         self.assertNotIn('CAT-SN1234',self.machine.data['description'])
         self.assertFalse(Publication.objects.exists())
 

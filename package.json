@@ -2,7 +2,7 @@
   "name": "imc-mexico-ui-tests",
   "private": true,
   "scripts": {
-    "test:ui": "node portal/tests/catalog_dom_test.cjs && node portal/tests/category_picker_dom_test.cjs && node portal/tests/start_intake_dom_test.cjs && node portal/tests/excavator_profile_dom_test.cjs && node portal/tests/quick_intake_dom_test.cjs && node portal/tests/guest_intake_dom_test.cjs && node portal/tests/password_visibility_dom_test.cjs && node portal/tests/notification_center_dom_test.cjs"
+    "test:ui": "node portal/tests/catalog_dom_test.cjs && node portal/tests/category_picker_dom_test.cjs && node portal/tests/start_intake_dom_test.cjs && node portal/tests/excavator_profile_dom_test.cjs && node portal/tests/quick_intake_dom_test.cjs && node portal/tests/sharing_dom_test.cjs && node portal/tests/guest_intake_dom_test.cjs && node portal/tests/password_visibility_dom_test.cjs && node portal/tests/notification_center_dom_test.cjs"
   },
   "devDependencies": {
     "jsdom": "29.1.1"

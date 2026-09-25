@@ -98,7 +98,7 @@ class VisualFeatureWorkerTests(TestCase):
         self.assertEqual(job.status, "completed")
         self.assertEqual(job.result["research"]["status"], "degraded")
         for feature in FEATURES:
-            self.assertIn(feature, self.machine.data["description"])
+            self.assertNotIn(feature, self.machine.data["description"])
         self.assertNotIn("Texto anterior", self.machine.data["description"])
         self.assertNotIn("6 ruedas", self.machine.data["description"])
         self.assertEqual(self.machine.provenance["description"]["review"], "needs_review")

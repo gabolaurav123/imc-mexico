@@ -100,7 +100,8 @@ class ImageRelevanceNormalizationTests(SimpleTestCase):
             "accepted_asset_ids": ["good"], "excluded_asset_ids": ["selfie"], "uncertain_asset_ids": ["blur"]})
         self.assertEqual(result["data"]["brand"], "RealBrand")
         self.assertEqual(result["category"], "Montacargas")
-        self.assertIn("Equipo amarillo con mástil vertical", result["description"])
+        self.assertNotIn("Equipo amarillo con mástil vertical", result["description"])
+        self.assertIn("Equipo amarillo con mástil vertical", result["visual_description"])
         for unwanted in ("WrongBrand", "WrongModel", "900", "999", "Persona", "Mascota", "persona@example.com", "GLOBAL AJENO"):
             self.assertNotIn(unwanted, str(result))
         self.assertEqual([item["asset_id"] for item in result["fields"]], ["good"])
@@ -229,6 +230,7 @@ class ImageRelevanceWorkerTests(TestCase):
         supplied = research.call_args.args[2]
         self.assertNotIn("SELFIE-MODEL", str(supplied))
         self.assertEqual(supplied["data"]["power"], "10 kW")
-        self.assertIn("mástil vertical", result["description"])
+        self.assertNotIn("mástil vertical", result["description"])
+        self.assertIn("mástil vertical", result["visual_description"])
         self.assertEqual(result["relevance"]["status"], "mixed")
         self.assertEqual((usage.input_tokens, usage.output_tokens), (500, 160))

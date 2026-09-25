@@ -46,14 +46,15 @@ class SerialCopySeedTests(TestCase):
     def test_new_installation_has_two_steps_and_explicit_search_privacy(self):
         self.seed()
         how=SiteContent.objects.get(key='como-funciona')
-        self.assertIn('01 · Sube tus fotos',how.body)
-        self.assertIn('02 · Envía tu ficha',how.body)
+        self.assertIn('01 · Elige el tipo de máquina y aporta serie o fotos',how.body)
+        self.assertIn('02 · Edita, comparte o envía tu ficha',how.body)
         self.assertNotIn('03 ·',how.body)
         self.assertIn('no identifican la unidad ni confirman sus especificaciones',how.body)
         privacy=SiteContent.objects.get(key='privacidad')
         self.assertIn('Puedes escribir la serie sin fotografiar la placa',privacy.body)
         self.assertIn('tipo de equipo cuando no haya identificadores fiables',privacy.body)
-        self.assertIn('no aparecen en la ficha ni en el PDF públicos',privacy.body)
+        self.assertIn('La serie escrita y el contacto permanecen privados salvo autorización expresa',privacy.body)
+        self.assertIn('La descarga PDF está reservada al personal autorizado',privacy.body)
         self.assertIn('se comparten con el servicio de búsqueda',privacy.body)
 
     def test_fallback_pages_explain_photos_only_and_general_context(self):
