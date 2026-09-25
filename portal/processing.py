@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v37"
+PROMPT_VERSION = "imc-excavators-2026-09-v38"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -47,6 +47,8 @@ MAX_OUTPUT_TOKENS = 4500
 IMAGE_RESERVATION = 12_200
 MIN_ANALYSIS_IMAGE_EDGE = 1280
 MAX_ANALYSIS_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_DETAIL_INPUT_BYTES = 4 * 1024 * 1024
+PLATE_DETAIL_EDGE = 1536
 AI_KEYS = {"brand", "model", "year", "serial", "hours", "power", "weight", "capacity", "digging_depth", "hydraulic_system",
            "dimensions", "fuel", "kilometers", "engine", "transmission",
            "vibration_frequency", "centrifugal_force", "compaction_depth", "country_of_origin",
@@ -911,21 +913,55 @@ def _detail_inputs_from_image(original, alias="image_001"):
         detail.save(output, format='PNG')
         payload = output.getvalue()
         total += len(payload)
-        if total > 4 * 1024 * 1024:
+        if total > MAX_DETAIL_INPUT_BYTES:
             return []
         details.extend([{'type': 'input_text', 'text': f'RECORTE {index} de la MISMA FOTO {alias}. No es otra unidad. Lee rótulos si son legibles.'},
             {'type': 'input_image', 'detail': 'high', 'image_url': 'data:image/png;base64,' + base64.b64encode(payload).decode('ascii')}])
     return details
 
 
+def _plate_detail_inputs_from_image(original, alias="image_001"):
+    """Return three bounded, overlapping full-width strips for a plate.
+
+    The crops retain every horizontal label/value pairing. Ordinary resampling
+    only makes existing pixels easier to inspect; it does not sharpen, invent
+    text, alter the original, or turn a doubtful character into a clear one.
+    """
+    if min(original.size) < 32 or original.width * original.height > MAX_PIXELS:
+        return []
+    width, height = original.size
+    strip_height = max(1, round(height * 9 / 20))
+    starts = (0, max(0, (height - strip_height) // 2), max(0, height - strip_height))
+    details, total = [], 0
+    for index, top in enumerate(starts, start=1):
+        detail = original.crop((0, top, width, min(height, top + strip_height))).convert("RGB")
+        edge = max(detail.size)
+        if edge < PLATE_DETAIL_EDGE:
+            size = tuple(max(1, round(length * PLATE_DETAIL_EDGE / edge)) for length in detail.size)
+            detail = detail.resize(size, Image.Resampling.LANCZOS)
+        else:
+            detail.thumbnail((PLATE_DETAIL_EDGE, PLATE_DETAIL_EDGE))
+        output = io.BytesIO()
+        detail.save(output, format="PNG")
+        payload = output.getvalue()
+        total += len(payload)
+        if total > MAX_DETAIL_INPUT_BYTES:
+            return []
+        details.extend([
+            {"type": "input_text", "text": f"RECORTE HORIZONTAL {index} de la MISMA PLACA {alias}. Conserva etiqueta y valor de cada renglón; no es otra unidad."},
+            {"type": "input_image", "detail": "high", "image_url": "data:image/png;base64," + base64.b64encode(payload).decode("ascii")},
+        ])
+    return details
+
+
 def _original_image_detail_inputs(asset, purpose, alias="image_001"):
-    """Use the sanitized original for general-photo crops when it fits current limits.
+    """Use the sanitized original for bounded general or plate crops.
 
     The full provider input keeps the existing 2400px preview. This optional path
     reuses the same 12MiB source and 50MP decode limits, then emits at most 4MiB
     of thumbnailed crops. It never sends source metadata or a storage URL.
     """
-    if purpose != 'general' or not getattr(asset, 'original', None):
+    if purpose not in {'general', 'plate'} or not getattr(asset, 'original', None):
         return []
     try:
         with asset.original.open('rb') as stream:
@@ -940,7 +976,8 @@ def _original_image_detail_inputs(asset, purpose, alias="image_001"):
                     return []
                 source.load()
                 original = ImageOps.exif_transpose(source)
-                return _detail_inputs_from_image(original, alias)
+                return (_plate_detail_inputs_from_image(original, alias) if purpose == 'plate'
+                        else _detail_inputs_from_image(original, alias))
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
             Image.DecompressionBombWarning, BotoCoreError, ClientError):
         return []
@@ -948,7 +985,7 @@ def _original_image_detail_inputs(asset, purpose, alias="image_001"):
 
 def _image_detail_inputs(full_image, purpose, alias="image_001"):
     """Fallback crops from the already prepared provider image."""
-    if purpose != 'general':
+    if purpose not in {'general', 'plate'}:
         return []
     url = full_image.get('image_url', '')
     if not isinstance(url, str) or not url.startswith(('data:image/png;base64,', 'data:image/jpeg;base64,')):
@@ -958,7 +995,8 @@ def _image_detail_inputs(full_image, purpose, alias="image_001"):
         if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
             return []
         with Image.open(io.BytesIO(raw)) as original:
-            return _detail_inputs_from_image(original, alias)
+            return (_plate_detail_inputs_from_image(original, alias) if purpose == 'plate'
+                    else _detail_inputs_from_image(original, alias))
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
         return []
 
@@ -1640,11 +1678,19 @@ def process_analysis(job):
         alias = binding["alias"]
         full_image = _image_input(asset)
         details = _original_image_detail_inputs(asset, asset.purpose, alias) or _image_detail_inputs(full_image, asset.purpose, alias)
+        plate_instruction = ([{"type": "input_text", "text":
+            f"LECTURA DE PLACA {alias}: revisa renglón por renglón y transcribe TODOS los textos legibles. "
+            "Devuelve cada campo admitido que se lea, incluidos llantas delantera/trasera, inclinación y tread; "
+            "la transcripción sola no basta. Si el pie contiene razón social o dirección del fabricante, devuélvela también "
+            "como manufacturer y manufacturer_address, incluso si no tiene encabezado propio. "
+            "No infieras modelo, serie, año ni caracteres que no se vean."}]
+            if asset.purpose == "plate" else [])
         request = [context([{"asset_id": alias, "message_index": 1, "declared_purpose": asset.purpose}]),
             {"role": "user", "content": [
             {"type": "input_text", "text": f"INICIO FOTO {alias}. asset_id={alias}. Esta imagen pertenece únicamente a este alias."},
             full_image,
             *details,
+            *plate_instruction,
             {"type": "input_text", "text": f"FIN FOTO {alias}. Toda lectura de la imagen anterior debe usar asset_id={alias}; no otro alias."},
         ]}]
         image_work.append((binding, asset, request))
@@ -1717,9 +1763,12 @@ def process_analysis(job):
                 else:
                     received = False
                     try:
+                        visual_options = model_options(visual_model)
+                        if asset.purpose == "plate" and visual_model.startswith("gpt-6-luna") and "reasoning" in visual_options:
+                            visual_options = {**visual_options, "reasoning": {"effort": "medium"}}
                         response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT + PROFILE_INSTRUCTIONS,
                             input=request, text_format=MachineAnalysis,
-                            max_output_tokens=output_limit(visual_model, MAX_OUTPUT_TOKENS), store=False, **model_options(visual_model))
+                            max_output_tokens=output_limit(visual_model, MAX_OUTPUT_TOKENS), store=False, **visual_options)
                         received = True
                         provider_model = _provider_model(response)
                         if response.usage is None:

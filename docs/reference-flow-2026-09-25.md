@@ -35,7 +35,7 @@ Detalles y fuentes: [ampliación del catálogo](catalogue-expansion-2026-09-25.m
 
 ## IA y precisión
 
-El modelo predeterminado se fija en **`gpt-6-luna`** para imagen, extracción e investigación. Se conserva Responses API con salida estructurada, esfuerzo de razonamiento bajo, límites de consumo y `store=false`. Astra permanece bloqueado; no hay cambio silencioso de modelo si Luna falla. Los trabajos antiguos conservan su política registrada.
+El modelo predeterminado se fija en **`gpt-6-luna`** para imagen, extracción e investigación. Se conserva Responses API con salida estructurada, esfuerzo de razonamiento bajo —medio en lectura de placa—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay cambio silencioso de modelo si Luna falla. Los trabajos antiguos conservan su política registrada.
 
 Se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva depende de las credenciales del proyecto; su comprobación remota se registra en el cierre de despliegue.
 
@@ -80,3 +80,12 @@ Destino verificado en SeeNode: aplicación `974953`, repositorio `gabolaurav123/
 **Preparado pero pendiente de comprobación externa:** publicación privada real en IMC y relación autorizada entre anunciante local y cuenta de destino.
 
 **Integración futura:** acordar identificadores, catálogo, propiedad de datos, roles, medios, disponibilidad y estados con el responsable del sistema principal. Sólo con ese contrato y acceso real se podrá decidir API, MySQL o SSO. No se ha presentado esa fase como implementada.
+
+
+## Comprobación real de despliegue
+
+El commit `e31555e` se desplegó en el servicio verificado y pasó GitHub Actions (ejecución 36104952682). Se comprobaron en PostgreSQL la migración 0019, 85 referencias aprobadas activas y 316 especificaciones. Los 16 usuarios normales previos permanecieron; la prueba creó un borrador técnico adicional, sin publicar.
+
+La prueba por la API pública del módulo cargó la placa autorizada y completó lectura e investigación con modelo solicitado **y respondido** `gpt-6-luna`. Reabrir devolvió 200; otra sesión recibió 403; no se ofreció exportación PDF. La primera lectura recuperó la serie y el fabricante, pero omitió medidas legibles. Se añadió una corrección específica de lectura por franjas, sin otra llamada ni cambio de modelo. Ese resultado inicial no se cuenta como extracción completa.
+
+Las pruebas visuales se realizaron en el servidor local con navegador real, incluyendo compartir enlace, carrusel y navegación al catálogo. Brave bloqueó la navegación al dominio público con `ERR_BLOCKED_BY_CLIENT`; no se cambió su protección. La comprobación de producción se hizo como prueba de API, no se presenta como recorrido visual remoto completado.

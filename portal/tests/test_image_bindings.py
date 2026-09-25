@@ -94,11 +94,15 @@ class ImageMessageBindingTests(TestCase):
         for index, message in enumerate(messages[1:]):
             alias = manifest[index]["asset_id"]
             self.assertEqual(manifest[index]["message_index"], index + 1)
-            before, image, after = message["content"]
+            before, image, *supplements, after = message["content"]
             self.assertIn(f"INICIO FOTO {alias}", before["text"])
             self.assertIn(f"FIN FOTO {alias}", after["text"])
             self.assertEqual(image["type"], "input_image")
             self.assertEqual(sum(item["type"] == "input_image" for item in message["content"]), 1)
+            if manifest[index]["declared_purpose"] == "plate":
+                self.assertTrue(any("LECTURA DE PLACA" in item.get("text", "") for item in supplements))
+            else:
+                self.assertFalse(supplements)
             if image["image_url"] == "data:plate-pixels":
                 observations.append(observation(alias, "related", "plate", category="Montacargas"))
                 fields.extend([field("brand", "EXAMPLE", alias, "plate"),

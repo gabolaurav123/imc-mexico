@@ -11,7 +11,9 @@ from django.test import SimpleTestCase
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image
 
-from portal.processing import _image_input, MAX_ANALYSIS_IMAGE_BYTES
+from portal.processing import (_image_input, _plate_detail_inputs_from_image,
+                               MAX_ANALYSIS_IMAGE_BYTES, MAX_DETAIL_INPUT_BYTES,
+                               PLATE_DETAIL_EDGE)
 
 
 class AnalysisImageInputTests(SimpleTestCase):
@@ -133,3 +135,26 @@ class AnalysisImageInputTests(SimpleTestCase):
         first.save(asset.original, "GIF", save_all=True, append_images=[second], loop=0)
         with self.assertRaises(ValidationError):
             _image_input(asset)
+
+    def test_plate_strips_keep_full_width_rows_bounded_and_leave_source_pixels_unchanged(self):
+        original = Image.new("RGB", (600, 1200), "white")
+        original.paste("black", (0, 0, 600, 400))
+        original.paste("red", (0, 400, 600, 800))
+        original.paste("blue", (0, 800, 600, 1200))
+        before = original.tobytes()
+
+        details = _plate_detail_inputs_from_image(original, "image_007")
+
+        self.assertEqual(len(details), 6)
+        self.assertEqual(original.tobytes(), before)
+        texts = [item["text"] for item in details if item["type"] == "input_text"]
+        self.assertEqual(len(texts), 3)
+        self.assertTrue(all("MISMA PLACA image_007" in text for text in texts))
+        payloads = [base64.b64decode(item["image_url"].split(",", 1)[1], validate=True)
+                    for item in details if item["type"] == "input_image"]
+        self.assertEqual(len(payloads), 3)
+        self.assertLessEqual(sum(map(len, payloads)), MAX_DETAIL_INPUT_BYTES)
+        for payload in payloads:
+            with Image.open(BytesIO(payload)) as detail:
+                self.assertEqual(detail.width, PLATE_DETAIL_EDGE)
+                self.assertLessEqual(max(detail.size), PLATE_DETAIL_EDGE)

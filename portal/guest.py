@@ -364,37 +364,43 @@ def upload(request, pk):
 def analyze(request, pk):
     try:
         from .processing import enqueue_analysis
-        draft = _draft_for_request(request, pk)
         body = _json(request, {"consent", "asset_ids", "revision", "research", "mode", "auto_apply"})
         if body.get("consent") is not True:
             raise ValidationError("Autoriza el procesamiento de las fotografías necesarias mediante OpenAI.")
-        if AnalysisJob.objects.filter(machine=draft.machine).count() >= MAX_GUEST_JOBS:
-            raise ValidationError("Este borrador temporal ya usó su análisis. Regístrate para continuar con más revisiones.")
-        selected = body.get("asset_ids")
-        if selected is not None and (not isinstance(selected, list) or len(selected) > MAX_GUEST_IMAGES):
-            raise ValidationError("Selecciona hasta tres fotografías.")
-        has_images = draft.machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document").exists()
-        declared = {key: value for key, value in draft.machine.data.items() if key != "currency" and value not in (None, "")}
-        if not has_images and not declared:
-            raise ValidationError("Escribe marca, modelo, serie o una breve descripción antes de preparar la ficha sin fotografías.")
-        requested_mode = body.get("mode") or ("analysis" if has_images else "description")
-        if requested_mode not in {"analysis", "description"}:
-            raise ValidationError("Este borrador aún no puede usar ese tipo de análisis.")
-        # A client can keep its last visual-mode selection while the visitor
-        # removes the final photo.  Safely downgrade that request to the
-        # declared-data path instead of blocking a useful manual result.
-        mode = requested_mode if has_images else "description"
-        if body.get("auto_apply", True) is not True:
-            raise ValidationError("El borrador temporal sólo puede aplicar propuestas automáticamente.")
-        # A declared model without photos still deserves a useful, bounded
-        # result.  It uses the normal description/research path, never makes
-        # up a visual identification.
-        research = body.get("research", not has_images)
-        if type(research) is not bool:
-            raise ValidationError("Indica si deseas consultar referencias públicas.")
-        job = enqueue_analysis(draft.machine, draft.owner, selected, mode, auto_apply=True,
-                               expected_revision=body.get("revision"), authorize_ai=True, research=research)
-        return JsonResponse(analysis_state(job, draft.machine))
+        # Hold the capability record and its Machine until the job exists.
+        # This follows claim/expiry's GuestDraft -> Machine lock order, so two
+        # requests with different revisions/options cannot both pass the one-
+        # job guest budget and reserve paid analysis work.
+        with transaction.atomic():
+            draft = _draft_for_request(request, pk, lock=True)
+            machine = Machine.objects.select_for_update().get(pk=draft.machine_id)
+            if AnalysisJob.objects.filter(machine=machine).count() >= MAX_GUEST_JOBS:
+                raise ValidationError("Este borrador temporal ya usó su análisis. Regístrate para continuar con más revisiones.")
+            selected = body.get("asset_ids")
+            if selected is not None and (not isinstance(selected, list) or len(selected) > MAX_GUEST_IMAGES):
+                raise ValidationError("Selecciona hasta tres fotografías.")
+            has_images = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document").exists()
+            declared = {key: value for key, value in machine.data.items() if key != "currency" and value not in (None, "")}
+            if not has_images and not declared:
+                raise ValidationError("Escribe marca, modelo, serie o una breve descripción antes de preparar la ficha sin fotografías.")
+            requested_mode = body.get("mode") or ("analysis" if has_images else "description")
+            if requested_mode not in {"analysis", "description"}:
+                raise ValidationError("Este borrador aún no puede usar ese tipo de análisis.")
+            # A client can keep its last visual-mode selection while the visitor
+            # removes the final photo.  Safely downgrade that request to the
+            # declared-data path instead of blocking a useful manual result.
+            mode = requested_mode if has_images else "description"
+            if body.get("auto_apply", True) is not True:
+                raise ValidationError("El borrador temporal sólo puede aplicar propuestas automáticamente.")
+            # A declared model without photos still deserves a useful, bounded
+            # result.  It uses the normal description/research path, never makes
+            # up a visual identification.
+            research = body.get("research", not has_images)
+            if type(research) is not bool:
+                raise ValidationError("Indica si deseas consultar referencias públicas.")
+            job = enqueue_analysis(machine, draft.owner, selected, mode, auto_apply=True,
+                                   expected_revision=body.get("revision"), authorize_ai=True, research=research)
+        return JsonResponse(analysis_state(job, machine))
     except (ValidationError, PermissionDenied) as exc:
         return _response_error(exc)
 

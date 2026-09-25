@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from portal.ai_model import (DEFAULT_MODEL, VISION_MODEL, image_model, is_reasoning_model, model_options, output_limit,
                              request_timeout, token_reservation)
-from portal.models import AnalysisJob, PlatformSettings
+from portal.models import AnalysisJob, Asset, PlatformSettings
 from portal.processing import (DescriptionAnalysis, _claim_job, _job_lease_seconds, _reservation,
                                enqueue_analysis, process_analysis, process_next_job)
 from portal.tests import test_image_bindings as fixtures
@@ -119,6 +119,19 @@ class ReasoningModelWorkerTests(TestCase):
         self.assertEqual([r["provider_model"] for r in job.result["image_readings"]],
                          ["gpt-5.6-terra-2026-09-17"] * 2)
         self.assertEqual([r['requested_model'] for r in job.result['image_readings']], [VISION_MODEL] * 2)
+
+    def test_plate_uses_medium_reasoning_without_an_extra_provider_call(self):
+        Asset.objects.filter(pk=fixtures.PLATE_ID).update(purpose="plate")
+        job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)
+        self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
+
+        self.assertTrue(process_next_job())
+
+        calls = self.provider.return_value.responses.parse.call_args_list
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0].kwargs["reasoning"], {"effort": "medium"})
+        self.assertEqual(calls[1].kwargs["reasoning"], {"effort": "low"})
+        self.assertTrue(all(call.kwargs["max_output_tokens"] == 8000 for call in calls))
 
     def test_historical_luna_job_without_stage_policy_still_dispatches_luna(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)

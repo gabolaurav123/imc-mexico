@@ -147,6 +147,28 @@ class GuestDraftTests(TestCase):
         limited = self.client.post(f"/api/invitados/{draft.pk}/analizar/", data=json.dumps(body), content_type="application/json")
         self.assertEqual(limited.status_code, 400)
 
+    def test_guest_analysis_limit_rejects_retry_with_changed_revision_and_options(self):
+        payload = self.start()
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        existing = AnalysisJob.objects.create(
+            machine=draft.machine, requested_by=draft.owner, revision=draft.machine.revision,
+            fingerprint="e" * 64, asset_ids=[], mode="description",
+        )
+        # A differently shaped retry must not bypass the guest-wide one-job
+        # budget before it reaches the normal enqueue/fingerprint logic.
+        body = {
+            "consent": True, "revision": draft.machine.revision + 1,
+            "asset_ids": [], "mode": "analysis", "research": False, "auto_apply": True,
+        }
+        with patch("portal.processing.enqueue_analysis") as enqueue:
+            response = self.client.post(
+                f"/api/invitados/{draft.pk}/analizar/", data=json.dumps(body), content_type="application/json"
+            )
+        self.assertEqual(response.status_code, 400)
+        enqueue.assert_not_called()
+        self.assertEqual(AnalysisJob.objects.filter(machine=draft.machine).count(), 1)
+        self.assertTrue(AnalysisJob.objects.filter(pk=existing.pk).exists())
+
     def test_anonymous_start_is_rate_limited(self):
         clients = [Client() for _ in range(4)]
         for client in clients[:3]:
