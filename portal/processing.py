@@ -30,7 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
-                       require_owner)
+                       require_owner, CATALOGUE_TECHNICAL_LABELS)
 from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description, research_reservation,
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
@@ -38,7 +38,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 
-PROMPT_VERSION = "imc-excavators-2026-09-v38"
+PROMPT_VERSION = "imc-excavators-2026-09-v39"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -69,6 +69,7 @@ AI_KEYS |= set(AGE_ESTIMATE_LABELS)
 EXCAVATOR_KEYS = {"variant", "machine_family", "undercarriage", "boom_configuration", "stick_configuration",
                   "size_class", "application", "depth_configuration", "power_type"}
 AI_KEYS |= EXCAVATOR_KEYS
+AI_KEYS |= CATALOGUE_TECHNICAL_LABELS.keys()
 SYSTEM_PROMPT = """Eres un asistente de preparación de fichas de maquinaria de IMC México.
 El objeto de la ficha es la MÁQUINA identificada, aunque la única foto sea un primer
 plano de su placa. Una placa de identificación aporta datos del equipo; el anuncio

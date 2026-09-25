@@ -42,6 +42,20 @@ class TechnicalKnowledgeAliasTests(TestCase):
 
 
 class TechnicalKnowledgeExpansionImportTests(TestCase):
+    def test_new_plate_values_survive_normalization_into_the_editable_schema(self):
+        from portal.processing import normalize_analysis
+        from portal.tests.test_image_relevance import field, observation, parsed
+        photo = "00000000-0000-0000-0000-000000000001"
+        values = {"hydraulic_flow": "120 L/min", "drum_width": "1700 mm", "engine_displacement": "4.4 L"}
+        result = normalize_analysis(parsed([observation(photo, "related", "plate")],
+            [field(key, value, photo, source="plate") for key, value in values.items()],
+            [dict(asset_id=photo, component="machine", readability="clear", transcription="Hydraulic flow 120 L/min; drum width 1700 mm; engine displacement 4.4 L")]), [photo])
+        self.assertEqual({key: result["data"][key] for key in values}, values)
+        owner = User.objects.create_user(email="plate-schema@example.invalid", password=None)
+        machine = Machine.objects.create(owner=owner)
+        machine = save_draft(machine, owner, {"data": {key: result["data"][key] for key in values}}, machine.revision)
+        self.assertEqual(public_projection({"data": machine.data}), values)
+
     def test_profile_fields_use_the_storable_catalogue_schema(self):
         profile_fields = {field["key"] for profile in PROFILES.values() for field in profile["fields"]}
         self.assertLessEqual(profile_fields, DATA_FIELDS)

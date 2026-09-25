@@ -37,7 +37,7 @@ Detalles y fuentes: [ampliación del catálogo](catalogue-expansion-2026-09-25.m
 
 El modelo predeterminado se fija en **`gpt-6-luna`** para imagen, extracción e investigación. Se conserva Responses API con salida estructurada, esfuerzo de razonamiento bajo —medio en lectura de placa—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay cambio silencioso de modelo si Luna falla. Los trabajos antiguos conservan su política registrada.
 
-Se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva depende de las credenciales del proyecto; su comprobación remota se registra en el cierre de despliegue.
+Se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva con las credenciales del proyecto también se comprobó en producción: la prueba real registró `gpt-6-luna` tanto como modelo solicitado como modelo respondido. Esto acredita acceso al proveedor; no garantiza una lectura perfecta de cada imagen.
 
 La congruencia distingue compatibilidad, contradicción y evidencia insuficiente mediante comparaciones reales entre lo declarado y lo leído. Una placa de motor no se toma como identificación de la máquina. El resultado muestra el corte temporal del análisis y se retira de la interfaz si cambia la identidad. Un fallo de acceso al modelo conserva la ficha y ofrece un mensaje específico sin exponer detalles del proveedor.
 
@@ -65,7 +65,9 @@ La activación de la cuenta de prueba en el portal principal no quedó operativa
 
 ## Validación y despliegue
 
-Validación local de la versión integrada: **1.044 pruebas y 1.423 subpruebas correctas**; una prueba de conversión real de video omitida por falta de FFmpeg/FFprobe local. La corrección final de invalidación de una revisión manual anterior pasó además sus 22 pruebas focalizadas. Las suites de interfaz, incluyendo visitante, edición concurrente, carga, contraseña y notificaciones, terminaron sin errores. `check`, migraciones pendientes y revisión de diferencias: correctos.
+La suite completa de cierre pasó **1.049 pruebas y 1.423 subpruebas**; una prueba de conversión real de video se omitió por falta de FFmpeg/FFprobe local. La corrección de invalidación de una revisión manual anterior pasó además sus 22 pruebas focalizadas. Las suites de interfaz, incluyendo visitante, edición concurrente, carga, contraseña y notificaciones, terminaron sin errores. `check`, migraciones pendientes y revisión de diferencias: correctos.
+
+La verificación final incluye las tres franjas de placa, la protección frente a documentos privados y URLs externas, y la persistencia de los nuevos campos técnicos desde la salida de IA hasta la ficha editable. Se corrigió una prueba que todavía esperaba la antigua exclusión de las placas del recorte.
 
 Se verificó la ficha en un ancho móvil de 390 px sin desbordamiento horizontal y sin enlaces PDF para visitante. La prueba local no se cuenta como una llamada real a OpenAI.
 
@@ -84,8 +86,12 @@ Destino verificado en SeeNode: aplicación `974953`, repositorio `gabolaurav123/
 
 ## Comprobación real de despliegue
 
-El commit `e31555e` se desplegó en el servicio verificado y pasó GitHub Actions (ejecución 36104952682). Se comprobaron en PostgreSQL la migración 0019, 85 referencias aprobadas activas y 316 especificaciones. Los 16 usuarios normales previos permanecieron; la prueba creó un borrador técnico adicional, sin publicar.
+El commit `e31555e` se desplegó en el servicio verificado y pasó GitHub Actions (ejecución 36104952682). Posteriormente se comprobó activo `2d1f457`, con la mejora de lectura de placas y el control de un único análisis por borrador visitante. Su ejecución de CI detectó únicamente la expectativa anterior sobre recortes descrita arriba. Se comprobaron en PostgreSQL la migración 0019, **85 referencias aprobadas activas y 316 especificaciones**. Los 16 usuarios normales previos permanecieron; las pruebas crearon dos borradores temporales privados, sin publicar.
 
-La prueba por la API pública del módulo cargó la placa autorizada y completó lectura e investigación con modelo solicitado **y respondido** `gpt-6-luna`. Reabrir devolvió 200; otra sesión recibió 403; no se ofreció exportación PDF. La primera lectura recuperó la serie y el fabricante, pero omitió medidas legibles. Se añadió una corrección específica de lectura por franjas, sin otra llamada ni cambio de modelo. Ese resultado inicial no se cuenta como extracción completa.
+Las pruebas por la API pública del módulo cargaron la placa autorizada y completaron el trabajo con modelo solicitado **y respondido** `gpt-6-luna`. Reabrir el borrador devolvió 200; otra sesión recibió 403; no se ofreció exportación PDF. La primera lectura recuperó la serie y el fabricante, pero omitió medidas legibles. Se añadió lectura por tres franjas junto con la imagen completa, dentro de una misma llamada visual y sin cambiar de modelo.
+
+La segunda prueba real, ya con `2d1f457`, recuperó neumáticos delanteros **21 × 7 × 15**, traseros **16 × 6 × 10,5**, inclinación posterior máxima del mástil **6°** y la medida rotulada «LOAD TIRE TREADWIDTH» de **34,5 pulgadas**, además de fabricante, dirección del fabricante y serie. La dirección «Houston, USA» se conserva como dirección del fabricante; no se convierte en país de fabricación ni ubicación actual del equipo.
+
+**Límite observado:** la segunda lectura propuso `2EC2` como modelo y lo etiquetó como lectura clara, mientras que la revisión de la foto permite considerar `2EC25`. La aplicación no detectó automáticamente esa ambigüedad: el propietario debe corregir o confirmar el modelo, conservando la procedencia «lectura de placa» y la edición disponible. La investigación externa terminó sin resultados útiles para completar ese modelo. No se logró identificación exacta ni se obtuvo año o precio estimado con esta foto. La mejora recupera más datos legibles, pero no demuestra que baste una sola placa para completar todos los campos. No se añadió un decodificador supuesto ni un cambio de modelo para ocultar esta limitación. El resultado detallado se conserva como evidencia QA privada, sin incluir la serie ni los enlaces privados en este informe.
 
 Las pruebas visuales se realizaron en el servidor local con navegador real, incluyendo compartir enlace, carrusel y navegación al catálogo. Brave bloqueó la navegación al dominio público con `ERR_BLOCKED_BY_CLIENT`; no se cambió su protección. La comprobación de producción se hizo como prueba de API, no se presenta como recorrido visual remoto completado.

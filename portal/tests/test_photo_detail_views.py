@@ -35,11 +35,24 @@ class PhotoDetailViewTests(SimpleTestCase):
         self.assertEqual(source,before)
         self.assertIn('no otras máquinas ni otras vistas',SYSTEM_PROMPT)
 
-    def test_no_crops_for_plates_private_documents_or_external_urls(self):
-        for purpose in ('plate','document','detail'):
+    def test_no_crops_for_private_documents_or_external_urls(self):
+        for purpose in ('document','detail'):
             self.assertEqual(_image_detail_inputs(self.photo(),purpose),[])
         for url in ('https://example.org/photo.jpg','data:image/png;base64,not-valid'):
-            self.assertEqual(_image_detail_inputs({'image_url':url},'general'),[])
+            for purpose in ('general', 'plate'):
+                self.assertEqual(_image_detail_inputs({'image_url':url},purpose),[])
+
+    def test_plate_fallback_keeps_three_strips_bound_to_the_same_original(self):
+        source = self.photo()
+        before = dict(source)
+        views = _image_detail_inputs(source, 'plate')
+        self.assertEqual(len(views), 6)
+        for index in range(3):
+            self.assertIn('MISMA PLACA image_001', views[index * 2]['text'])
+            crop = Image.open(BytesIO(base64.b64decode(views[index * 2 + 1]['image_url'].split(',', 1)[1])))
+            self.assertLess(crop.height, crop.width)
+            self.assertFalse(crop.getexif())
+        self.assertEqual(source, before)
 
     def test_original_sanitized_pixels_supply_general_photo_crops_when_within_existing_limits(self):
         image = Image.new('RGB', (3000, 1000), 'white')
