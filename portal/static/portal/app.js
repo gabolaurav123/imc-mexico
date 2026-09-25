@@ -824,7 +824,7 @@
     const consistency = result.consistency, consistencyBox = $('#consistency-status');
     if (consistencyBox) {
       const statuses = {compatible:'Datos comparados compatibles',contradiction:'Hay datos que no coinciden',insufficient_evidence:'Falta evidencia para comparar'};
-      consistencyBox.replaceChildren(); consistencyBox.hidden = !statuses[consistency?.status];
+      consistencyBox.replaceChildren(); consistencyBox.hidden = !statuses[consistency?.status] || consistency?.status === 'insufficient_evidence';
       if (!consistencyBox.hidden) {
         consistencyBox.append(el('div','',statuses[consistency.status]),el('p','small',consistency.explanation || ''));
         consistencyBox.append(el('p','small muted','Comparación privada con los datos disponibles al iniciar este análisis. Puedes corregir la ficha; no certifica la identidad ni el funcionamiento.'));

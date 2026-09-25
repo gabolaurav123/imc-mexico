@@ -170,3 +170,29 @@ class FamilyAutofillTests(TestCase):
         self.assertEqual(self.machine.provenance['model_family']['source'], 'user')
         self.assertEqual(self.machine.provenance['model_family']['review'], 'confirmed')
         self.assertNotIn('identity_scope', self.machine.provenance['model_family'])
+
+    def test_condition_correction_retires_used_market_range_but_keeps_family_years_and_human_price(self):
+        self.apply()
+        self.edit(price=45000, currency='USD')
+        self.edit(condition='Para reparación')
+        self.assertFalse(ESTIMATE_LABELS.keys() & self.machine.data.keys())
+        self.assertEqual(self.machine.data['model_family'], '320D')
+        self.assertEqual((self.machine.data['estimated_year_from'], self.machine.data['estimated_year_to']), (2006, 2020))
+        self.assertEqual((self.machine.data['price'], self.machine.data['currency']), (45000, 'USD'))
+        # The owner's own range is a declaration, not an automatic reference.
+        self.edit(estimate_min=30000, estimate_max=40000, estimate_currency='USD')
+        self.edit(condition='Nueva')
+        self.assertEqual((self.machine.data['estimate_min'], self.machine.data['estimate_max']), (30000, 40000))
+
+    def test_condition_edit_during_analysis_blocks_only_incompatible_family_price_fields(self):
+        for changed in ({'condition': 'Para reparación'},
+                        {'operating_status': 'No funciona (declarado por el propietario)'},
+                        {'condition': 'Nueva'}):
+            with self.subTest(changed=changed):
+                self.edit(condition=None, operating_status='Pendiente de confirmar', usage_condition='Por confirmar')
+                job = self.job()
+                self.edit(**changed)
+                self.apply(job)
+                self.assertFalse(ESTIMATE_LABELS.keys() & self.machine.data.keys())
+                self.assertEqual(self.machine.data['model_family'], '320D')
+                self.assertEqual((self.machine.data['estimated_year_from'], self.machine.data['estimated_year_to']), (2006, 2020))

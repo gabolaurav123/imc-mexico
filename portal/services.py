@@ -348,6 +348,21 @@ def _family_identity_unchanged(machine, manifest):
         _reference_text(machine.category.name), _reference_text(machine.category.slug)})
 
 
+def _family_market_matches_condition(data, manifest):
+    """A used-equipment reference cannot price a declared repair-only machine."""
+    condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
+                 "Para reparación": "for_repair"}.get(data.get("condition"))
+    if data.get("operating_status") == "No funciona (declarado por el propietario)":
+        condition = "for_repair"
+    if condition is None:
+        condition = {"Usada": "used", "Aparentemente nueva": "new"}.get(data.get("usage_condition"))
+    if condition is None:
+        return True
+    comparables = manifest.get("comparables", []) if isinstance(manifest, dict) else []
+    conditions = {item.get("condition") for item in comparables if isinstance(item, dict)}
+    return bool(comparables) and conditions == {condition}
+
+
 def _remove_incompatible_family_values(machine):
     """Retire automatic family ranges after corrections; keep human declarations."""
     if not any(isinstance(meta, dict) and meta.get("source") == "family_reference"
@@ -371,6 +386,9 @@ def _remove_incompatible_family_values(machine):
         job = jobs.get(meta.get("analysis_id"))
         valid = bool(job and identity_valid.get(str(job.pk))
                      and is_validated_family_field(job.result, key, machine.data.get(key), meta))
+        if key in ESTIMATE_LABELS and job and not _family_market_matches_condition(
+                machine.data, job.result.get("family_reference", {})):
+            valid = False
         if key in AGE_LABELS and machine.data.get("year") not in (None, ""):
             valid = False
         if not valid:
@@ -596,6 +614,8 @@ def _clear_automatic_field(machine, job, key, value, meta):
         return (key in {"model_family", *AGE_LABELS, *ESTIMATE_LABELS}
                 and key != "estimate_suggested_price"
                 and _family_identity_unchanged(machine, job.result.get("family_reference", {}))
+                and (key not in ESTIMATE_LABELS or _family_market_matches_condition(
+                    machine.data, job.result.get("family_reference", {})))
                 and _web_value_keeps_serial_private(machine, job, value)
                 and is_validated_family_field(job.result, key, value, meta))
     if key == "model_family":
