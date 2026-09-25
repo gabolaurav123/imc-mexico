@@ -1,12 +1,14 @@
 """Revocable owner-authorized web links, separate from catalogue publication."""
 from copy import deepcopy
+import logging
 from types import SimpleNamespace
 import base64
 import uuid
+from functools import wraps
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_GET, require_http_methods
@@ -17,6 +19,9 @@ from .models import Asset, Machine, PreparedShare, prepared_share_code
 from .public_data import public_json
 from .security import throttle
 from .views import api, payload
+
+
+logger = logging.getLogger(__name__)
 
 
 def share_url(share):
@@ -47,6 +52,29 @@ def current_share(machine):
         authorized_by_id=machine.owner_id).first()
 
 
+def _locked_machine_query():
+    """Lock only Machine when its optional category is joined.
+
+    PostgreSQL rejects ``FOR UPDATE`` on the nullable side of the category's
+    outer join.  The owner and category are still selected for the snapshot,
+    but ``OF self`` makes the lock explicit on backends that support it.
+    """
+    options = {"of": ("self",)} if connection.features.has_select_for_update_of else {}
+    return Machine.objects.select_for_update(**options).select_related("owner", "category")
+
+
+def _share_json_boundary(view):
+    """Keep an unexpected sharing failure actionable to the browser and logged."""
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except Exception:
+            logger.exception("Unexpected failure while preparing a share link")
+            return JsonResponse({"error": "No se pudo preparar el enlace. Inténtalo de nuevo; si continúa, avisa a IMC México."}, status=500)
+    return wrapped
+
+
 def _safe_assets(machine):
     states = assessed_photo_states(machine)
     plate_ids = services.detected_plate_asset_ids(machine)
@@ -56,6 +84,7 @@ def _safe_assets(machine):
 
 
 @require_http_methods(["GET", "POST"])
+@_share_json_boundary
 @api
 def manage(request, pk):
     # Being staff or knowing an ID never substitutes for the owner's consent.
@@ -78,7 +107,7 @@ def manage(request, pk):
     if not throttle(request, "prepared-share", 40, 3600, str(request.user.pk)):
         raise ValidationError("Espera un momento antes de volver a preparar el enlace.")
     with transaction.atomic():
-        machine = Machine.objects.select_for_update().select_related("owner", "category").get(pk=machine.pk)
+        machine = _locked_machine_query().get(pk=machine.pk)
         if machine.owner_id != request.user.pk:
             raise PermissionDenied
         if type(body.get("revision")) is not int or machine.revision != body["revision"]:
@@ -98,9 +127,8 @@ def manage(request, pk):
             raise ValidationError("Esta ficha no está disponible para compartir.")
         if not machine.category_id or not any(machine.data.get(key) for key in ("brand", "model", "description")):
             raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
-        preparation_mode(machine)
-        if not has_completed_preparation(machine) and not machine.approved_version_id:
-            raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
+        mode = preparation_mode(machine)
+        completed_preparation = has_completed_preparation(machine)
         require_consistent_photos(machine)
         eligible = {str(asset.pk): asset for asset in _safe_assets(machine)}
         requested = body.get("asset_ids")
@@ -114,6 +142,8 @@ def manage(request, pk):
         pending = machine.assets.filter(kind="image", purpose__in=["general", "detail"], processing_status="ready")
         if requested is None and any(str(asset.pk) not in eligible and str(asset.pk) not in services.detected_plate_asset_ids(machine) for asset in pending):
             raise ValidationError("Genera la ficha con las nuevas fotografías antes de compartirlas; todavía no se ha comprobado que correspondan a maquinaria.")
+        if not completed_preparation and (mode == "analysis" or not machine.approved_version_id):
+            raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
         raw = {"data": machine.data, "provenance": machine.provenance, "title": machine.title}
         projected = public_json(raw, title=machine.title)
         include_serial = body.get("include_serial", share.include_serial if share else False)

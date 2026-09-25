@@ -110,8 +110,10 @@ class QuickIntakeTests(TestCase):
     def test_intake_asks_about_identification_before_upload_and_keeps_it_optional(self):
         response=self.client.get('/panel/maquinarias/nueva/')
         self.assertContains(response,'¿Tienes el número de serie?')
-        self.assertContains(response,'No, tengo fotos del equipo')
+        self.assertContains(response,'¿Tienes fotografías de la máquina?')
+        self.assertContains(response,'No tengo fotos')
         self.assertContains(response,'Agrega fotos de tu máquina')
+        self.assertContains(response,'Identifica el modelo que conoces')
         self.assertContains(response,'id="typed-serial"')
         self.assertContains(response,'portal/start-intake.js')
         response=self.client.post('/panel/maquinarias/nueva/',{'category':self.category.pk,'serial':'SERIE-PRUEBA-01','entry_mode':'serial'})

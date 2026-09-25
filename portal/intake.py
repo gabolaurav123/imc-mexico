@@ -15,7 +15,7 @@ def contact_complete(user):
 
 
 def preparation_mode(machine, asset_ids=None):
-    """A type plus a real input are mandatory, but a plate is never mandatory."""
+    """Choose a supported preparation route without treating model data as unit proof."""
     if not machine.category_id:
         raise ValidationError("Selecciona el tipo de máquina antes de generar la ficha.")
     images = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
@@ -27,24 +27,48 @@ def preparation_mode(machine, asset_ids=None):
         return "analysis"
     serial = str(machine.data.get("serial") or "").strip()
     if len(re.sub(r"[^A-Za-z0-9]", "", serial)) < 3:
+        from .catalogue_intake import catalogue_reference_ready
+        if catalogue_reference_ready(machine):
+            return "catalogue"
         raise ValidationError("Escribe el número de serie o sube al menos una fotografía de la máquina para generar su ficha.")
     return "description"
 
 
 def has_completed_preparation(machine):
+    from .catalogue_intake import catalogue_reference_ready, catalogue_reference_stale
+    if catalogue_reference_stale(machine):
+        return False
     if not any(machine.data.get(key) for key in ("brand", "model", "description")):
         return False
-    for job in machine.analysis_jobs.filter(status="completed"):
+    current_photo_ids = {str(pk) for pk in machine.assets.filter(kind="image", processing_status="ready")
+                         .exclude(purpose="document").values_list("pk", flat=True)}
+    def valid_normal_job(job):
         result = job.result if isinstance(job.result, dict) else {}
+        if result.get("preflight") is True:
+            return False
+        consistency = result.get("consistency")
+        if result.get("blocking_reason") or isinstance(consistency, dict) and consistency.get("status") == "contradiction":
+            return False
         relevance = result.get("relevance")
         relevance = relevance if isinstance(relevance, dict) else {}
-        if relevance.get("status") not in {"unrelated", "uncertain"}:
+        return relevance.get("status") not in {"unrelated", "uncertain"}
+    if not current_photo_ids:
+        if catalogue_reference_ready(machine):
             return True
-    return False
+        return any(valid_normal_job(job) for job in machine.analysis_jobs.filter(status="completed"))
+    prepared_photo_ids = set()
+    for job in machine.analysis_jobs.filter(status="completed", mode="analysis"):
+        if not valid_normal_job(job):
+            continue
+        prepared_photo_ids.update(str(asset_id) for asset_id in job.asset_ids)
+    return current_photo_ids <= prepared_photo_ids
 
 
 def require_prepared_serial(machine):
     serial = str(machine.data.get("serial") or "").strip()
+    from .catalogue_intake import catalogue_reference_ready
+    if catalogue_reference_ready(machine):
+        return "catalogue"
     if not machine.category_id or len(re.sub(r"[^A-Za-z0-9]", "", serial)) < 3:
         raise ValidationError("Agrega una fotografía del equipo o su número de serie y selecciona el tipo de máquina.")
     if not has_completed_preparation(machine):

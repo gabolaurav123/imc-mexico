@@ -28,6 +28,15 @@ def _identity_value(key, value):
     return value
 
 
+def category_identity(value):
+    """Equivalent catalogue names must not contradict the same photograph."""
+    from .category_profiles import PROFILES
+    key = folded(value)
+    matches = {slug for slug, profile in PROFILES.items()
+               if key in {folded(slug), folded(profile.get('label')), *map(folded, profile.get('aliases', []))}}
+    return next(iter(matches)) if len(matches) == 1 else key
+
+
 def _machine_readings(result):
     """Return readable identifiers for the complete machine, never its parts."""
     readings = {key: [] for key in IDENTITY_FIELDS}
@@ -169,7 +178,7 @@ def check_equipment_consistency(result, snapshot=None):
         count = item.get('machine_count')
         if item.get('kind') == 'machine' and type(count) is int and count > 1:
             conflicting.add(item.get('asset_id'))
-    categories = {folded(item.get('category')) for item in useful if item.get('category')}
+    categories = {category_identity(item.get('category')) for item in useful if item.get('category')}
     if len(categories) > 1:
         conflicting.update(item.get('asset_id') for item in useful)
     for key in IDENTITY_FIELDS:
@@ -187,7 +196,7 @@ def check_equipment_consistency(result, snapshot=None):
         _set_private_consistency(result, snapshot, multiple_machines=True)
         return 'multiple_machines'
     selected, detected = snapshot.get('category'), result.get('category')
-    if selected and detected and folded(selected) != folded(detected):
+    if selected and detected and category_identity(selected) != category_identity(detected):
         message = f'Elegiste {selected}, pero las fotos sugieren {detected}. Confirma el tipo de máquina antes de completar la ficha.'
         result['category_conflict'] = {'selected': selected, 'detected': detected, 'message': message}
         result['blocking_reason'] = 'category_conflict'

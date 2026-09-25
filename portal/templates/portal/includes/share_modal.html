@@ -1,0 +1,17 @@
+<dialog id="share-modal" class="share-modal" aria-labelledby="share-modal-title">
+  <div class="share-modal__header">
+    <h2 id="share-modal-title">Compartir ficha</h2>
+    <button type="button" class="share-modal__close" data-close-share-modal aria-label="Cerrar">×</button>
+  </div>
+  <p id="share-modal-description">Elige dónde compartir el enlace de esta ficha.</p>
+  <label for="share-modal-url">Enlace corto</label>
+  <input id="share-modal-url" type="url" readonly aria-describedby="share-modal-feedback">
+  <div class="button-row" aria-label="Opciones para compartir">
+    <button type="button" class="button button-navy" data-copy-share-link>Copiar enlace</button>
+    <a class="button button-outline" data-share-whatsapp target="_blank" rel="noopener noreferrer">WhatsApp</a>
+    <a class="button button-outline" data-share-facebook target="_blank" rel="noopener noreferrer">Facebook</a>
+    <button type="button" class="button button-outline" data-share-native>Instagram y otras apps</button>
+  </div>
+  <button type="button" id="revoke-sheet-link" class="link-button" hidden>Desactivar enlace</button>
+  <p id="share-modal-feedback" role="status" aria-live="polite"></p>
+</dialog>

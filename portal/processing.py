@@ -688,12 +688,14 @@ def _check_analysis_draft(job):
 
 
 def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
-                     auto_apply=False, expected_revision=None, authorize_ai=False, research=False):
+                     auto_apply=False, expected_revision=None, authorize_ai=False, research=False, preflight=False):
     _check_editor(machine, user)
     if type(auto_apply) is not bool:
         raise ValidationError("Indica si deseas completar el borrador automáticamente.")
     if type(research) is not bool:
         raise ValidationError("Indica si deseas consultar referencias públicas de la maquinaria.")
+    if type(preflight) is not bool or preflight and (mode != "analysis" or research or auto_apply):
+        raise ValidationError("La comprobación de fotos no puede modificar ni investigar la ficha.")
     if auto_apply and machine.owner_id != user.pk:
         raise PermissionDenied("El propietario debe autorizar el completado de su borrador.")
     consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at").first()
@@ -748,6 +750,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
                     "category_names": category_names, "category": machine.category_id,
                     "category_profile": category_profile, "research": research,
+                    "preflight": preflight,
                     "vision_model": image_model(model) if mode == "analysis" else model}
         research_description_only = mode == "description" and research
         if research_description_only:
@@ -795,6 +798,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                         application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
                                         result={"attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
+                                                "preflight": preflight,
+                                                "input_category_id": machine.category_id,
                                                 "research_requested": research,
                                                 "vision_model": material["vision_model"],
                                                 "category_profile": category_profile,
@@ -1827,6 +1832,8 @@ def process_analysis(job):
             result["relevance"]["message"] = message
             result["warnings"] = [message]
         result["research_requested"] = research_requested
+        result["preflight"] = job.result.get("preflight") is True
+        result["input_category_id"] = job.result.get("input_category_id")
         result["research_description_only"] = research_description_only
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         result["reservation_per_attempt"] = _reserved_attempt_cost(job, platform_settings())
@@ -1841,6 +1848,12 @@ def process_analysis(job):
             # human identifiers nor generic fallbacks can turn unrelated input
             # into a new machinery proposal or trigger an external search.
             result["research"] = {**empty_research("not_run"), "reason": "image_relevance"}
+            result["usage"] = usage.as_dict()
+            return result, usage
+        if result["preflight"]:
+            result["research"] = {**empty_research("not_run"), "reason": "photo_preflight"}
+            result["valuation"] = {"status": "not_run", "reason": "photo_preflight"}
+            result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
             result["usage"] = usage.as_dict()
             return result, usage
         if research_requested and (image_pipeline_interrupted or not _can_spend_step(job, usage, research_reservation(job.model))):

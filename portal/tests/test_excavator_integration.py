@@ -65,6 +65,19 @@ class EquipmentConsistencyTests(SimpleTestCase):
         self.assertEqual(check_equipment_consistency(result, {'category': 'Excavadoras'}), 'category_conflict')
         self.assertEqual(result['category_conflict']['selected'], 'Excavadoras')
 
+    def test_excavator_synonyms_and_hydraulic_label_do_not_create_a_category_conflict(self):
+        for selected, detected in (('Excavadora', 'Excavadoras'),
+                                   ('Excavadora hidráulica', 'Excavadoras'),
+                                   ('Excavadoras', 'Excavadora hidráulica')):
+            with self.subTest(selected=selected, detected=detected):
+                result = {'category': detected, 'fields': [], 'image_observations': []}
+                self.assertFalse(check_equipment_consistency(result, {'category': selected}))
+                self.assertNotIn('category_conflict', result)
+
+    def test_excavator_and_compactor_remain_a_category_conflict(self):
+        result = {'category': 'Compactador', 'fields': [], 'image_observations': []}
+        self.assertEqual(check_equipment_consistency(result, {'category': 'Excavadoras'}), 'category_conflict')
+
     def test_hour_estimates_from_wear_are_rejected(self):
         proposal = field('hours', '5000', 'a'); proposal['evidence'] = 'Horas estimadas por desgaste'
         result = normalize_analysis(parsed([observation('a', category='Excavadoras')], [proposal]),

@@ -149,6 +149,7 @@ def machines(request):
 def machine_create(request):
     from .category_profiles import category_catalog
     from .intake import contact_complete
+    from .catalogue_intake import catalogue_choices, catalogue_proposal
     if not contact_complete(request.user):
         return redirect('/panel/perfil/?next=/panel/maquinarias/nueva/')
     categories = Category.objects.filter(active=True)
@@ -160,16 +161,33 @@ def machine_create(request):
         category=None
         if category_id in (None, '', 'unsure'):
             return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+                'catalogue_intake_json':catalogue_choices(categories),
                 'error':'Selecciona el tipo de máquina que quieres anunciar.'},status=400)
         if category_id not in (None, '', 'unsure'):
             try:
                 category=categories.get(pk=category_id)
             except (Category.DoesNotExist, ValueError, TypeError):
                 return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+                    'catalogue_intake_json':catalogue_choices(categories),
                     'error':'Selecciona un tipo disponible o «No estoy seguro».'},status=400)
+        entry_mode=request.POST.get('entry_mode','')
         provenance={'currency':{'source':'system','review':'needs_review'}}
         if category:provenance['category']={'source':'user','review':'confirmed'}
         data={'currency':'USD'}
+        if entry_mode=='catalogue':
+            proposal=catalogue_proposal(category.pk,request.POST.get('catalogue_model'))
+            data,provenance=proposal['data'],{**proposal['provenance'],
+                'category':{'source':'user','review':'confirmed'}}
+        elif entry_mode=='manual_identity':
+            brand=request.POST.get('catalogue_manual_brand','').strip()[:100]
+            model=request.POST.get('catalogue_manual_model','').strip()[:100]
+            if not brand or not model:
+                return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+                    'catalogue_intake_json':catalogue_choices(categories),
+                    'error':'Escribe la marca y el modelo, o selecciona un modelo del catálogo.'},status=400)
+            data.update({'brand':brand,'model':model})
+            provenance.update({'brand':{'source':'user','review':'confirmed'},
+                               'model':{'source':'user','review':'confirmed'}})
         if serial: provenance['serial']={'source':'user','review':'confirmed'}
         if serial:data['serial']=serial
         for key,value in declared.items():
@@ -179,10 +197,36 @@ def machine_create(request):
         machine=Machine.objects.create(owner=request.user,category=category,data=data,
             provenance=provenance)
         event(request,'draft_started',machine)
-        entry_mode=request.POST.get('entry_mode','')
-        suffix='?entrada='+entry_mode if entry_mode in {'plate','serial','photos'} else ''
+        suffix=('?entrada=catalogue&paso=2' if entry_mode=='catalogue' else
+                '?entrada='+entry_mode if entry_mode in {'plate','serial','photos','manual_identity'} else '')
         return redirect(f'/panel/maquinarias/{machine.pk}/'+suffix)
-    return render(request,'portal/start.html',{'categories_json':category_catalog(categories)})
+    return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+        'catalogue_intake_json':catalogue_choices(categories)})
+
+
+@require_http_methods(["GET", "POST"])
+@api
+def api_catalogue_intake(request):
+    """Read approved local models or create the explicit no-media catalogue draft."""
+    from .catalogue_intake import catalogue_choices, catalogue_proposal
+    from .intake import contact_complete
+    if request.method=='GET':
+        category=request.GET.get('category')
+        categories=Category.objects.filter(active=True)
+        if category:
+            try:categories=categories.filter(pk=int(category))
+            except (TypeError,ValueError):raise ValidationError('Selecciona un tipo de máquina disponible.')
+        return JsonResponse({'models':catalogue_choices(categories)})
+    if not contact_complete(request.user):
+        return JsonResponse({'error':'Completa tus datos de contacto antes de publicar.',
+                             'url':'/panel/perfil/?next=/panel/maquinarias/nueva/'},status=400)
+    body=payload(request,allowed=['category','model_id'])
+    proposal=catalogue_proposal(body.get('category'),body.get('model_id'))
+    machine=Machine.objects.create(owner=request.user,category=proposal['category'],data=proposal['data'],
+        provenance={**proposal['provenance'],'category':{'source':'user','review':'confirmed'}})
+    event(request,'draft_started',machine)
+    return JsonResponse({'id':str(machine.pk),'url':f'/panel/maquinarias/{machine.pk}/?entrada=catalogue&paso=2',
+                         'mode':'catalogue','reference_count':proposal['reference_count']},status=201)
 
 @login_required
 @ensure_csrf_cookie
@@ -270,7 +314,11 @@ def analysis_state(job, machine):
     if isinstance(result,dict):result={key:value for key,value in result.items() if key!='photo_cache'}
     if isinstance(result,dict) and isinstance(result.get('valuation'),dict):
         result={**result,'valuation':{key:value for key,value in result['valuation'].items() if key!='diagnostics'}}
-    return {'id':str(job.pk),'status':job.status,'result':result,
+    return {'id':str(job.pk),'status':job.status,'result':result,'preflight':job.result.get('preflight') is True,
+            'input_assets':[{'id':str(item.get('id')), 'purpose':item.get('purpose')}
+                for item in (job.application_snapshot or {}).get('assets',[])
+                if item.get('kind')=='image' and item.get('purpose')!='document'],
+            'input_category':job.result.get('input_category_id'),
             'processing_stage':job.result.get('progress',{}).get('stage',job.status),
             'processing_progress':job.result.get('progress',{'stage':job.status}),
             'error':job.error if job.status=='failed' else '', 'assets':[asset_info(a) for a in machine.assets.all()],
@@ -330,11 +378,25 @@ def api_asset_action(request,pk):
 @api
 def api_analyze(request,pk):
     from .processing import enqueue_analysis
-    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode','auto_apply','revision','research'])
+    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode','auto_apply','revision','research','preflight'])
     if body.get('consent') is not True:raise ValidationError('Autoriza el procesamiento de las imágenes necesarias mediante OpenAI.')
     from .intake import preparation_mode
     mode=preparation_mode(machine,body.get('asset_ids'))
-    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),mode,analytics_context=capture_context(request,page='analysis'),auto_apply=body.get('auto_apply',False),expected_revision=body.get('revision'),authorize_ai=True,research=body.get('research',True))
+    if mode=='catalogue':
+        # The catalogue fiche is already composed from approved local records.
+        # Do not create an unsupported AnalysisJob or send a paid request when
+        # the owner presses "Generar" again without unit evidence.
+        if body.get('revision') is not None and body.get('revision') != machine.revision:
+            return JsonResponse({'error':'Hay una versión más reciente. Recarga antes de actualizar la ficha.',
+                                 'revision':machine.revision},status=409)
+        return JsonResponse({'id':None,'status':'completed','mode':'catalogue','refresh':True,
+                             'result':{'catalogue':{'status':'ready','message':'La ficha conserva las referencias documentadas del modelo; no son datos confirmados de esta unidad.'}},
+                             'processing_stage':'completed','processing_progress':{'stage':'completed'},
+                             'error':'','assets':[asset_info(asset) for asset in machine.assets.all()],
+                             'machine':machine_state(machine),'auto_apply':{'status':'no_changes','applied_fields':[]}})
+    preflight=body.get('preflight',False)
+    if type(preflight) is not bool:raise ValidationError('Indica una comprobación de fotografías válida.')
+    job=enqueue_analysis(machine,request.user,body.get('asset_ids'),mode,analytics_context=capture_context(request,page='analysis'),auto_apply=False if preflight else body.get('auto_apply',False),expected_revision=body.get('revision'),authorize_ai=True,research=False if preflight else body.get('research',True),preflight=preflight)
     machine.refresh_from_db()
     return JsonResponse(analysis_state(job,machine))
 

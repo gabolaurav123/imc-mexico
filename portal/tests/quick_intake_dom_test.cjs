@@ -235,12 +235,12 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
 
  let mixed;
  mixed=setup(async(url)=>{assert.ok(url.includes('/api/analisis/'));await pause(1);const job=completed(mixed.state,{model:'Equipo leído'});job.result.relevance={status:'mixed',accepted_asset_ids:['1'],excluded_asset_ids:['2'],uncertain_asset_ids:[]};return response(200,job);},{job:{id:'mixed',status:'completed'}});
- await pause(35);assert.equal(mixed.doc.querySelector('#model').value,'Equipo leído');assert.equal(mixed.doc.querySelector('[data-step-panel="2"]').hidden,false);
- assert.match(mixed.doc.querySelector('#analysis-status').textContent,/Se omitió 1 foto ajena a maquinaria/);
+ await pause(35);assert.equal(mixed.doc.querySelector('#model').value,'Equipo leído');assert.equal(mixed.doc.querySelector('[data-step-panel="1"]').hidden,false);
+ assert.match(mixed.doc.querySelector('#photo-validation').textContent,/Quita las imágenes/);assert.equal(mixed.doc.querySelector('#analyze-button').disabled,true);
  assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.relevance,'excluded');
  assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.purpose,'plate','relevance never changes original file classification');
  assert.equal(mixed.doc.querySelector('[data-asset-id="1"] .asset-relevance'),null);mixed.close();
- pass('mixed photos complete normally with a visible omission count and an accessible per-photo note');
+ pass('mixed photos stay pending with visible removal guidance before preparing the fiche');
 
  for(const relevance of [undefined,{status:'unassessed',excluded_asset_ids:['1']},{status:'invalid'}]){
    let compatible;let applies=0;
@@ -368,5 +368,24 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.equal(familyHydrated.doc.querySelector('#condition').value,'');
  assert.equal(familyHydrated.doc.querySelector('#condition').selectedOptions[0].textContent,'Usada (aparente)');
  familyHydrated.close();pass('completed family analysis hydrates editable estimates without inventing exact model, year, price or condition');
+
+ let preflightCtx;const preflightCalls=[];
+ preflightCtx=setup(async(url,o)=>{
+   if(url==='/api/archivos/2/accion/')return response(200,{revision:2});
+   if(url.endsWith('analizar/')){const body=JSON.parse(o.body);preflightCalls.push(body);return response(200,{id:body.preflight?'pre-check':'full-check',status:'running',preflight:!!body.preflight});}
+   if(url.includes('/api/analisis/')){await pause(1);const preflight=url.includes('pre-check');return response(200,{...completed(preflightCtx.state,preflight?{}:{model:'Modelo comprobado'}),preflight,input_category:701,input_assets:[{id:'1',purpose:'general'}],result:{preflight,relevance:{status:'relevant',accepted_asset_ids:['1']}}});}
+   throw Error(url);
+ },{query:'?paso=2'});
+ const directRemove=preflightCtx.doc.querySelector('.ready-photo-remove');assert.ok(directRemove);assert.equal(preflightCtx.doc.querySelector('[data-asset-action="delete"]').closest('.asset-info'),null);
+ preflightCtx.doc.querySelector('[data-asset-id="2"] [data-asset-action="delete"]').click();await pause(820);
+ assert.equal(preflightCalls.length,1);assert.equal(preflightCalls[0].preflight,true);assert.equal(preflightCalls[0].auto_apply,false);assert.equal(preflightCalls[0].research,false);
+ assert.equal(preflightCtx.doc.querySelector('#analyze-button').disabled,false);assert.match(preflightCtx.doc.querySelector('#photo-validation').textContent,/Fotografías comprobadas/);
+ click(preflightCtx,'analyze-button');await pause(50);assert.equal(preflightCalls.length,2);assert.equal(preflightCalls[1].auto_apply,true);assert.equal(preflightCtx.doc.querySelector('#model').value,'Modelo comprobado');preflightCtx.close();pass('visible delete triggers preflight only; accepted photo checks enable full preparation without copying suggestions');
+ let resumedCheck;
+ resumedCheck=setup(async()=>{await pause(1);return response(200,{...completed(resumedCheck.state,{}),preflight:true,input_category:701,input_assets:[{id:'1',purpose:'general'},{id:'2',purpose:'plate'}],result:{preflight:true,relevance:{status:'relevant',accepted_asset_ids:['1','2']}}});},{job:{id:'resumed-check',status:'running'},query:'?paso=1'});
+ await pause(40);assert.equal(resumedCheck.doc.querySelector('#analyze-button').disabled,false);assert.equal(resumedCheck.doc.querySelector('[data-step-panel="1"]').hidden,false);assert.equal(resumedCheck.doc.querySelector('#model').value,'');resumedCheck.close();pass('reloading a running preflight restores generate without marking the fiche ready or applying fields');
+ let staleCheck;const staleCalls=[];
+ staleCheck=setup(async(url)=>{staleCalls.push(url);await pause(1);return response(200,{...completed(staleCheck.state,{model:'Modelo obsoleto'}),input_category:701,input_assets:[{id:'removed',purpose:'general'}]});},{job:{id:'old-photos',status:'completed'}});
+ await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.match(staleCheck.doc.querySelector('#ready-heading').textContent,/pendiente/);assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

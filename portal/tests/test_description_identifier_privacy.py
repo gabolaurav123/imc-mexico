@@ -92,6 +92,24 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
             self.assertNotIn(hidden, description)
         self.assertEqual((data, provenance), original)
 
+    def test_identity_components_and_applications_form_three_clear_lines_without_specs(self):
+        data = {"brand": "Caterpillar", "model": "320",
+                "visible_components": "Cabina y brazo visibles",
+                "applications": "Usos sugeridos, sujetos a verificación: Excavación de zanjas"}
+        provenance = {"brand": {"source": "user", "review": "confirmed"},
+                      "model": {"source": "user", "review": "confirmed"},
+                      "visible_components": {"source": "visual_proposal", "review": "needs_review"},
+                      "applications": {"source": "visual_proposal", "review": "needs_review"}}
+        original = deepcopy((data, provenance))
+        description = compose_description(data, provenance, "Excavadoras")
+        self.assertEqual(description.splitlines(), [
+            "Excavadora Caterpillar 320.",
+            "Componentes visibles: Cabina y brazo visibles.",
+            "Aplicaciones sugeridas: Excavación de zanjas.",
+        ])
+        self.assertNotIn("sujetos a verificación", description)
+        self.assertEqual((data, provenance), original)
+
     def test_family_description_stays_approximate_without_private_basis_and_exact_model_has_priority(self):
         data = {'brand':'CAT','model':None,'model_family':'320D','serial':'PRIVATE-SERIAL-320',
                 'estimated_year_from':2006,'estimated_year_to':2020,

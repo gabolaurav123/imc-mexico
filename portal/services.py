@@ -711,6 +711,8 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         job = AnalysisJob.objects.select_for_update().get(pk=job_id, machine=machine, status="completed")
     except (AnalysisJob.DoesNotExist, ValueError, ValidationError):
         raise ValidationError("El análisis no está disponible para esta maquinaria.")
+    if job.result.get('preflight') is True:
+        raise ValidationError('La comprobación de fotografías no genera ni modifica la ficha.')
     # A retry after a lost response must not reinsert a value the user later cleared.
     retry_failed_application = not from_worker and job.application_result.get("reason") == "application_failed"
     if job.application_result and not retry_failed_application:
@@ -1225,6 +1227,8 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         job = AnalysisJob.objects.get(pk=job_id, machine=machine, status="completed")
     except (AnalysisJob.DoesNotExist, ValueError, ValidationError):
         raise ValidationError("El análisis no está disponible para esta maquinaria.")
+    if job.result.get('preflight') is True:
+        raise ValidationError('La comprobación de fotografías no genera ni modifica la ficha.')
     after_automatic = job.application_result.get("revision_after") if job.application_result.get("status") in {"applied", "no_changes"} else None
     if job.revision != machine.revision and after_automatic != machine.revision:
         raise ValidationError("El borrador cambió después del análisis. Solicita un nuevo análisis para conservar tus correcciones.")

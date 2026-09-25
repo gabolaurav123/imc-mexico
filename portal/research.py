@@ -2166,7 +2166,10 @@ def compose_description(data, provenance, category=None, visual_description="", 
             value = re.sub(r"^Usos sugeridos, sujetos a verificaci[oó]n:\s*", "", value, flags=re.I)
         observations.append(f"{label}: {' '.join(value.split()).rstrip('. ')}")
     if observations:
-        lines.append(" · ".join(observations[:2]) + ".")
+        if len(lines) == 1 and len(observations) >= 2:
+            lines.extend(item + "." for item in observations[:2])
+        else:
+            lines.append(" · ".join(observations[:2]) + ".")
     # Avoid a hard truncation that could split a number and its unit.  Omit
     # optional trailing lines until the concise public summary fits.
     while len("\n".join(lines)) > 650 and len(lines) > 1:

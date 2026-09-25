@@ -20,7 +20,7 @@
     let result;
     if ((response.headers.get('content-type') || '').includes('application/json')) result = await response.json();
     else {
-      const error = new Error(response.status === 403 ? 'Tu sesión necesita renovarse. Abre el acceso en otra pestaña y vuelve a intentar.' : 'No recibimos una respuesta válida. Comprueba tu conexión y vuelve a intentar.');
+      const error = new Error(response.status === 403 ? 'Tu sesión necesita renovarse. Abre el acceso en otra pestaña y vuelve a intentar.' : response.status >= 500 ? 'El servidor no pudo completar esta acción. Tus cambios siguen guardados; vuelve a intentarlo.' : 'La sesión o la respuesta del servidor cambió. Recarga la página y vuelve a intentarlo.');
       error.status = response.status; throw error;
     }
     if (!response.ok) {
@@ -126,6 +126,7 @@
   let researchHypotheses = [], researchHypothesisIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
+  let preflightTimer, preflightRunning = false, preflightStamp = '', checkedPhotoStamp = '', photoCheckBlocked = false;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
     const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad del cucharón',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
     const additionalPlateLabels = { digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
@@ -160,6 +161,7 @@
     if (['category','brand','model','model_family','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
     pending.set(key,{value:readInput(input),sequence:++sequence});
     renderPreview();
+    if (key === 'category' || photoCheckBlocked && ['brand','model','serial'].includes(key)) schedulePhotoCheck();
     if (conflict) return;
     markSave('Cambios pendientes','pending'); clearTimeout(saveTimer);
     saveTimer = setTimeout(() => save().catch(() => {}),850);
@@ -270,35 +272,21 @@
   $$('[data-submit-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#submit-machine').click()));
   $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
   let sharedUrl='';
-  const shareStatus=message=>{const target=$('#share-feedback');if(target)target.textContent=message;};
   $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
     if(guest){keepGuestResult();return;}
     if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
-    button.disabled=true; clearProblem();
+    button.disabled=true; clearProblem();window.imcShareModal?.close();
     try{
       await uploadsReady();await save();
       const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:Boolean($('#contact-consent')?.checked)});
       updateRevision(result);sharedUrl=new URL(result.url,location.origin).href;
-      $('#share-short-url').value=sharedUrl;
-      $('#share-whatsapp').href=`https://wa.me/?text=${encodeURIComponent(`${collect().title}\n${sharedUrl}`)}`;
-      $('#share-facebook').href=`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(sharedUrl)}`;
-      $('#share-options').hidden=false;$('#share-options').scrollIntoView({behavior:'smooth',block:'center'});
-      shareStatus('Enlace preparado. Elige dónde compartirlo.');
+      if(!window.imcShareModal?.open) throw new Error('No se pudo abrir las opciones para compartir. Recarga la página e inténtalo de nuevo.');
+      $('#revoke-sheet-link').hidden=false;
+      window.imcShareModal.open(sharedUrl,collect().title);
     }catch(error){problem(error.message);}finally{button.disabled=false;}
   }));
-  async function copyShareLink(){
-    if(!sharedUrl)return;
-    try{await navigator.clipboard.writeText(sharedUrl);shareStatus('Enlace copiado. Puedes pegarlo en un mensaje o en Instagram.');}
-    catch{$('#share-short-url').focus();$('#share-short-url').select();shareStatus('Selecciona y copia el enlace que aparece arriba.');}
-  }
-  $('#copy-sheet-link')?.addEventListener('click',copyShareLink);
-  $('#share-native')?.addEventListener('click',async()=>{
-    if(!sharedUrl)return;
-    if(navigator.share){try{await navigator.share({title:collect().title,url:sharedUrl});}catch(error){if(error.name!=='AbortError')await copyShareLink();}}
-    else await copyShareLink();
-  });
   $('#revoke-sheet-link')?.addEventListener('click',async()=>{
-    try{await uploadsReady();await save();const result=await api(`${base}compartir/`,{revision:state.revision,action:'disable'});updateRevision(result);sharedUrl='';$('#share-options').hidden=true;toast('Enlace desactivado. Las personas que lo recibieron ya no pueden abrir la ficha.');}
+    try{await uploadsReady();await save();const result=await api(`${base}compartir/`,{revision:state.revision,action:'disable'});updateRevision(result);sharedUrl='';$('#revoke-sheet-link').hidden=true;window.imcShareModal?.close();toast('Enlace desactivado. Las personas que lo recibieron ya no pueden abrir la ficha.');}
     catch(error){problem(error.message);}
   });
   function updateRevision(result) { if (result.revision !== undefined) state.revision = Math.max(Number(state.revision),Number(result.revision)); }
@@ -328,7 +316,72 @@
       else { privateGrid.append(card); internal++; }
     }
     $('#private-photos').hidden=!internal;
-    $('#photo-count-status').textContent=currentStep===1 ? `${count} ${count===1?'fotografía del equipo':'fotografías del equipo'} guardadas${internal ? ` · ${internal} archivo(s) privados` : ''}.` : `${Math.min(count,4)} de 4 vistas principales · ${Math.max(0,Math.min(count-4,6))} adicionales.`;
+    $('#photo-count-status').textContent=currentStep===1 ? `${count} de 4 vistas recomendadas${count>4 ? ` · ${count-4} fotos más` : ''}. ${count>0&&count<4?'Puedes continuar con estas fotos y añadir las demás después.':''}${internal ? ` · ${internal} archivo(s) privados` : ''}` : `${Math.min(count,4)} de 4 vistas principales · ${Math.max(0,Math.min(count-4,6))} adicionales.`;
+  }
+  function photoStamp() {
+    return JSON.stringify([String(collect().category), ...orderedCards().filter(card=>card.dataset.kind==='image'&&card.dataset.purpose!=='document').map(card=>`${card.dataset.assetId}:${card.dataset.purpose}`).sort()]);
+  }
+  function analysisPhotosCurrent(job) {
+    if(!Array.isArray(job.input_assets)) return true;
+    const current=orderedCards().filter(card=>card.dataset.kind==='image'&&card.dataset.purpose!=='document').map(card=>`${card.dataset.assetId}:${card.dataset.purpose}`).sort();
+    const analyzed=job.input_assets.map(item=>`${item.id}:${item.purpose}`).sort();
+    return JSON.stringify(current)===JSON.stringify(analyzed) && (!job.input_category || String(job.input_category)===String(collect().category));
+  }
+  function photoCheckMessage(message,error=false) {
+    const box=$('#photo-validation'); if(!box)return;
+    box.hidden=!message;box.textContent=message;box.classList.toggle('error',error);
+  }
+  function photoCorrection(job) {
+    const result=job.result||{}, categoryConflict=result.category_conflict, actions=$('#photo-correction-actions');
+    if(actions){actions.replaceChildren();actions.hidden=true;}
+    const excluded=['mixed','relevant','unrelated','uncertain'].includes(result.relevance?.status) ? result.relevance?.excluded_asset_ids?.length||0 : 0;
+    const blocked=Boolean(result.blocking_reason)||result.consistency?.status==='contradiction'||['unrelated','uncertain'].includes(result.relevance?.status)||excluded>0;
+    photoCheckBlocked=blocked;
+    if(!blocked)return false;
+    const message=categoryConflict?.message||result.multiple_machines?.message||(excluded?'Quita las imágenes señaladas que no corresponden a maquinaria antes de generar la ficha.':'')||result.consistency?.explanation||result.relevance?.message||'Revisa las fotografías antes de generar la ficha.';
+    photoCheckMessage(message,true);setAnalysisLoading(false);
+    $('#ready-heading').textContent='Revisa las fotos antes de generar la ficha';
+    $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha pendiente';
+    if(categoryConflict&&actions){
+      const option=[...$('#category').options].find(item=>item.textContent.trim().toLocaleLowerCase()===String(categoryConflict.detected).trim().toLocaleLowerCase());
+      if(option){const change=el('button','button button-outline',`Cambiar tipo a ${option.textContent}`);change.type='button';change.addEventListener('click',async()=>{change.disabled=true;try{$('#category').value=option.value;$('#category').dispatchEvent(new Event('change',{bubbles:true}));await save();photoCheckBlocked=false;schedulePhotoCheck();}catch(error){problem(error.message);}finally{change.disabled=false;}});actions.append(change);actions.hidden=false;}
+    }
+    renderRelevance(relevanceOf(job));
+    if(currentStep!==1)displayStep(1);
+    return true;
+  }
+  function schedulePhotoCheck() {
+    if(guest||!editable||deleting)return;
+    clearTimeout(preflightTimer);checkedPhotoStamp='';photoCheckBlocked=false;
+    $('#photo-correction-actions')?.replaceChildren();prepareLabel();
+    photoCheckMessage('Comprobaremos que las fotos correspondan al tipo de máquina elegido.');
+    $('#ready-heading').textContent='Fotos actualizadas · ficha pendiente';
+    preflightTimer=setTimeout(()=>startPhotoCheck(),700);
+  }
+  async function startPhotoCheck() {
+    if(preflightRunning||preparing||jobPending||submitting||deleting)return;
+    preflightRunning=true;prepareLabel();let started=false;
+    try{
+      await uploadsReady();await save();
+      const ids=orderedCards().filter(card=>card.dataset.kind==='image'&&card.dataset.purpose!=='document').map(card=>card.dataset.assetId);
+      if(!ids.length){photoCheckMessage('Agrega fotos o utiliza el número de serie para continuar.');return;}
+      if(!collect().category){photoCheckMessage('Selecciona el tipo de máquina antes de comprobar sus fotos.',true);return;}
+      preflightStamp=photoStamp();
+      photoCheckMessage('Comprobando las fotografías. Puedes quitar o añadir imágenes mientras esperas.');
+      const job=await api(`${base}analizar/`,{consent:true,asset_ids:ids,preflight:true,auto_apply:false,research:false,revision:state.revision});
+      started=true;activeJob=job.id;analysisStartedAt=Date.now();await pollJob(job.id);
+    }catch(error){preflightRunning=false;photoCheckMessage(error.message,true);}
+    finally{if(!started)preflightRunning=false;prepareLabel();}
+  }
+  function completedPhotoCheck(job) {
+    preflightRunning=false;
+    if(!analysisPhotosCurrent(job)||(preflightStamp&&preflightStamp!==photoStamp())){schedulePhotoCheck();return;}
+    checkedPhotoStamp=photoStamp();
+    if(!photoCorrection(job)){
+      renderRelevance(relevanceOf(job));
+      photoCheckMessage('Fotografías comprobadas. Ya puedes generar la ficha de maquinaria.');
+    }
+    prepareLabel();
   }
   function assetSummary(card) {
     const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
@@ -341,7 +394,7 @@
       button.disabled = true;
       try {
         await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action}));
-        if (action === 'delete') card.remove();
+        if (action === 'delete') {card.remove();schedulePhotoCheck();}
         if (action === 'cover') { $$('.asset-cover',wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover',card).hidden = false; }
         if (action === 'up' || action === 'down') { const cards=orderedCards(), index=cards.indexOf(card), other=cards[index+(action==='up'?-1:1)]; if (other) { const position=card.dataset.position; card.dataset.position=other.dataset.position; other.dataset.position=position; } }
         organizePhotos();
@@ -353,7 +406,7 @@
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
       const previous = card.dataset.purpose; if (preparing || submitting || downloading || deleting) { select.value = previous; return; } select.disabled = true;
-      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); }
+      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); schedulePhotoCheck(); }
       catch (error) { select.value = previous; problem(error.message); }
       finally { select.disabled = !editable || submitting || deleting; }
     });
@@ -370,7 +423,8 @@
     const cover = el('span','tag asset-cover','PORTADA'); cover.hidden = !result.is_cover; preview.append(cover);
     const info = el('details','asset-info'), summary = el('summary'), actions = el('div','asset-actions');
     for (const [action,label,symbol] of [['cover','Usar como portada','☆'],['up','Mover antes','←'],['down','Mover después','→'],['delete','Eliminar archivo','×']]) { const button = el('button','',symbol); button.type = 'button'; button.dataset.assetAction = action; button.setAttribute('aria-label',label); button.title = label; actions.append(button); }
-    info.append(summary,actions); card.append(preview,info); $('#asset-grid').append(card); assetSummary(card); assetActionButtons(card); organizePhotos(); renderPreview();
+    const remove=$('[data-asset-action="delete"]',actions);if(remove)remove.textContent='× Quitar';
+    info.append(summary); card.append(preview,info,actions); $('#asset-grid').append(card); assetSummary(card); assetActionButtons(card); organizePhotos(); renderPreview();
   }
   function sendFile(file,purpose,row) {
     return new Promise((resolve,reject) => {
@@ -399,7 +453,7 @@
       if (file.size > maxMb * 1024 * 1024) { uploadFailures.add(row); message.textContent = `Supera ${maxMb} MB. Elige un archivo más pequeño o descártalo.`; row.classList.add('error-text'); progress.hidden = true; omit.hidden = false; continue; }
       async function attempt() {
         uploadFailures.delete(row); retry.hidden = omit.hidden = true; progress.hidden = false; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
-        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido y verificado.'; progress.hidden = true; }
+        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido.'; progress.hidden = true; if(result.kind==='image'&&purpose!=='document')schedulePhotoCheck(); }
         catch (error) { uploadFailures.add(row); message.textContent = error.message; row.classList.add('error-text'); retry.hidden = omit.hidden = false; progress.hidden = true; }
         finally { uploadCount--; }
       }
@@ -439,7 +493,7 @@
     if (pdfDownload) pdfDownload.textContent = downloading && documentMode === 'pdf' ? 'Preparando PDF…' : 'Descargar ficha PDF ↓';
     sheetLinks.forEach(link => { link.setAttribute('aria-disabled',String(busy)); link.setAttribute('aria-busy',String(downloading && documentMode === 'screen')); });
     const sheetControl = $('#view-draft-sheet');
-    if (sheetControl) sheetControl.textContent = downloading && documentMode === 'screen' ? 'Abriendo tu ficha…' : 'Ver ficha en pantalla →';
+    if (sheetControl) sheetControl.textContent = downloading && documentMode === 'screen' ? 'Abriendo tu ficha…' : 'Ver ficha';
   }
   async function openDocument(event,mode) {
     event.preventDefault();
@@ -530,7 +584,7 @@
     if (!deleting) displayStep(1);
     return true;
   }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →'; $('#submit-machine').disabled = !editable || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
+  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →'; $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;}); $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
@@ -539,11 +593,19 @@
     return job;
   }
   async function completedJob(job) {
+    if(job.preflight||job.result?.preflight){completedPhotoCheck(job);return;}
+    if(!analysisPhotosCurrent(job)){
+      setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas · ficha pendiente';
+      $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha pendiente';
+      photoCheckMessage('Las fotos o el tipo de máquina cambiaron. Genera la ficha con la información actual.');
+      return;
+    }
     // Rejected/uncertain photos must never trigger legacy autofill or replace
     // the existing draft, even when an older client result contains fields.
     if (blockedRelevance(job)) return;
     job = await syncSnapshot(job);
     if (blockedRelevance(job)) return;
+    if(photoCorrection(job)){analysisOutcome='needs_information';analysisStatus('Corrige las fotos o el tipo elegido para generar una ficha coherente.','needs_information');return;}
     const readings = incompleteReadingsOf(job), incomplete = hasIncompleteReadings(job,readings);
     if (incomplete) {
       analysisOutcome = 'partial';
@@ -584,6 +646,13 @@
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(jobUrl(id));
+      if(job.preflight||job.result?.preflight){
+        jobPending=false;setAnalysisLoading(false);
+        if(job.status==='completed'){completedPhotoCheck(job);}
+        else if(job.status==='failed'){preflightRunning=false;photoCheckMessage(job.error||'No se pudo comprobar la fotografía. Intenta generar la ficha para volver a consultarla.',true);}
+        else{preflightRunning=true;photoCheckMessage('Comprobando que las fotografías correspondan a la maquinaria.');if(Date.now()-analysisStartedAt<10*60*1000)pollTimer=setTimeout(()=>pollJob(id),2500);else{preflightRunning=false;photoCheckMessage('La comprobación continúa. Puedes consultar su avance.',true);$('#analysis-resume').hidden=false;}}
+        return;
+      }
       analysisOutcome = job.status;
       if (job.status === 'completed') { jobPending = false; await completedJob(job); }
       else if (job.status === 'failed') { jobPending = false; setAnalysisLoading(false); await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
@@ -594,13 +663,14 @@
         if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; $('#analysis-loading-continue').hidden=false; jobPending = false; setAnalysisLoading(false); analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
-    } catch (error) { jobPending = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
+    } catch (error) { jobPending = false; preflightRunning = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
     finally { polling = false; prepareLabel(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
-    if (!editable || preparing || jobPending || polling || submitting || downloading || deleting) return;
+    if (!editable || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
+    clearTimeout(preflightTimer);
     if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();
     try {
@@ -608,8 +678,9 @@
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
       const mode = assetIds.length ? 'analysis' : 'description';
       if (!collect().category) throw new Error('Selecciona el tipo de máquina antes de generar la ficha.');
-      if (!assetIds.length && !String(collect().data.serial || '').trim()) throw new Error('Agrega al menos una fotografía o escribe el número de serie para generar la ficha.');
+      if (!assetIds.length && !String(collect().data.serial || '').trim() && !Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake')) throw new Error('Agrega una fotografía, escribe la serie o selecciona un modelo de la base técnica para generar la ficha.');
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode});
+      if(job.mode==='catalogue' && job.refresh){hydrate(job.machine);displayStep(2);$('#ready-heading').textContent='Ficha de referencia preparada.';return;}
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
       displayStep(2); setAnalysisLoading(true,'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.'); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
@@ -883,7 +954,7 @@
     if(coverBox.dataset.photos!==signature || !coverBox.children.length){
       coverBox.dataset.photos=signature;coverBox.replaceChildren();
       const controls=$('#preview-carousel-controls'), extra=$('#preview-extra-grid');controls?.replaceChildren();extra?.replaceChildren();
-      const makePhoto=card=>{const link=el('a','ready-slide'),image=el('img');link.href=`${assetUrl(card.dataset.assetId)}?original=1`;link.target='_blank';link.rel='noopener';image.src=assetUrl(card.dataset.assetId);image.dataset.assetId=card.dataset.assetId;image.alt='Fotografía de la maquinaria';link.append(image);return link;};
+      const makePhoto=card=>{const slide=el('div','ready-slide'),link=el('a'),image=el('img');link.href=`${assetUrl(card.dataset.assetId)}?original=1`;link.target='_blank';link.rel='noopener';image.src=assetUrl(card.dataset.assetId);image.dataset.assetId=card.dataset.assetId;image.alt='Fotografía de la maquinaria';link.append(image);slide.append(link);if(editable){const remove=el('button','ready-photo-remove','× Quitar foto');remove.type='button';remove.addEventListener('click',()=>{const action=$('[data-asset-action="delete"]',card);if(action&&!action.disabled)action.click();});slide.append(remove);}return slide;};
       images.slice(0,4).forEach(card=>coverBox.append(makePhoto(card)));
       if(extra)images.slice(4,10).forEach(card=>extra.append(makePhoto(card)));
       if($('#ready-additional-photos'))$('#ready-additional-photos').hidden=images.length<=4;
@@ -957,7 +1028,7 @@
     if (!editable || deleting || preparing || submitting || downloading) return;
     if (conflict) return problem('El borrador cambió en otra sesión. Conservamos tus correcciones; recarga la versión actual antes de eliminar.');
     if (!confirm(deleteDraftConfirmation)) return;
-    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearProblem();
+    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearTimeout(preflightTimer); clearProblem();
     const button = $('#delete-draft'), frozen = $$('input,textarea,select,button',wizard).map(control => [control,control.disabled]);
     frozen.forEach(([control]) => { control.disabled = true; });
     button.textContent = 'Moviendo a la papelera…'; prepareLabel();

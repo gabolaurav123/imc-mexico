@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core.files.base import ContentFile
 from django.test import Client, TestCase, override_settings
 
-from portal.intake import preparation_mode
+from portal.intake import has_completed_preparation, preparation_mode
 from portal.models import AnalysisJob, Asset, Category, Lead, Machine, MachineVersion, PreparedShare, Publication, User
 from portal.public_data import public_projection
 
@@ -74,6 +74,42 @@ class PreparedSharingTests(TestCase):
             self.assertEqual(Client().get(f"/s/{share.code}/archivo/{excluded.pk}/").status_code, 404)
         self.assertEqual(Client().get(f"/s/{share.code}/pdf/").status_code, 404)
         self.assertEqual(self.client.get(f"/panel/maquinarias/{self.machine.pk}/pdf/").status_code, 403)
+
+    def test_owner_sheet_prepares_the_link_in_a_modal_without_returning_to_the_editor(self):
+        page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/ficha/")
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, f'data-share-machine-id="{self.machine.pk}"', count=2)
+        self.assertContains(page, 'id="share-modal"')
+        self.assertContains(page, 'WhatsApp')
+        self.assertContains(page, 'Facebook')
+        self.assertContains(page, 'Instagram y otras apps')
+        self.assertNotContains(page, '#share-options')
+
+    def test_ready_editor_uses_the_same_share_modal(self):
+        page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/")
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'id="share-modal"')
+        self.assertContains(page, 'portal/share-modal.js')
+        self.assertContains(page, 'data-share-machine', count=2)
+        self.assertNotContains(page, 'id="share-options"')
+
+    def test_unexpected_share_failure_remains_a_json_response(self):
+        with patch("portal.sharing.preparation_mode", side_effect=RuntimeError("database adapter failed")), \
+             patch("portal.sharing.logger"):
+            response = self.enable()
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response["Content-Type"].split(";", 1)[0], "application/json")
+        self.assertIn("No se pudo preparar el enlace", response.json()["error"])
+
+    def test_postgres_lock_targets_machine_not_optional_category_join(self):
+        from django.db.backends.postgresql.base import DatabaseWrapper
+        from portal.sharing import _locked_machine_query
+
+        postgres = DatabaseWrapper({"ENGINE": "django.db.backends.postgresql", "NAME": "share_test"}, "share_test")
+        with patch("portal.sharing.connection.features.has_select_for_update_of", True), \
+             patch.object(postgres, "get_autocommit", return_value=False):
+            sql, _ = _locked_machine_query().query.get_compiler(connection=postgres).as_sql()
+        self.assertIn('FOR UPDATE OF "portal_machine"', sql)
 
     def test_serial_is_explicit_opt_in_and_can_be_removed_without_changing_link(self):
         self.photo()
@@ -173,6 +209,30 @@ class PreparedSharingTests(TestCase):
         self.assertEqual(blocked.status_code, 400)
         self.assertIn("nuevas fotografías", blocked.json()["error"])
         self.assertEqual(self.enable(asset_ids=[str(unassessed.pk)]).status_code, 400)
+
+    def test_preflight_for_a_current_photo_cannot_reuse_a_removed_photos_normal_analysis(self):
+        old_photo = self.photo()
+        old_photo.processing_status = "pending"
+        old_photo.save(update_fields=["processing_status"])
+        current_photo = self.photo(assessment=None)
+        preflight = AnalysisJob.objects.create(machine=self.machine, requested_by=self.user, revision=self.machine.revision,
+            status="completed", fingerprint=uuid.uuid4().hex, asset_ids=[str(current_photo.pk)],
+            result={"preflight": True, "relevance": {"status": "relevant", "accepted_asset_ids": [str(current_photo.pk)]}})
+        with patch("portal.catalogue_intake.catalogue_reference_ready", return_value=True), \
+             patch("portal.catalogue_intake.catalogue_reference_stale", return_value=False):
+            self.assertFalse(has_completed_preparation(self.machine))
+        approved = MachineVersion.objects.create(machine=self.machine, created_by=self.user, number=1,
+            data={"data": self.machine.data, "title": self.machine.title})
+        self.machine.approved_version = approved
+        self.machine.save(update_fields=["approved_version"])
+        blocked = self.enable()
+        self.assertEqual(blocked.status_code, 400, blocked.content)
+        self.assertIn("Genera la ficha", blocked.json()["error"])
+
+        preflight.result["preflight"] = False
+        preflight.save(update_fields=["result"])
+        self.assertTrue(has_completed_preparation(self.machine))
+        self.assertEqual(self.enable().status_code, 200)
 
     def test_serial_only_can_share_useful_completed_generation_and_contact_lead(self):
         AnalysisJob.objects.create(machine=self.machine, requested_by=self.user, revision=1,
