@@ -158,6 +158,9 @@ def catalogue_proposal(category_id, model_id):
     description_sources = {key: {**meta, "source": "web"} if meta.get("source") == MODEL_SOURCE else meta
                            for key, meta in provenance.items()}
     data["description"] = compose_description(data, description_sources, category=category.name)
+    if len(data["description"].splitlines()) < 3 and all(data.get(key) for key in ("estimate_min", "estimate_max", "estimate_currency")):
+        data["description"] += (f"\nValor orientativo de equipos comparables: {data['estimate_min']}"
+                                f"–{data['estimate_max']} {data['estimate_currency']}.")
     return {"category": category, "model": model, "data": data, "provenance": provenance,
             "reference_count": len(references), "mode": "catalogue"}
 

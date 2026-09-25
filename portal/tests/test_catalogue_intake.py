@@ -55,6 +55,14 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertTrue(has_completed_preparation(machine))
         self.assertEqual(require_prepared_serial(machine), "catalogue")
 
+    def test_model_without_specs_still_describes_its_documented_period_and_market_range(self):
+        self.reference.specs = {}
+        self.reference.save(update_fields=["specs"])
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        self.assertEqual(len(proposal["data"]["description"].splitlines()), 3)
+        self.assertIn("Valor orientativo de equipos comparables", proposal["data"]["description"])
+        self.assertNotIn("power", proposal["data"])
+
     def test_manual_edits_keep_owner_provenance_and_do_not_backfill_unit_fields(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
         machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
