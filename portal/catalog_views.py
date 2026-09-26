@@ -89,6 +89,8 @@ def _public_publications():
     return Publication.objects.filter(destination="share", enabled=True, status="published",
                                       machine__deleted_at__isnull=True,
                                       machine__availability__in=["available", "reserved", "sold"],
+                                      machine__owner__is_active=True,
+                                      machine__owner__is_guest=False,
                                       machine__owner__advertiser_status="approved",
                                       version_id__isnull=False,
                                       version__approved_machines__isnull=False,

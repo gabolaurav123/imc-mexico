@@ -106,7 +106,9 @@ def set_imc_media_selection(machine, actor, slots):
     _require_publisher(actor)
     if not isinstance(slots, list):
         raise ValidationError("La selección de medios no es válida.")
-    machine = Machine.objects.select_for_update().select_related("approved_version", "owner").get(pk=machine.pk)
+    # approved_version is nullable: PostgreSQL must lock only the Machine row,
+    # not the nullable side of this join.
+    machine = Machine.objects.select_for_update(of=("self",)).select_related("approved_version", "owner").get(pk=machine.pk)
     if not machine.approved_version_id:
         raise ValidationError("Primero se requiere una versión aprobada.")
     requested = {}

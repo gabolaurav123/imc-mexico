@@ -22,6 +22,7 @@ from .services import (CATALOGUE_TECHNICAL_LABELS, PLATE_TECHNICAL_LABELS, WEB_F
                        public_valuation, valuations_for_provenance)
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, AGE_LABELS
 from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
+from .sheet_details import build_technical_summary, clean_sheet_text
 
 NAVY = colors.HexColor("#000033")
 ORANGE = colors.HexColor("#E38C1A")
@@ -61,7 +62,7 @@ _OPERATING_STATUS = {"Confirmado por el propietario": "Funcionamiento declarado 
 
 
 def _present(value):
-    return value is not None and value != "" and not isinstance(value, (dict, list, bool))
+    return bool(clean_sheet_text(value))
 
 
 def _price(value, currency):
@@ -98,7 +99,7 @@ def _pdf_text(value):
     clean = re.sub(r"\s+([,;.])", r"\1", clean)
     clean = clean.strip()
     clean = re.sub(r"^[,;]+\s*", "", clean)
-    return re.sub(r"[,;]+$", "", clean).strip()
+    return clean_sheet_text(re.sub(r"[,;]+$", "", clean).strip())
 
 
 def _description_text(value, provenance):
@@ -269,12 +270,15 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
         ]))
         return table
 
+    shown_fields = set()
+
     def specification_table(label, keys, labels=None):
         entries = [(key, _display_value(key, values[key])) for key in keys
-                   if _present(values.get(key)) and not (public and key in PRIVATE_FIELDS)]
+                   if key not in shown_fields and _present(values.get(key)) and not (public and key in PRIVATE_FIELDS)]
         entries = [(key, value) for key, value in entries if _present(value)]
         if not entries:
             return
+        shown_fields.update(key for key, value in entries)
         rows = [[para(label, "WhiteHeading"), ""]]
         for key, value in entries:
             name = LABELS.get(key, (labels or {}).get(key, key.replace("_", " ").capitalize()))
@@ -295,7 +299,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
     category = getattr(machine, "category", None)
     category_name = snapshot.get("category_name", "") if version else getattr(category, "name", "")
     state = "FICHA PARA DIFUSIÓN" if public else "FICHA DEL PROPIETARIO"
-    story = [para(category_name.upper() if category_name else "FICHA TÉCNICA Y COMERCIAL", "Eyebrow"),
+    story = [para(f"TIPO DE MÁQUINA · {category_name.upper()}" if category_name else "FICHA TÉCNICA Y COMERCIAL", "Eyebrow"),
              para(title, "Title"),
              para(f"{machine.folio}  |  Versión {version.number if version else machine.revision}  |  {now:%d/%m/%Y}", "Small"),
              para(state, "Label"), Spacer(1, 3 * mm)]
@@ -322,11 +326,12 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
         or serial_meta.get("source") == "plate" and serial_meta.get("review") == "clear"
         and serial_meta.get("component") == "machine"
     ):
-        identity_keys.insert(2, "serial")
+        identity_keys.insert(0, "serial")
     summary_keys = [key for key in identity_keys
                     if _present(_display_value(key, values.get(key))) and len(str(values[key])) <= 40 and "\n" not in str(values[key])]
     summary_keys = summary_keys[:4]
     displayed_identity = summary_keys if primary else []
+    shown_fields.update(displayed_identity)
     if primary:
         if summary_keys:
             identity = [para("EL EQUIPO", "Eyebrow")]
@@ -351,11 +356,15 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
                                     max_image_width=88 * mm if primary_is_plate else None))
         caption = "PLACA DE IDENTIFICACIÓN" if primary_is_plate else "VISTA PRINCIPAL  |  Fotografía del equipo"
         story.extend([Spacer(1, 2 * mm), para(caption, "Label")])
-    elif not public:
-        text = "Las fotografías de la maquinaria se incorporarán aquí."
-        story.append(panel([[para("VISTA DEL EQUIPO", "Eyebrow"), para(text)]], [width]))
     if unreadable:
         story.append(para("Una fotografía no estaba disponible al generar este documento.", "Small"))
+
+    if not primary:
+        # Serial-only preparation has no hero photo; put its identity first.
+        identification = [key for key in ("serial", "brand", "model", "year", "hours")
+                          if _present(values.get(key)) and not (public and key in PRIVATE_FIELDS)]
+        specification_table("Identificación del equipo", identification)
+        displayed_identity = identification
 
     price = _price(values.get("price"), values.get("currency")) if _present(values.get("price")) else ""
     commercial = []
@@ -367,10 +376,11 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
     display_location = _pdf_text(values.get("location") or ', '.join(str(values[key]) for key in ('location_city','location_region','location_country') if values.get(key)))
     if _present(display_location):
         commercial.append([para("UBICACIÓN", "Label"), para(display_location, "Value")])
-    story.extend([Spacer(1, 3 * mm), panel(commercial, [width * .34, width * .30, width * .36])])
+    story.extend([Spacer(1, 3 * mm), panel(commercial, [width / len(commercial)] * len(commercial))])
     highlights = [key for key in ("power", "weight", "capacity", "engine", "transmission", "fuel")
                   if _present(_display_value(key, values.get(key))) and len(str(values[key])) <= 65 and "\n" not in str(values[key])][:3]
     if highlights:
+        shown_fields.update(highlights)
         cells = [[para(LABELS[key].upper(), "Label"), para(_display_value(key, values[key]), "Value")]
                  for key in highlights]
         story.extend([Spacer(1, 2 * mm), panel(cells, [width / len(cells)] * len(cells))])
@@ -392,15 +402,18 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
             year_value = f"Desde {values['estimated_year_from']}"
         else:
             year_value = f"Hasta {values['estimated_year_to']}"
-        age_cell = [para("Año aproximado", "TableLabel"), para(year_value, "Value")]
+        age_cell = [para("Rango de año estimado", "TableLabel"), para(year_value, "Value")]
         cover_note(age_cell, AGE_LABELS["estimated_year_basis"], values.get("estimated_year_basis"))
         cover_reference.append(age_cell)
-    if _present(values.get("estimate_min")) or _present(values.get("estimate_max")) or _present(values.get("estimate_suggested_price")):
+    if values.get("estimate_currency") in {"USD", "MXN", "EUR"} and any(
+        _present(values.get(key)) for key in ("estimate_min", "estimate_max", "estimate_suggested_price")
+    ):
         if _present(values.get("estimate_min")) and _present(values.get("estimate_max")):
             estimate_value = _estimate_range(values["estimate_min"], values["estimate_max"], values.get("estimate_currency"))
         else:
             estimate_value = _estimate_price(next(values[key] for key in ("estimate_min", "estimate_max", "estimate_suggested_price") if _present(values.get(key))), values.get("estimate_currency"))
-        estimate_cell = [para("Valor estimado", "TableLabel"), para(estimate_value, "Value")]
+        estimate_cell = [para("Rango de precio estimado", "TableLabel"), para(estimate_value, "Value"),
+                         para("Estimación orientativa del modelo", "Small")]
         comparable_types = {item.get("price_type") for item in valuation.get("comparables", [])
                             if isinstance(item, dict) and item.get("price_type")}
         market_label = "Precios anunciados de referencia" if comparable_types == {"asking"} else "Referencia de mercado"
@@ -412,8 +425,9 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
     description = _description_text(values.get("description"), provenance.get("description"))
     # Bound the cover copy so a long owner description cannot move the visual
     # condition block beyond page 2. The complete text remains below when needed.
-    short_description = shorten(description, width=600, placeholder="…")
-    section("Descripción del equipo", [para(short_description)] if short_description else [])
+    summary = build_technical_summary({**values, "description": description}, provenance)
+    short_description = "\n".join(summary)
+    section("Características técnicas", [para(short_description)] if short_description else [])
     # Keep the photo, estimates and short description on the actual first page.
     # Bounded cover copy limits scaling; complete long notes remain below.
     story = [KeepInFrame(width, document.height - 12, story, mode="shrink", hAlign="LEFT")]
@@ -425,7 +439,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
         story.append(PageBreak())
         specification_table("Estado aparente, componentes y aplicaciones", list(VISUAL_LABELS))
     section("Información complementaria", reference_continuations)
-    if short_description != " ".join(description.split()):
+    if description and " ".join(description.split()) not in " ".join(short_description.split()) and provenance.get("description", {}).get("source") not in {"system", "ai", "web"}:
         section("Descripción ampliada", [para(description)])
     specification_table("Identificación del equipo", [key for key in ("brand", "model", "hours", "year", "serial", "country_of_origin", "manufacturer", "manufacturer_address")
                                                        if key not in displayed_identity])

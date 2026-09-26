@@ -30,4 +30,11 @@ $('#photos-question [data-identifier-back]').click(); $('[data-identifier-answer
 assert.equal(submit($('#identifier-yes .intake-finish')),true,'yes must choose plate or typed input before creating a draft');
 $('[data-identifier-choice="typed"]').click(); $('#typed-serial').value='  SERIAL-QA-001  '; $('#typed-serial').dispatchEvent(new window.Event('input',{bubbles:true}));
 assert.equal(submit($('#identifier-yes .intake-finish')),false); assert.equal($('#start-serial').value,'SERIAL-QA-001');
-dom.window.close();console.log('Start intake DOM PASS: category, serial, photo decision, approved catalogue model, manual identity, and guards.');
+// The AI can identify the type from a serial or photographs alone.
+$('#start-category').value='';
+assert.equal(submit($('#identifier-yes .intake-finish')),false,'serial-only entry permits an unknown category');
+$('#identifier-yes [data-identifier-back]').click(); $('[data-identifier-answer="no"]').click(); $('[data-photo-answer="yes"]').click();
+assert.equal(submit($('#photos-yes .intake-finish')),false,'photo-only entry permits an unknown category');
+$('#photos-yes [data-photo-back]').click(); $('[data-photo-answer="no"]').click();
+assert.equal($('#type-question').hidden,false,'catalogue route retains its category requirement');
+dom.window.close();console.log('Start intake DOM PASS: optional AI type, serial, photo decision, approved catalogue model, manual identity, and guards.');

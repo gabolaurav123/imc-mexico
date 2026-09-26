@@ -306,7 +306,7 @@ class PreparedSharingTests(TestCase):
         self.machine.save(update_fields=["availability", "owner"])
         self.assertEqual(Client().get(self.path(result)).status_code, 404)
 
-    def test_analysis_requires_category_and_serial_or_photo_not_description(self):
+    def test_analysis_accepts_serial_or_photo_without_category_but_not_description_only(self):
         self.machine.data = {"description": "Texto solo", "brand": "CAT", "model": "320"}
         self.machine.save(update_fields=["data"])
         with patch('portal.processing.enqueue_analysis') as enqueue:
@@ -319,8 +319,9 @@ class PreparedSharingTests(TestCase):
         self.photo()
         self.assertEqual(preparation_mode(self.machine), "analysis")
         self.machine.category = None
-        with self.assertRaisesMessage(Exception, "tipo de máquina"):
-            preparation_mode(self.machine)
+        self.assertEqual(preparation_mode(self.machine), "analysis")
+        self.machine.assets.all().delete()
+        self.assertEqual(preparation_mode(self.machine), "description")
 
     def test_price_range_requires_currency_and_order_and_never_becomes_asking_price(self):
         data = {"estimate_min": "10", "estimate_max": "20", "estimate_currency": "USD"}

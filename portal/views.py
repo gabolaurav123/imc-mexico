@@ -101,7 +101,7 @@ def contact(request):
         try:linked_machine=Machine.objects.select_related('owner','approved_version').get(pk=machine_id)
         except (Machine.DoesNotExist,ValidationError,ValueError):raise Http404
         private_access=request.user.is_authenticated and (linked_machine.owner_id==request.user.pk or (staff_authorized(request.user) and request.user.has_perm('portal.view_machine')))
-        public_access=linked_machine.approved_version_id and linked_machine.owner.advertiser_status=='approved' and linked_machine.availability!='withdrawn' and linked_machine.publications.filter(destination='share',enabled=True,status='published',version_id=linked_machine.approved_version_id).exists()
+        public_access=linked_machine.approved_version_id and linked_machine.owner.is_active and not linked_machine.owner.is_guest and linked_machine.owner.advertiser_status=='approved' and linked_machine.availability!='withdrawn' and linked_machine.publications.filter(destination='share',enabled=True,status='published',version_id=linked_machine.approved_version_id).exists()
         prepared=None
         if share_code:
             from .sharing import record
@@ -159,7 +159,7 @@ def machine_create(request):
         declared={key:request.POST.get(key,'').strip()[:limit] for key,limit in
                   {'brand':100,'model':100,'description':10000}.items()}
         category=None
-        if category_id in (None, '', 'unsure'):
+        if category_id in (None, '', 'unsure') and request.POST.get('entry_mode') in {'catalogue','manual_identity'}:
             return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
                 'catalogue_intake_json':catalogue_choices(categories),
                 'error':'Selecciona el tipo de máquina que quieres anunciar.'},status=400)
@@ -314,11 +314,12 @@ def machine_state(machine):
 
 
 def analysis_state(job, machine):
+    from .intake import preparation_completeness
     result=job.result if job.status=='completed' else None
     if isinstance(result,dict):result={key:value for key,value in result.items() if key!='photo_cache'}
     if isinstance(result,dict) and isinstance(result.get('valuation'),dict):
         result={**result,'valuation':{key:value for key,value in result['valuation'].items() if key!='diagnostics'}}
-    return {'id':str(job.pk),'status':job.status,'result':result,'preflight':job.result.get('preflight') is True,
+    return {'id':str(job.pk),'status':job.status,'result':result,'completion':preparation_completeness(machine,job) if job.status=='completed' else {},'preflight':job.result.get('preflight') is True,
             'input_assets':[{'id':str(item.get('id')), 'purpose':item.get('purpose')}
                 for item in (job.application_snapshot or {}).get('assets',[])
                 if item.get('kind')=='image' and item.get('purpose')!='document'],
@@ -466,11 +467,11 @@ def safe_public_data(snapshot):
 
 def public_record(token):
     publication=get_object_or_404(Publication.objects.select_related('machine','version','machine__owner'),token=token,destination='share',enabled=True,status='published',machine__deleted_at__isnull=True)
-    if not publication.version or publication.machine.owner.advertiser_status!='approved' or publication.version_id!=publication.machine.approved_version_id or publication.machine.availability=='withdrawn':raise Http404
+    if not publication.version or not publication.machine.owner.is_active or publication.machine.owner.is_guest or publication.machine.owner.advertiser_status!='approved' or publication.version_id!=publication.machine.approved_version_id or publication.machine.availability=='withdrawn':raise Http404
     return publication
 
 def sheet_context(machine,version=None,public=False,token=None):
-    from .sheet_details import build_sheet_details
+    from .sheet_details import build_sheet_details, build_technical_summary, finished_sheet_data
     from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
     from .commercial import commercial_rows, ESTIMATE_LABEL
     original_data=version.data.get('data',{}) if version else machine.data
@@ -493,6 +494,7 @@ def sheet_context(machine,version=None,public=False,token=None):
         for asset in assets:
             if str(asset.pk) in plate_ids:
                 asset.purpose='plate'
+    data=finished_sheet_data(data)
     category_name=version.data.get('category_name','') if version else (machine.category.name if machine.category_id else '')
     field_provenance=version.data.get('provenance',{}) if version else machine.provenance
     def origin_label(key):
@@ -528,7 +530,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     asset_base_url = f'/ficha/{token}/archivo/' if public else '/archivos/'
     essential_keys = {'weight', 'power', 'capacity', 'digging_depth', 'lift_height', 'working_height', 'drum_width', 'engine', 'dimensions', 'fuel'}
     essential_fields = [item for item in extra_fields if item['key'] in essential_keys][:6]
-    return {'essential_fields': essential_fields, 'main_assets': gallery[:4], 'additional_assets': gallery[4:10], 'asset_base_url': asset_base_url, 'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':{} if public else field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,'display_location':display_location,'has_identification':has_identification,
+    return {'technical_summary_lines': build_technical_summary(data,field_provenance,category=category_name), 'essential_fields': essential_fields, 'main_assets': gallery[:4], 'additional_assets': gallery[4:10], 'asset_base_url': asset_base_url, 'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':{} if public else field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,'display_location':display_location,'has_identification':has_identification,
             'commercial_rows':commercial_rows(data,field_provenance),'valuation':{} if public else services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL}
 
 @login_required

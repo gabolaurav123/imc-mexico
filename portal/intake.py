@@ -16,8 +16,6 @@ def contact_complete(user):
 
 def preparation_mode(machine, asset_ids=None):
     """Choose a supported preparation route without treating model data as unit proof."""
-    if not machine.category_id:
-        raise ValidationError("Selecciona el tipo de máquina antes de generar la ficha.")
     images = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
     if asset_ids:
         if not isinstance(asset_ids, list):
@@ -62,6 +60,34 @@ def has_completed_preparation(machine):
             continue
         prepared_photo_ids.update(str(asset_id) for asset_id in job.asset_ids)
     return current_photo_ids <= prepared_photo_ids
+
+
+def preparation_completeness(machine, job=None):
+    """Check the saved sheet, including edits made while a new AI job ran.
+
+    Historical shares keep their contract. New jobs explicitly declare this
+    completion contract, so unavailable evidence cannot silently mean ready.
+    """
+    if job is None:
+        job = machine.analysis_jobs.filter(status="completed").order_by("-created_at", "-pk").first()
+    if not job or not isinstance(job.result, dict) or "completion" not in job.result:
+        return {}
+    from .public_data import public_projection
+    data = public_projection({"data": machine.data, "provenance": machine.provenance})
+    missing = [key for key in ("brand", "model") if not data.get(key)]
+    if not machine.category_id:
+        missing.append("category")
+    if not all(data.get(key) is not None for key in ("estimated_year_from", "estimated_year_to")):
+        missing.append("year_range")
+    if not all(data.get(key) is not None for key in ("estimate_min", "estimate_max", "estimate_currency")):
+        missing.append("price_range")
+    if not data.get("description"):
+        missing.append("description")
+    labels = {"brand": "marca", "model": "modelo", "category": "tipo de máquina",
+              "year_range": "rango de años", "price_range": "rango de precio", "description": "características técnicas"}
+    message = ("No se pudo completar: " + ", ".join(labels[key] for key in missing)
+               + ". Agrega una foto nítida de la placa o corrige la marca y el modelo y vuelve a generar la ficha.") if missing else ""
+    return {"missing_fields": missing, "message": message}
 
 
 def require_prepared_serial(machine):

@@ -12,6 +12,34 @@ from portal.sheet_details import build_sheet_details
 @override_settings(STORAGES={"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class VirtualSheetTests(SimpleTestCase):
+    def test_price_and_year_ranges_remain_visible_with_exact_owner_values(self):
+        context = self.context()
+        context['data'].update(price='125000', currency='USD', estimate_min='100000', estimate_max='150000',
+                               estimate_currency='USD', year=2012, estimated_year_from=2010, estimated_year_to=2014,
+                               location_country='México', location_region='Baja California Sur', location_city='La Paz')
+        for public in (False, True):
+            context['public'] = public
+            html = render_to_string('portal/sheet.html', context)
+            for expected in ('125000 USD', '100000–150000 USD', '<dd>2012</dd>', '2010–2014',
+                             '<dt>País</dt><dd>México', 'Baja California Sur', '<dt>Ciudad</dt><dd>La Paz',
+                             '<dt>Horas de uso</dt><dd>0'):
+                self.assertIn(expected, html)
+
+    def test_finished_document_has_no_placeholder_rows_or_long_technical_block(self):
+        context = self.context()
+        context['data'].update(model='Pendiente', condition='unknown', location='Sin datos',
+                               description='Cabina cerrada. Año por confirmar. Fuga visible. ' + 'Dato técnico. ' * 12)
+        html = render_to_string('portal/sheet.html', context)
+        article = html.split('<article', 1)[1].split('</article>', 1)[0]
+        self.assertNotIn('<dt>Modelo</dt>', article)
+        self.assertNotIn('<dt>Estado de uso</dt>', article)
+        self.assertNotIn('<dt>Ubicación</dt>', article)
+        self.assertNotIn('Pendiente', article)
+        self.assertNotIn('por confirmar', article)
+        summary = article.split('finished-technical-summary', 1)[1]
+        self.assertEqual(summary.count('<p>'), 4)
+        self.assertIn('Fuga visible.', summary)
+
     def context(self):
         owner = User(email="screen-fixture@example.invalid")
         data = {"brand": "Marca de prueba", "model": "Modelo de prueba", "serial": "PRIVATE-SERIAL",
@@ -27,7 +55,7 @@ class VirtualSheetTests(SimpleTestCase):
 
     def test_owner_sheet_shows_essential_data_and_omits_administrative_details(self):
         html = render_to_string("portal/sheet.html", self.context())
-        for value in ("Datos del equipo", "Información adicional", "4.5 kW",
+        for value in ("Datos del equipo", "Características técnicas", "4.5 kW",
                       "Ubicación actual declarada", "PRIVATE-SERIAL"):
             self.assertIn(value, html)
         for value in ("PRIVATE-NOTE", "PRIVATE-TRANSCRIPTION", "Leído en placa", "Cómo interpretar estos datos",
@@ -61,10 +89,10 @@ class VirtualSheetTests(SimpleTestCase):
                 context['data'].update(price=None, estimate_min=minimum, estimate_max=maximum, estimate_currency='USD')
                 html = render_to_string('portal/sheet.html', context)
                 if expected:
-                    self.assertIn('<dt>Precio estimado</dt>', html)
+                    self.assertIn('<dt>Rango de precio estimado</dt>', html)
                     self.assertIn(expected, html)
                 else:
-                    self.assertNotIn('<dt>Precio estimado</dt>', html)
+                    self.assertNotIn('<dt>Rango de precio estimado</dt>', html)
 
     def test_public_serial_requires_explicit_authorization_flag(self):
         context = self.context()

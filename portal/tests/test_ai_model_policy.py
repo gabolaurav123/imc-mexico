@@ -55,10 +55,10 @@ class ModelPolicyTests(SimpleTestCase):
         for images in (0, 1, 2, 20):
             with self.subTest(images=images):
                 self.assertEqual(_reservation(images, "analysis", model=DEFAULT_MODEL), max(1, images) * 15700)
-                self.assertEqual(_reservation(images, "analysis", True, model=DEFAULT_MODEL), max(1, images) * 15700 + 95500 + 43000)
-                self.assertEqual(_reservation(images, "analysis", True, model="gpt-4.1-mini"), max(1, images) * 12200 + 78000 + 36000)
+                self.assertEqual(_reservation(images, "analysis", True, model=DEFAULT_MODEL), max(1, images) * 15700 + 95500 + 43000 + 13500)
+                self.assertEqual(_reservation(images, "analysis", True, model="gpt-4.1-mini"), max(1, images) * 12200 + 78000 + 36000 + 10000)
         self.assertEqual(_reservation(0, "description", model=DEFAULT_MODEL), 12500)
-        self.assertEqual(_reservation(0, "description", True, model=DEFAULT_MODEL, research_description_only=True), 95500)
+        self.assertEqual(_reservation(0, "description", True, model=DEFAULT_MODEL, research_description_only=True), 95500 + 43000 + 13500)
 
     @override_settings(OPENAI_TIMEOUT=90, AI_JOB_STALE_SECONDS=600)
     def test_lease_covers_serial_vision_research_valuation_and_preserves_recorded_deadline(self):
@@ -160,7 +160,7 @@ class ReasoningModelWorkerTests(TestCase):
 
     def test_exact_capacity_admits_one_attempt_but_one_token_short_never_calls_provider(self):
         limits = PlatformSettings.objects.get(pk=1)
-        limits.ai_daily_token_limit = 2 * 15700 + 95500 + 43000 - 1
+        limits.ai_daily_token_limit = 2 * 15700 + 95500 + 43000 + 13500 - 1
         limits.save()
         with self.assertRaises(ValidationError):
             enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True)
@@ -169,9 +169,9 @@ class ReasoningModelWorkerTests(TestCase):
         limits.ai_daily_token_limit += 1
         limits.save()
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True, research=True)
-        self.assertEqual((job.reserved_tokens, job.result["attempt_limit"]), (169900, 1))
+        self.assertEqual((job.reserved_tokens, job.result["attempt_limit"]), (183400, 1))
         limits.refresh_from_db()
-        self.assertEqual(limits.ai_daily_token_limit, 169900)
+        self.assertEqual(limits.ai_daily_token_limit, 183400)
 
     def test_missing_usage_and_second_photo_timeout_charge_only_attempted_reasoning_requests(self):
         job = enqueue_analysis(self.machine, self.owner, authorize_ai=True)

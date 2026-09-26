@@ -6,6 +6,91 @@ database lookup, numeric conversion, or model inference is performed here.
 import math
 import re
 import unicodedata
+from textwrap import wrap
+
+
+_EMPTY_COPY = {
+    "n/a", "na", "n.d.", "nd", "n/d", "unknown", "desconocido", "desconocida",
+    "por definir", "pendiente", "sin información", "sin informacion", "sin datos",
+    "no indicado", "no indicada", "no identificado", "no identificada", "por confirmar",
+    "por revisar", "pendiente de confirmar", "sin estimar", "consultar precio", "-", "—",
+}
+_WORKFLOW_COPY = re.compile(
+    r"\b(?:pendientes?(?:\s+de\s+(?:confirmaci[oó]n|confirmar|revisi[oó]n|revisar|validaci[oó]n))?"
+    r"|por\s+(?:confirmar|revisar|definir)|sin\s+estimar)\b", re.I,
+)
+_SUMMARY_FIELDS = (
+    ("power", "Potencia"), ("weight", "Peso operativo"), ("capacity", "Capacidad"),
+    ("digging_depth", "Profundidad de excavación"), ("lift_height", "Altura de elevación"),
+    ("working_height", "Altura de trabajo"), ("drum_width", "Ancho de tambor"),
+    ("engine", "Motor"), ("fuel", "Combustible"), ("dimensions", "Dimensiones"),
+    ("transmission", "Transmisión"), ("hydraulic_system", "Sistema hidráulico"),
+    ("vibration_frequency", "Frecuencia de vibración"), ("centrifugal_force", "Fuerza centrífuga"),
+)
+
+
+def clean_sheet_text(value):
+    """Remove empty/status-only copy without inventing a replacement value.
+
+    Keep sentences describing real machine defects. A sentence containing an
+    unresolved claim is omitted in full, never rewritten as a confirmed fact.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return ""
+    if isinstance(value, float) and not math.isfinite(value):
+        return ""
+    text = str(value).strip()
+    if text.casefold() in _EMPTY_COPY or text.casefold().strip(" .:;") in _EMPTY_COPY:
+        return ""
+    if not _WORKFLOW_COPY.search(text):
+        return text
+    parts = re.split(r"(?<=[.!?;])\s+|[\r\n]+", text)
+    return " ".join(part.strip() for part in parts
+                     if part.strip() and not _WORKFLOW_COPY.search(part))
+
+
+def finished_sheet_data(data):
+    """Clean a display copy; the editable draft and source evidence stay intact."""
+    if not isinstance(data, dict):
+        return {}
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, str):
+            value = clean_sheet_text(value)
+        if value not in (None, "") and not isinstance(value, (bool, dict, list)):
+            if not isinstance(value, float) or math.isfinite(value):
+                result[key] = value
+    return result
+
+
+def build_technical_summary(data, provenance=None, *, category=None):
+    """Use the prepared AI description, or existing specs, in at most four lines.
+
+    This presentation fallback performs no inference. It never pads missing
+    facts, copies serials/contact into the summary, or mutates the saved data.
+    """
+    if not isinstance(data, dict):
+        return []
+    identifiers = [_identifier_key(data.get(key)) for key in ("serial", "vin")]
+
+    def safe_text(value):
+        text = clean_sheet_text(value)
+        if any(identifier and identifier in _identifier_key(text) for identifier in identifiers):
+            return ""
+        return text
+
+    description = safe_text(data.get("description"))
+    paragraphs = [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[\r\n]+", description) if part.strip()]
+    paragraphs.extend(f"{label}: {value}" for key, label in _SUMMARY_FIELDS
+                      if (value := safe_text(data.get(key))) and value.casefold() not in description.casefold())
+    lines = []
+    for paragraph in paragraphs:
+        # Preserve full words and avoid broken decimal measurements. Three or
+        # four short lines remain readable on the web and the PDF cover.
+        lines.extend(wrap(paragraph, width=145, break_long_words=False, break_on_hyphens=False))
+        if len(lines) >= 4:
+            break
+    return lines[:4]
 
 
 WACKER_REFERENCE = {

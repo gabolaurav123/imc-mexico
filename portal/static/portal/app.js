@@ -136,7 +136,7 @@
   const catalogueTechnicalLabels = { engine_displacement:'Cilindrada',boom_length:'Longitud de pluma',stick_length:'Longitud de brazo',maximum_reach_ground:'Alcance máximo a nivel de suelo',maximum_loading_height:'Altura máxima de carga',bucket_digging_force:'Fuerza de excavación del cucharón',stick_digging_force:'Fuerza de excavación del brazo',hydraulic_flow:'Caudal hidráulico',swing_speed:'Velocidad de giro',drum_width:'Ancho de tambor',drum_diameter:'Diámetro de tambor',travel_speed:'Velocidad de desplazamiento',fuel_capacity:'Capacidad de combustible',water_tank_capacity:'Capacidad de tanque de agua',platform_height:'Altura de plataforma',horizontal_outreach:'Alcance horizontal',gradeability:'Pendiente superable',swing:'Giro',blade_width:'Ancho de hoja' };
   Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels,catalogueTechnicalLabels);
   keyLabels.model_family = 'Familia de modelo';
-  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa' };
+  const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa',ai_reference:'Estimación orientativa del modelo' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
   const fieldValue = (snapshot,key) => key === 'title' || key === 'category' ? snapshot[key] : snapshot.data?.[key];
@@ -354,8 +354,8 @@
     if(guest||!editable||deleting)return;
     clearTimeout(preflightTimer);checkedPhotoStamp='';photoCheckBlocked=false;
     $('#photo-correction-actions')?.replaceChildren();prepareLabel();
-    photoCheckMessage('Comprobaremos que las fotos correspondan al tipo de máquina elegido.');
-    $('#ready-heading').textContent='Fotos actualizadas · ficha pendiente';
+    photoCheckMessage('Comprobaremos las fotografías para identificar la maquinaria.');
+    $('#ready-heading').textContent='Fotos actualizadas';
     preflightTimer=setTimeout(()=>startPhotoCheck(),700);
   }
   async function startPhotoCheck() {
@@ -365,7 +365,6 @@
       await uploadsReady();await save();
       const ids=orderedCards().filter(card=>card.dataset.kind==='image'&&card.dataset.purpose!=='document').map(card=>card.dataset.assetId);
       if(!ids.length){photoCheckMessage('Agrega fotos o utiliza el número de serie para continuar.');return;}
-      if(!collect().category){photoCheckMessage('Selecciona el tipo de máquina antes de comprobar sus fotos.',true);return;}
       preflightStamp=photoStamp();
       photoCheckMessage('Comprobando las fotografías. Puedes quitar o añadir imágenes mientras esperas.');
       const job=await api(`${base}analizar/`,{consent:true,asset_ids:ids,preflight:true,auto_apply:false,research:false,revision:state.revision});
@@ -595,8 +594,8 @@
   async function completedJob(job) {
     if(job.preflight||job.result?.preflight){completedPhotoCheck(job);return;}
     if(!analysisPhotosCurrent(job)){
-      setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas · ficha pendiente';
-      $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha pendiente';
+      setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas';
+      $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
       photoCheckMessage('Las fotos o el tipo de máquina cambiaron. Genera la ficha con la información actual.');
       return;
     }
@@ -620,6 +619,18 @@
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
     setAnalysisLoading(false);
+    if (Array.isArray(job.completion?.missing_fields) && job.completion.missing_fields.length) {
+      analysisOutcome = 'needs_information';
+      renderResults(job);
+      renderRelevance(relevanceOf(job),readings);
+      const message = job.completion.message || 'Agrega una foto nítida de la placa o corrige la marca y el modelo, y vuelve a generar la ficha.';
+      analysisStatus(message,'needs_information');
+      problem(message);
+      $('#ready-heading').textContent = 'Completa la identificación del equipo';
+      $('.wizard-progress [data-step-to="2"] b',wizard).textContent = 'Ficha';
+      if (currentStep === 1 && !conflict && !deleting) displayStep(2);
+      return;
+    }
     analysisOutcome = incomplete ? 'partial' : 'completed';
     renderResults(job);
     const relevance = relevanceOf(job); renderRelevance(relevance,readings);
@@ -677,7 +688,6 @@
       await uploadsReady(); await save();
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
       const mode = assetIds.length ? 'analysis' : 'description';
-      if (!collect().category) throw new Error('Selecciona el tipo de máquina antes de generar la ficha.');
       if (!assetIds.length && !String(collect().data.serial || '').trim() && !Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake')) throw new Error('Agrega una fotografía, escribe la serie o selecciona un modelo de la base técnica para generar la ficha.');
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode});
       if(job.mode==='catalogue' && job.refresh){hydrate(job.machine);displayStep(2);$('#ready-heading').textContent='Ficha de referencia preparada.';return;}
@@ -940,8 +950,8 @@
   }
   function renderPreview() {
     const value = collect(), data = value.data;
-    $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Maquinaria · ficha en preparación';
-    $('#preview-description').textContent = data.description || (analysisOutcome === 'partial' ? 'La lectura quedó incompleta. Se conserva la información disponible.' : ['unrelated','uncertain'].includes(analysisOutcome) ? 'Agrega una foto del equipo o de su placa para preparar la descripción.' : ['completed','failed'].includes(analysisOutcome) ? 'No se encontró una descripción con la información disponible.' : 'La descripción se preparará con tus fotos y los datos encontrados.');
+    $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Maquinaria';
+    $('#preview-description').textContent = data.description || '';
     const selectedCategory = $('#category')?.selectedOptions[0];
     const categoryLabel = value.category && selectedCategory?.value ? selectedCategory.textContent.trim() : 'Maquinaria';
     $('#preview-category').textContent = categoryLabel;
@@ -969,7 +979,16 @@
     const apparentCondition=missing(data.condition)&&!missing(data.usage_condition)&&data.usage_condition!=='Por confirmar'?data.usage_condition:'';
     const conditionPlaceholder=$('#condition option[value=""]');if(conditionPlaceholder)conditionPlaceholder.textContent=apparentCondition?`${apparentCondition} (aparente)`:'Sin indicar';
     const conditionNote=$('#ready-condition-note');if(conditionNote)conditionNote.textContent=apparentCondition?'Apreciación de las fotos. Puedes confirmarla o cambiarla.':'';
-    const priceSummary=$('#ready-estimate');if(priceSummary){const low=data.estimate_min,high=data.estimate_max,format=x=>new Intl.NumberFormat('es-MX',{maximumFractionDigits:0}).format(Number(x));priceSummary.textContent=!missing(low)&&!missing(high)?`${format(low)}–${format(high)} ${data.estimate_currency||''}`:!missing(low)?`Desde ${format(low)} ${data.estimate_currency||''}`:!missing(high)?`Hasta ${format(high)} ${data.estimate_currency||''}`:'Sin rango respaldado todavía';}
+    const priceSummary=$('#ready-estimate');
+    if(priceSummary){
+      const low=data.estimate_min,high=data.estimate_max,currency=data.estimate_currency;
+      const valid=x=>!missing(x)&&Number.isFinite(Number(x))&&Number(x)>=0;
+      const lowValid=valid(low),highValid=valid(high),ordered=!(lowValid&&highValid)||Number(low)<=Number(high);
+      const format=x=>new Intl.NumberFormat('es-MX',{maximumFractionDigits:2}).format(Number(x));
+      priceSummary.textContent=ordered&&['USD','MXN','EUR'].includes(currency)
+        ? lowValid&&highValid?`${format(low)}–${format(high)} ${currency}`:lowValid?`Desde ${format(low)} ${currency}`:highValid?`Hasta ${format(high)} ${currency}`:'' : '';
+      priceSummary.hidden=!priceSummary.textContent;
+    }
     function addField(target,key,text,label=keyLabels[key] || key) {
       if (missing(text)) return;
       const control = $(`[data-field="${key}"]`,wizard);
@@ -989,7 +1008,7 @@
     if (!specs.children.length) addField(specs,'category',value.category ? categoryLabel : 'Por identificar','Tipo de equipo');
     renderResearchHypotheses(value);
     const ageFrom = data.estimated_year_from, ageTo = data.estimated_year_to;
-    const hasAgeRange = missing(data.year) && (!missing(ageFrom) || !missing(ageTo));
+    const hasAgeRange = !missing(ageFrom) || !missing(ageTo);
     $('#preview-age-range').textContent = !missing(ageFrom) && !missing(ageTo) ? `${ageFrom}–${ageTo}` : !missing(ageFrom) ? `Desde ${ageFrom}` : !missing(ageTo) ? `Hasta ${ageTo}` : '';
     $('#preview-age-range').hidden = !hasAgeRange;
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';

@@ -24,3 +24,5 @@
 .ready-actions .button{margin-left:0}.focused-intake .prepare-action{position:sticky;bottom:10px;z-index:3;padding:12px;background:#fff;border:1px solid #d8e1ea;border-radius:8px;box-shadow:0 4px 16px #0001}
 #photo-validation{margin:16px 0}#photo-correction-actions{margin:10px 0 18px}
 @media(max-width:600px){.ready-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.ready-actions .button{min-width:0;font-size:12px;padding:11px 5px;line-height:1.4;text-align:center}.focused-intake .ready-gallery .preview-cover img,.finished-gallery .virtual-gallery[data-sheet-carousel] .virtual-photo img{height:230px}.ready-photo-remove{right:6px;top:6px;padding:8px;font-size:12px}.focused-intake .prepare-action{bottom:5px;padding:8px}.focused-intake .asset-actions button{font-size:12px}}
+
+.finished-technical-summary p{margin:0 0 .35em}.finished-technical-summary p:last-child{margin-bottom:0}

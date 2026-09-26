@@ -11,7 +11,11 @@ from django.utils import timezone
 from portal.models import AnalysisJob, Consent, Machine, PlatformSettings, User
 from portal.processing import (DescriptionAnalysis, _claim_job, enqueue_analysis,
                                process_analysis, process_next_job)
-from portal.research import RESEARCH_RESERVATION, SEARCH_RESERVATION, ResearchCandidate, ResearchCandidates
+from portal.research import RESEARCH_RESERVATION, SEARCH_RESERVATION, ResearchCandidate, ResearchCandidates, UsageTotals
+from portal.valuation import VALUATION_RESERVATION
+from portal.ai_completion import COMPLETION_RESERVATION
+
+PIPELINE_RESERVATION = RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION
 
 
 URL = "https://www.cat.com/en_US/products/new/equipment/backhoe-loaders/420f2.html"
@@ -21,12 +25,16 @@ TEXT = "Caterpillar 420F2: potencia 70 kW."
 @override_settings(OPENAI_API_KEY="test-only-not-real", OPENAI_MODEL="gpt-4.1-mini")
 class ResearchDescriptionTests(TestCase):
     def setUp(self):
+        # These assertions isolate staged identifier research. The serial-only
+        # valuation/completion integration has its own end-to-end coverage.
+        self.enterContext(patch("portal.processing.estimate_machine", return_value=({"status": "not_run"}, UsageTotals())))
+        self.enterContext(patch("portal.processing.complete_machine_reference", return_value=(None, UsageTotals())))
         self.user = User.objects.create_user(email="description-test@example.invalid", password="test-only-492")
         self.machine = Machine.objects.create(owner=self.user, title="Título del propietario", data={
             "brand": "Caterpillar", "model": "420F2", "serial": "OWNER123", "hours": 0,
             "price": 0, "location": "", "notes": "PRIVATE NOTES",
         }, provenance={key: {"source": "user", "review": "confirmed"} for key in ("brand", "model", "serial")})
-        self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=100000,
+        self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=200000,
                                                       ai_max_attempts=2)
 
     def enqueue(self, **kwargs):
@@ -54,7 +62,7 @@ class ResearchDescriptionTests(TestCase):
         return client
 
     def test_existing_daily_usage_allows_one_real_research_reservation_and_deduplicates(self):
-        previous_usage = self.limits.ai_daily_token_limit - RESEARCH_RESERVATION - 1000
+        previous_usage = self.limits.ai_daily_token_limit - PIPELINE_RESERVATION - 1000
         previous = AnalysisJob.objects.create(machine=self.machine, revision=self.machine.revision,
             requested_by=self.user, fingerprint="a" * 64, status="completed", input_tokens=previous_usage,
             finished_at=timezone.now())
@@ -66,15 +74,15 @@ class ResearchDescriptionTests(TestCase):
         self.assertEqual(job.asset_ids, [])
         self.assertTrue(job.result["research_description_only"])
         self.assertEqual(job.result["attempt_limit"], 1)
-        self.assertEqual(job.reserved_tokens, RESEARCH_RESERVATION)
+        self.assertEqual(job.reserved_tokens, PIPELINE_RESERVATION)
         previous.refresh_from_db()
         self.limits.refresh_from_db()
         self.assertEqual(previous.input_tokens, previous_usage)
-        self.assertEqual(self.limits.ai_daily_token_limit, 100000)
+        self.assertEqual(self.limits.ai_daily_token_limit, 200000)
         self.assertEqual(AnalysisJob.objects.count(), 2)
 
     def test_insufficient_research_budget_still_rejects_before_provider_or_job(self):
-        self.limits.ai_daily_token_limit = RESEARCH_RESERVATION - 1
+        self.limits.ai_daily_token_limit = PIPELINE_RESERVATION - 1
         self.limits.save()
         with patch("openai.OpenAI") as provider, self.assertRaisesMessage(ValidationError, "No hay capacidad"):
             self.enqueue()

@@ -425,6 +425,31 @@ def _remove_incompatible_age(machine):
     return removed
 
 
+def _remove_incompatible_ai_reference(machine):
+    """Retire unchanged AI model estimates after an owner changes their context."""
+    from .ai_completion import ai_reference_identity_matches
+    records = {key: meta for key, meta in machine.provenance.items()
+               if isinstance(meta, dict) and meta.get("source") == "ai_reference"
+               and not _human_provenance_value(meta)}
+    ids = set()
+    for meta in records.values():
+        try:
+            ids.add(UUID(meta.get("analysis_id", "")))
+        except (ValueError, TypeError, AttributeError):
+            pass
+    jobs = {str(job.pk): job for job in AnalysisJob.objects.filter(pk__in=ids, machine=machine)}
+    removed = []
+    for key, meta in records.items():
+        job = jobs.get(meta.get("analysis_id"))
+        if key in {"category", "title"}:
+            continue
+        if not job or not ai_reference_identity_matches(machine.data, job.result.get("ai_reference", {})):
+            machine.data.pop(key, None)
+            machine.provenance.pop(key, None)
+            removed.append(key)
+    return removed
+
+
 def detected_plate_asset_ids(machine):
     """Classify visible plate evidence without changing the uploaded originals.
 
@@ -519,7 +544,7 @@ def _automatic_description_record(machine):
     value = machine.data.get("description")
     meta = machine.provenance.get("description", {})
     if (not isinstance(value, str) or not value.strip() or not isinstance(meta, dict)
-            or meta.get("source") not in {"system", "visual_proposal", "image"}
+            or meta.get("source") not in {"system", "visual_proposal", "image", "ai_reference"}
             or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]
             or _human_provenance(machine, "description")):
         return None
@@ -533,7 +558,7 @@ def _automatic_field_record(machine, key):
     value = machine.title if key == "title" else machine.category_id if key == "category" else machine.data.get(key)
     meta = machine.provenance.get(key, {})
     if (value in (None, "") or not isinstance(meta, dict) or _human_provenance(machine, key)
-            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web", "valuation", "family_reference"}
+            or meta.get("source") not in {"system", "visual_proposal", "image", "plate", "web", "valuation", "family_reference", "ai_reference"}
             or not isinstance(meta.get("analysis_id"), str) or not meta["analysis_id"]):
         return None
     return {"value": value, "provenance": deepcopy(meta)}
@@ -609,6 +634,11 @@ def _clear_automatic_field(machine, job, key, value, meta):
         return False
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
         return False
+    if meta.get("source") == "ai_reference":
+        from .ai_completion import ai_reference_identity_matches, is_validated_ai_field
+        return (ai_reference_identity_matches(machine.data, job.result.get("ai_reference", {}))
+                and _web_value_keeps_serial_private(machine, job, value)
+                and is_validated_ai_field(job.result, key, value, meta))
     if meta.get("source") == "family_reference":
         from .family_reference import is_validated_family_field
         return (key in {"model_family", *AGE_LABELS, *ESTIMATE_LABELS}
@@ -824,7 +854,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         result["applied_fields"].append(key)
 
     research = job.result.get("research")
-    compose_after_research = any(key in candidates for key in AGE_LABELS) or (isinstance(research, dict) and research.get("status") != "disabled") or any(
+    compose_after_research = "ai_reference" in job.result or any(key in candidates for key in AGE_LABELS) or (isinstance(research, dict) and research.get("status") != "disabled") or any(
         key in WEB_DATA_FIELDS | {"year"} and machine.data.get(key) not in (None, "")
         and isinstance(meta, dict) and meta.get("source") == "web"
         for key, meta in machine.provenance.items())
@@ -849,7 +879,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     # can receive its own research, while human identity changes still reject it.
     candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
                              (2 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") == "valuation" else
-                              1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") in {"web", "family_reference"} else 0)))
+                              1 if isinstance(provenance.get(item[0]), dict) and provenance[item[0]].get("source") in {"web", "family_reference", "ai_reference"} else 0)))
     for key, value in candidate_items:
         if key not in AUTOMATIC_DATA_FIELDS | {"title"}:
             continue
@@ -900,7 +930,8 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     age_protected = any(_human_provenance(machine, key) for key in AGE_LABELS)
     age_keys = list(AGE_LABELS)
     if any(key in candidates for key in age_keys):
-        if age_protected or machine.data.get("year") not in (None, ""):
+        model_reference = all(provenance.get(key, {}).get("source") == "ai_reference" for key in age_keys)
+        if age_protected or (machine.data.get("year") not in (None, "") and not model_reference):
             for key in age_keys:
                 if key in candidates:
                     skip(key, "human_correction" if age_protected else "known_year")
@@ -929,7 +960,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     valuation = job.result.get("valuation", {})
     range_keys = [key for key in ("estimate_min", "estimate_max", "estimate_currency") if not estimate_protected and key in candidates
                   and _clear_automatic_field(machine, job, key, candidates[key], provenance.get(key, {}))
-                  and (provenance.get(key, {}).get("source") == "family_reference"
+                  and (provenance.get(key, {}).get("source") in {"family_reference", "ai_reference"}
                        or _valuation_identity_matches(machine.data, valuation)) and can_fill(key)]
     if len(range_keys) == 3 and len({provenance[key].get("source") for key in range_keys}) == 1:
         candidate = deepcopy(machine)
@@ -946,32 +977,44 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
         if key in candidates and provenance.get(key, {}).get("source") == "valuation":
             skip(key, "owner_price_required")
     category = job.result.get("category")
-    if isinstance(category, str) and category.strip() and can_fill("category"):
+    category_meta = provenance.get("category", {})
+    category_valid = (category_meta.get("source") != "ai_reference"
+                      or _clear_automatic_field(machine, job, "category", category, category_meta))
+    if category_valid and isinstance(category, str) and category.strip() and can_fill("category"):
         def normalized(text):
             return " ".join("".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c)).casefold().split())
         wanted = normalized(category)
         matches = [item for item in Category.objects.filter(active=True) if wanted in {normalized(item.name), normalized(item.slug)}]
         if len(matches) == 1:
-            add_validated("category", matches[0].pk, {"source": "visual_proposal", "review": "needs_review"})
+            add_validated("category", matches[0].pk, category_meta if category_meta.get("source") == "ai_reference" else {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine)
+    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:
         result["conflicting_fields"] = conflicting_fields
+    if job.mode == "description" and machine.data.get("brand") and machine.data.get("model") and can_fill("title"):
+        title = " ".join(str(value).strip() for value in (
+            machine.category.name if machine.category_id else "", machine.data["brand"], machine.data["model"]) if value)
+        if len(title) <= 180:
+            add_validated("title", title, {"source": "system", "review": "needs_review"})
     if (compose_after_research or invalidated or conflicting_fields) and can_fill("description"):
         from .research import compose_description
         private_identifiers = [machine.data.get("serial"), candidates.get("serial"),
                                (research or {}).get("identity", {}).get("serial")]
         private_identifiers.extend(field.get("value") for field in job.result.get("fields", [])
                                    if isinstance(field, dict) and field.get("key") == "serial")
-        description = compose_description(machine.data, machine.provenance,
+        ai_description = candidates.get("description")
+        ai_meta = provenance.get("description", {})
+        use_ai_description = (ai_meta.get("source") == "ai_reference" and not conflicting_fields
+                              and _clear_automatic_field(machine, job, "description", ai_description, ai_meta))
+        description = ai_description if use_ai_description else compose_description(machine.data, machine.provenance,
                                           machine.category.name if machine.category_id else None,
                                           visual_description=_visual_description_for_completion(machine, job),
                                           private_identifiers=private_identifiers)
         if description:
-            add_validated("description", description, {"source": "system", "review": "needs_review"})
+            add_validated("description", description, ai_meta if use_ai_description else {"source": "system", "review": "needs_review"})
     if result["applied_fields"] or invalidated or conflicting_fields:
         machine.revision += 1
         if machine.status in {"approved", "rejected", "cancelled"}:
@@ -1202,7 +1245,8 @@ def save_draft(machine, user, payload, expected_revision):
     _remove_incompatible_valuation(machine)
     invalidated_age = _remove_incompatible_age(machine)
     invalidated_family = _remove_incompatible_family_values(machine)
-    if (invalidated_web or invalidated_age or invalidated_family or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
+    invalidated_ai = _remove_incompatible_ai_reference(machine)
+    if (invalidated_web or invalidated_age or invalidated_family or invalidated_ai or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
         from .research import compose_description
         machine.data["description"] = compose_description(machine.data, machine.provenance,
             machine.category.name if machine.category_id else None, private_identifiers=[machine.data.get("serial")])
@@ -1245,7 +1289,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
     if set(fields) & AGE_LABELS.keys() and not AGE_LABELS.keys() <= set(fields):
         raise ValidationError("Aplica el rango de año aproximado junto con su explicación.")
     for amount_keys, currency_key in (({"price"}, "currency"), ({"estimate_min", "estimate_max"}, "estimate_currency")):
-        if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") in {"valuation", "family_reference"} for key in set(fields) & amount_keys)
+        if (set(fields) & amount_keys and any(result_provenance.get(key, {}).get("source") in {"valuation", "family_reference", "ai_reference"} for key in set(fields) & amount_keys)
                 and currency_key not in fields and machine.data.get(currency_key) != result_data.get(currency_key)):
             raise ValidationError("Aplica el importe junto con su moneda de referencia.")
     payload = {"data": {}, "provenance": {}}
@@ -1255,6 +1299,8 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
             continue
         if _analysis_excludes_asset(job, result_provenance.get(key, {})):
             raise ValidationError("Ese dato procede de una foto que no permite identificar maquinaria. Usa una foto del equipo o de su placa.")
+        if result_provenance.get(key, {}).get("source") == "ai_reference" and not _clear_automatic_field(machine, job, key, value, result_provenance[key]):
+            raise ValidationError("La estimación de IA no corresponde a los datos actuales de esta maquinaria.")
         if key in VISUAL_LABELS.keys() | AGE_LABELS.keys() and not _clear_automatic_field(machine, job, key, value, result_provenance.get(key, {})):
             raise ValidationError("La observación visual no está validada para esta fotografía.")
         if result_provenance.get(key, {}).get("source") == "family_reference" and not _clear_automatic_field(
@@ -1278,7 +1324,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
         provenance["analysis_id"] = str(job.pk)
         payload["provenance"][key] = provenance
     _validate_payload(machine, payload, trusted_provenance=True)
-    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine)
+    invalidated = _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
     if invalidated and _automatic_description_record(machine):
         from .research import compose_description
         machine.data["description"] = compose_description(machine.data, machine.provenance,
@@ -1582,7 +1628,7 @@ def set_publication(machine, actor, enabled, destination="share"):
     machine = Machine.objects.select_for_update(of=("self",)).select_related("owner", "approved_version").get(pk=machine.pk)
     if destination not in {"share", "main"}:
         raise ValidationError("Destino no válido.")
-    if enabled and (not machine.approved_version_id or machine.owner.advertiser_status != "approved"):
+    if enabled and (not machine.approved_version_id or not machine.owner.is_active or machine.owner.is_guest or machine.owner.advertiser_status != "approved"):
         raise ValidationError("Se requiere una versión y un anunciante aprobados.")
     if enabled and machine.availability == "withdrawn":
         raise ValidationError("La maquinaria está retirada.")

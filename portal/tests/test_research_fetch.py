@@ -1,5 +1,6 @@
 import gzip
 import io
+import queue
 import socket
 import ssl
 import time
@@ -185,8 +186,11 @@ class CatalogFetchTests(SimpleTestCase):
     def test_dns_error_and_deadline_are_bounded_and_redacted(self):
         self.dns.side_effect = socket.gaierror('PRIVATE-URL-AND-TOKEN')
         self.assert_code('dns_failed', lambda: self.fetch(FakeResponse()))
-        with patch('portal.research_fetch.threading.Thread'):
-            self.assert_code('dns_timeout', lambda: _resolve_public_ip('www.cat.com', time.monotonic() + 0.01))
+        # Exercise resolver timeout without a 10 ms real-time deadline that
+        # can expire before Queue.get under a loaded CI/Windows scheduler.
+        with patch('portal.research_fetch.threading.Thread'), patch(
+                'portal.research_fetch.queue.Queue.get', side_effect=queue.Empty):
+            self.assert_code('dns_timeout', lambda: _resolve_public_ip('www.cat.com', time.monotonic() + 30))
         self.pool_constructor.assert_not_called()
 
     def test_forbidden_status_and_non_html_are_rejected_without_reading_a_body(self):

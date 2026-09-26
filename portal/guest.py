@@ -219,10 +219,12 @@ def analysis_state(job, machine):
     # guest wrapper is separate so its UUID can never be confused with a
     # Machine UUID by a later claimed session.
     from .views import machine_state
+    from .intake import preparation_completeness
     result = job.result if job.status == "completed" else None
     if isinstance(result, dict):
         result = {key: value for key, value in result.items() if key != "photo_cache"}
     return {"id": str(job.pk), "status": job.status, "result": result,
+            "completion": preparation_completeness(machine, job) if job.status == "completed" else {},
             "processing_stage": job.result.get("progress", {}).get("stage", job.status),
             "processing_progress": job.result.get("progress", {"stage": job.status}),
             "error": job.error if job.status == "failed" else "",

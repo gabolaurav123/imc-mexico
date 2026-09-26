@@ -13,6 +13,7 @@ from portal.services import _valuation_identity_matches, save_draft
 from portal.tests import test_image_bindings as fixtures
 from portal.tests.test_image_relevance import field, observation, parsed
 from portal.valuation import LABEL, VALUATION_RESERVATION, VALUATION_VERSION, _seal
+from portal.ai_completion import COMPLETION_RESERVATION
 
 
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini")
@@ -28,6 +29,7 @@ class ValuationPipelineTests(TestCase):
             return_value=(empty_research("no_results"), UsageTotals())))
         self.estimate = self.enterContext(patch("portal.processing.estimate_machine",
             return_value=(self.valuation(), UsageTotals())))
+        self.enterContext(patch("portal.processing.complete_machine_reference", return_value=(None, UsageTotals())))
 
     @staticmethod
     def valuation():
@@ -61,15 +63,15 @@ class ValuationPipelineTests(TestCase):
         return enqueue_analysis(self.machine, self.owner, research=research, authorize_ai=True,
             mode=mode, auto_apply=auto_apply, expected_revision=self.machine.revision if auto_apply else None)
 
-    def test_reservation_adds_one_valuation_to_image_analysis_only(self):
+    def test_reservation_includes_valuation_and_completion_for_research(self):
         for count in (1, 2, 20):
             with self.subTest(count=count):
                 self.assertEqual(_reservation(count, "analysis", True),
-                    count * IMAGE_RESERVATION + RESEARCH_RESERVATION + VALUATION_RESERVATION)
+                    count * IMAGE_RESERVATION + RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION)
                 self.assertEqual(_reservation(count, "analysis", False), count * IMAGE_RESERVATION)
-        self.assertEqual(_reservation(0, "description", True, research_description_only=True), RESEARCH_RESERVATION)
+        self.assertEqual(_reservation(0, "description", True, research_description_only=True), RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION)
         job = self.queue()
-        self.assertEqual(job.result["reservation_per_attempt"], 2 * IMAGE_RESERVATION + RESEARCH_RESERVATION + VALUATION_RESERVATION)
+        self.assertEqual(job.result["reservation_per_attempt"], 2 * IMAGE_RESERVATION + RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION)
 
     def test_complete_readings_run_one_valuation_and_account_all_usage(self):
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
@@ -94,7 +96,7 @@ class ValuationPipelineTests(TestCase):
         self.assertEqual(self.machine.data["estimate_min"], 10000)
         self.assertEqual(self.machine.provenance["estimate_min"]["source"], "valuation")
 
-    def test_ocr_only_and_description_research_do_not_call_valuation(self):
+    def test_ocr_only_skips_valuation_but_description_research_runs_it(self):
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
         first = self.queue(research=False)
         self.assertTrue(process_next_job())
@@ -103,9 +105,9 @@ class ValuationPipelineTests(TestCase):
         second = self.queue(mode="description")
         self.assertTrue(process_next_job())
         second.refresh_from_db()
-        self.estimate.assert_not_called()
+        self.estimate.assert_called_once()
         self.assertEqual(second.status, "completed")
-        self.assertNotIn("valuation", second.result)
+        self.assertIn("valuation", second.result)
         self.assertEqual(self.provider.return_value.responses.parse.call_count, 2)
 
     def test_unrelated_photos_never_trigger_research_or_valuation_despite_declared_identity(self):

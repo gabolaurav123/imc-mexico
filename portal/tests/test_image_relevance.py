@@ -169,6 +169,7 @@ class ImageRelevanceWorkerTests(TestCase):
         # These tests isolate technical research; valuation is covered separately.
         from portal.research import UsageTotals
         self.enterContext(patch("portal.processing.estimate_machine", return_value=({"status": "not_run"}, UsageTotals())))
+        self.enterContext(patch("portal.processing.complete_machine_reference", return_value=(None, UsageTotals())))
         self.owner = User.objects.create_user(email="image-relevance@example.invalid")
         self.machine = Machine.objects.create(owner=self.owner, title="Human title",
             data={"brand": "HumanBrand", "model": "HumanModel", "description": "Human description"},

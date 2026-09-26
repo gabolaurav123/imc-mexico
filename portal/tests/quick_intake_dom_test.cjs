@@ -107,13 +107,13 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
 
  for(const status of ['no_results','insufficient_identifiers','degraded']){
    let noResults;noResults=setup(async()=>{await pause(1);const job=completed(noResults.state,{});job.result.research={status,basis:'none',match:'none',fields:[],sources:[],warnings:[]};return response(200,job);},{job:{id:'job',status:'completed'},data:{description:''}});
-   await pause(35);assert.equal(noResults.doc.querySelector('#submit-machine').disabled,false);assert.equal(noResults.doc.querySelector('#research-brief').hidden,false);assert.doesNotMatch(noResults.doc.querySelector('#preview-description').textContent,/manualmente|añadirla|Editar información/i);assert.match(noResults.doc.querySelector('#preview-description').textContent,/No se encontró/);assert.equal(noResults.doc.querySelector('#commercial-details').tagName,'SECTION');noResults.close();
+   await pause(35);assert.equal(noResults.doc.querySelector('#submit-machine').disabled,false);assert.equal(noResults.doc.querySelector('#research-brief').hidden,false);assert.doesNotMatch(noResults.doc.querySelector('#preview-description').textContent,/manualmente|añadirla|Editar información/i);assert.equal(noResults.doc.querySelector('#preview-description').textContent,'');assert.equal(noResults.doc.querySelector('#commercial-details').tagName,'SECTION');noResults.close();
  }
  pass('missing identifiers or unsuccessful research stays nonblocking without requesting manual description');
 
  let quotaSubmissions=0;
  const quota=setup(async(url)=>{if(url.endsWith('analizar/'))return response(400,{error:'Límite de preparación alcanzado'});if(url.endsWith('enviar/')){quotaSubmissions++;return response(500,{error:'Respuesta de prueba'});}throw Error(url);},{state:{title:'Mi maquinaria'},data:{location:'',description:''}});
- click(quota,'analyze-button');await pause(30);assert.match(quota.doc.querySelector('#preview-description').textContent,/No se encontró/);assert.doesNotMatch(quota.doc.querySelector('#preview-description').textContent,/manualmente|añadirla/);click(quota,'submit-machine');await pause(30);assert.equal(quotaSubmissions,1);assert.equal(quota.doc.querySelector('#edit-information').tagName,'SECTION');quota.close();pass('quota rejection offers existing-photo submission without title, location or manual description');
+ click(quota,'analyze-button');await pause(30);assert.equal(quota.doc.querySelector('#preview-description').textContent,'');assert.doesNotMatch(quota.doc.querySelector('#preview-description').textContent,/manualmente|añadirla/);click(quota,'submit-machine');await pause(30);assert.equal(quotaSubmissions,1);assert.equal(quota.doc.querySelector('#edit-information').tagName,'SECTION');quota.close();pass('quota rejection offers existing-photo submission without title, location or manual description');
 
  let serialSaves=[],serialAnalysis=[],serialRelease;
  const serial=setup(async(url,o)=>{const body=o.body?JSON.parse(o.body):null;if(url.endsWith('guardar/')){serialSaves.push(body);if(serialSaves.length===1)await new Promise(resolve=>serialRelease=resolve);return response(200,{revision:body.revision+1});}if(url.endsWith('analizar/')){serialAnalysis.push(body);return response(200,{id:'serial-job',status:'running'});}if(url.includes('/api/analisis/'))return response(200,{id:'serial-job',status:'failed',error:'Lectura de prueba'});throw Error(url);},{before(w){w.document.querySelectorAll('.asset-card:not([data-kind="image"][data-purpose="general"])').forEach(e=>e.remove());}});
@@ -124,6 +124,22 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
  let photosOnlyAnalysis=0;
  const photosOnly=setup(async(url,o)=>{if(url.endsWith('analizar/')){photosOnlyAnalysis++;const body=JSON.parse(o.body);assert.deepEqual(body.asset_ids,['1']);assert.equal(body.revision,1);return response(200,{id:'photos-job',status:'running'});}if(url.includes('/api/analisis/'))return response(200,{id:'photos-job',status:'failed',error:'Lectura de prueba'});throw Error('Unexpected save or requirement: '+url);},{before(w){w.document.querySelectorAll('.asset-card:not([data-kind="image"][data-purpose="general"])').forEach(e=>e.remove());}});
  assert.equal(photosOnly.doc.querySelector('#serial').value,'');click(photosOnly,'analyze-button');await pause(40);assert.equal(photosOnlyAnalysis,1);assert.equal(photosOnly.doc.querySelector('#wizard-errors').hidden,true);photosOnly.close();pass('a general photo can prepare the sheet with no serial or plate and no extra confirmation');
+
+ let serialOnlyBody;
+ const unknownType=setup(async(url,o)=>{
+   if(url.endsWith('analizar/')){serialOnlyBody=JSON.parse(o.body);return response(200,{id:'serial-only',status:'running'});}
+   if(url.includes('/api/analisis/'))return response(200,{id:'serial-only',status:'failed',error:'Fixture finished'});
+   throw Error(url);
+ },{state:{category:null},data:{serial:'SERIAL-ONLY-001'},before(w){w.document.querySelectorAll('.asset-card').forEach(node=>node.remove());}});
+ click(unknownType,'analyze-button');await pause(35);assert.equal(serialOnlyBody.mode,'description');assert.deepEqual(serialOnlyBody.asset_ids,[]);assert.equal(serialOnlyBody.research,true);unknownType.close();pass('serial-only preparation asks AI to identify an unknown machine type');
+
+ let incompleteSheet;
+ incompleteSheet=setup(async()=>{
+   await pause(1);const job=completed(incompleteSheet.state,{description:'Motor diésel.'});
+   job.completion={missing_fields:['price_range','year_range'],message:'Agrega una foto nítida de la placa y vuelve a generar la ficha.'};
+   return response(200,job);
+ },{job:{id:'incomplete-sheet',status:'completed'}});
+ await pause(40);assert.equal(incompleteSheet.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');assert.match(incompleteSheet.doc.querySelector('#wizard-errors').textContent,/foto nítida/);assert.doesNotMatch(incompleteSheet.doc.querySelector('#analysis-status').textContent,/Ficha preparada|lista/);assert.equal(incompleteSheet.doc.querySelector('#ready-estimate').hidden,true);incompleteSheet.close();pass('incomplete AI essentials give an actionable editor error instead of announcing a completed sheet');
 
  let categoryContext;
  categoryContext=setup(async()=>{await pause(1);const job=completed(categoryContext.state,{description:'Se observa maquinaria en la fotografía.'});job.result.research={status:'general_context',basis:'category',match:'category',fields:[],context:{category:'Excavadora',label:'Referencias generales; no identifican esta unidad'},sources:[{url:'https://manufacturer.example/equipment/excavators',title:'Información general de excavadoras'}],warnings:[]};return response(200,job);},{job:{id:'job',status:'completed'}});
@@ -284,7 +300,7 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    const card=interrupted.doc.querySelector('[data-asset-id="2"]');
    assert.equal(card.dataset.relevance,readingStatus);assert.match(card.querySelector('.asset-relevance').textContent,readingStatus==='failed'?/Análisis interrumpido/:/Lectura pendiente/);
    assert.doesNotMatch(card.textContent,/No se pudo identificar|Foto ajena/);assert.equal(card.querySelector('.asset-relevance img'),null);
-   assert.match(interrupted.doc.querySelector('#preview-description').textContent,/lectura quedó incompleta/);
+   assert.equal(interrupted.doc.querySelector('#preview-description').textContent,'');
    assert.doesNotMatch(interrupted.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
    assert.equal(interrupted.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
    assert.equal(interrupted.doc.querySelector('#analyze-button').disabled,false);assert.equal(interrupted.doc.querySelector('#submit-machine').disabled,false);
@@ -321,11 +337,11 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  const priceProposal=setup(async()=>{throw Error('Initial price proposal needs no request');},{query:'?paso=2',state:{valuation:{status:'estimated'},provenance:{price:{source:'valuation',review:'needs_review'},estimate_min:{source:'valuation',review:'needs_review'}}},data:{price:'1200.50',currency:'USD',estimate_min:'1000.25',estimate_max:'1500.75',estimate_currency:'USD'}});
  for(const [key,value] of Object.entries({price:'1200.50',currency:'USD',estimate_min:'1000.25',estimate_max:'1500.75',estimate_currency:'USD'}))assert.equal(priceProposal.doc.querySelector(`[data-field="${key}"]`).value,value);
  assert.equal(priceProposal.doc.querySelector('#valuation-details').open,false);
- assert.match(priceProposal.doc.querySelector('#ready-estimate').textContent,/1,000–1,501 USD/);
+ assert.match(priceProposal.doc.querySelector('#ready-estimate').textContent,/1,000.25–1,500.75 USD/);
  priceProposal.close();pass('price and documented range remain editable without exposing research details in the intake');
  const age = setup(async()=>{throw Error('No request expected');},{data:{year:2007,estimated_year_from:2004,estimated_year_to:2009}});
  for(const key of ['estimated_year_from','estimated_year_to']){const field=age.doc.getElementById(key);assert.equal(field.min,'1900');assert.equal(field.max,'2100');assert.equal(field.required,false);assert.equal(age.doc.querySelectorAll(`[data-field="${key}"]`).length,1);}
- assert.equal(age.doc.querySelector('#age-details').open,false);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#preview-age-range').textContent,'2004–2009');
+ assert.equal(age.doc.querySelector('#age-details').open,false);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#preview-age-range').hidden,false);assert.equal(age.doc.querySelector('#preview-age-range').textContent,'2004–2009');
  input(age,'estimated_year_from','');assert.equal(age.doc.querySelector('#preview-age-range').textContent,'Hasta 2009');input(age,'estimated_year_to','');assert.equal(age.doc.querySelector('#preview-age-range').hidden,true);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#submit-machine').disabled,false);age.close();
  pass('optional approximate age is bounded, separate from the exact year and hidden when both endpoints are cleared');
  const familyData={brand:'CAT',model:null,model_family:'320D',year:null,estimated_year_from:2006,estimated_year_to:2026,price:null,estimate_min:'60000',estimate_max:'75900',estimate_currency:'USD',condition:null,usage_condition:'Usada'};
@@ -386,6 +402,6 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  await pause(40);assert.equal(resumedCheck.doc.querySelector('#analyze-button').disabled,false);assert.equal(resumedCheck.doc.querySelector('[data-step-panel="1"]').hidden,false);assert.equal(resumedCheck.doc.querySelector('#model').value,'');resumedCheck.close();pass('reloading a running preflight restores generate without marking the fiche ready or applying fields');
  let staleCheck;const staleCalls=[];
  staleCheck=setup(async(url)=>{staleCalls.push(url);await pause(1);return response(200,{...completed(staleCheck.state,{model:'Modelo obsoleto'}),input_category:701,input_assets:[{id:'removed',purpose:'general'}]});},{job:{id:'old-photos',status:'completed'}});
- await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.match(staleCheck.doc.querySelector('#ready-heading').textContent,/pendiente/);assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');
+ await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.equal(staleCheck.doc.querySelector('#ready-heading').textContent,'Fotos actualizadas');assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

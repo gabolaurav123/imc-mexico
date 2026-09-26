@@ -57,6 +57,8 @@ def public_projection(snapshot):
     raw = root.get("data", root)
     if not isinstance(raw, dict):
         return {}
+    from .sheet_details import finished_sheet_data
+    raw = finished_sheet_data(raw)
     identifiers = {_identifier_key(raw.get(key)) for key in ("serial", "vin") if _identifier_key(raw.get(key))}
     result = {}
     provenance = root.get("provenance", {}) if isinstance(root.get("provenance", {}), dict) else {}
@@ -72,9 +74,20 @@ def public_projection(snapshot):
         if key == "price" and isinstance(meta, dict) and meta.get("source") == "valuation" and meta.get("review") != "confirmed":
             continue
         result[key] = value
-    # Keep approximate age explicitly approximate; never manufacture an exact year.
-    if "year" in result and result["year"] in ("", None):
-        result.pop("year", None)
+    # Publish only a complete, ordered year range; it may coexist with the
+    # declared year, which describes the unit rather than its model period.
+    from django.utils import timezone
+    try:
+        low_year = Decimal(str(result.get("estimated_year_from")))
+        high_year = Decimal(str(result.get("estimated_year_to")))
+        valid_years = (low_year.is_finite() and high_year.is_finite()
+                       and low_year == int(low_year) and high_year == int(high_year)
+                       and 1900 <= low_year <= high_year <= timezone.localdate().year)
+    except (InvalidOperation, ValueError, TypeError, OverflowError):
+        valid_years = False
+    if not valid_years:
+        result.pop("estimated_year_from", None)
+        result.pop("estimated_year_to", None)
     # Monetary values are meaningful only with an explicit ISO currency.
     if "price" in result and not _present(result.get("currency")):
         result.pop("price", None)

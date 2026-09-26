@@ -15,6 +15,18 @@ from portal.pdf import _price, build_pdf
 
 
 class PdfDesignTests(SimpleTestCase):
+    def test_serial_only_identity_precedes_estimates_and_optional_location_survives(self):
+        _, text = self.build({'serial': 'SERIAL-ONLY-TEST', 'brand': 'PRUEBA', 'model': 'MODELO',
+                             'estimate_min': '1000', 'estimate_max': '2000', 'estimate_currency': 'USD',
+                             'estimated_year_from': 2001, 'estimated_year_to': 2004, 'hours': 0,
+                             'location_country': 'México', 'location_region': 'Sonora', 'location_city': 'Hermosillo',
+                             'description': 'Motor diésel. Cabina cerrada. Accionamiento hidráulico.'})
+        self.assertLess(text.index('SERIAL-ONLY-TEST'), text.index('Rango de precio estimado'))
+        self.assertLess(text.index('Rango de precio estimado'), text.index('Características técnicas'))
+        for expected in ('Hermosillo, Sonora, México', '1,000–2,000 USD', '2001–2004', 'Horas de uso'):
+            self.assertIn(expected, text)
+        self.assertNotIn('se incorporarán', text)
+
     def build(self, data, *, public=False, provenance=None, category=None, snapshot_data=None, assets=()):
         values = deepcopy(data)
         version_id = uuid4()
@@ -73,16 +85,16 @@ class PdfDesignTests(SimpleTestCase):
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
         self.assertIn("IMC MÉXICO", second_page)
         self.assertIn("Excavadora CAT 320D L.", first_page)
-        self.assertLess(first_page.index("Valor estimado"), first_page.index("Descripción del equipo"))
-        self.assertLess(first_page.index("Año aproximado"), first_page.index("Descripción del equipo"))
-        for heading in ("Valor estimado", "Año aproximado"):
+        self.assertLess(first_page.index("Rango de precio estimado"), first_page.index("Características técnicas"))
+        self.assertLess(first_page.index("Rango de año estimado"), first_page.index("Características técnicas"))
+        for heading in ("Rango de precio estimado", "Rango de año estimado"):
             self.assertEqual(text.count(heading), 1)
             self.assertNotIn(heading, second_page)
         for expected in ("1,000–2,000 USD", "2004–2009", "Referencia de mercado: Mercado de prueba",
                          "Comparables de mercado para equipos similares", "Periodos publicados 2004–2009"):
             self.assertIn(expected, " ".join(first_page.split()))
-        self.assertNotIn("Descripción del equipo", second_page)
-        for expected in ("Año aproximado", "2004–2009", "Valor estimado", "1,000–2,000 USD",
+        self.assertNotIn("Características técnicas", second_page)
+        for expected in ("Rango de año estimado", "2004–2009", "Rango de precio estimado", "1,000–2,000 USD",
                          "Referencia de mercado: Mercado de prueba", "Comparables de mercado para equipos similares", "Rayones visibles en el bastidor."):
             self.assertIn(expected, " ".join(text.split()))
         self.assertIn("Excavadora CAT 320D L.", text)
@@ -157,13 +169,13 @@ class PdfDesignTests(SimpleTestCase):
                                     public_authorized=True, preview=photo, is_cover=True, position=0)
             document, text = self.build(values, assets=[asset])
         first_page, second_page = (" ".join(page.extract_text().split()) for page in document.pages[:2])
-        for expected in ("Año aproximado", "2008–2012", "Valor estimado", "60,000–80,000 USD",
+        for expected in ("Rango de año estimado", "2008–2012", "Rango de precio estimado", "60,000–80,000 USD",
                          "PERIODO-INICIO", "MERCADO-INICIO", "DESCRIPCION-INICIO"):
             self.assertIn(expected, first_page)
         self.assertIn((600, 900), [image.image.size for image in document.pages[0].images])
         self.assertIn("Estado aparente, componentes y aplicaciones", second_page)
-        self.assertNotIn("Valor estimado", second_page)
-        self.assertNotIn("Año aproximado", second_page)
+        self.assertNotIn("Rango de precio estimado", second_page)
+        self.assertNotIn("Rango de año estimado", second_page)
         for expected in ("PERIODO-FIN", "MERCADO-FIN", "DESCRIPCION-FIN"):
             self.assertIn(expected, text)
 
@@ -185,6 +197,12 @@ class PdfDesignTests(SimpleTestCase):
         self.assertNotIn("Datos adicionales", empty)
         self.assertNotIn("Consultar precio", empty)
         self.assertEqual(_price("1e1000000", "MXN"), "1e1000000 MXN")
+
+    def test_an_estimate_without_its_currency_does_not_silently_become_pesos(self):
+        for currency in (None, "", "UNSUPPORTED"):
+            _, text = self.build({"estimate_min": "1000", "estimate_max": "2000", "estimate_currency": currency})
+            self.assertNotIn("Rango de precio estimado", text)
+            self.assertNotIn("MXN", text)
 
     def test_long_technical_values_and_untrusted_markup_remain_complete_plain_text(self):
         values = {"vibration_frequency": "INICIO\n" + "registro de prueba\n" * 70 + "FIN",

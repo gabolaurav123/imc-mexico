@@ -15,6 +15,9 @@ from portal.processing import (
 )
 from portal.research import RESEARCH_RESERVATION, UsageTotals, empty_research
 from portal.valuation import VALUATION_RESERVATION
+from portal.ai_completion import COMPLETION_RESERVATION
+
+PIPELINE_RESERVATION = RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION
 
 
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini", OPENAI_TIMEOUT=90,
@@ -24,7 +27,7 @@ class ResearchWorkerBudgetTests(TestCase):
         self.user = User.objects.create_user(email="worker-budget@example.invalid")
         self.machine = Machine.objects.create(owner=self.user, data={"brand": "Caterpillar", "model": "420F2"})
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True,
-            ai_daily_token_limit=RESEARCH_RESERVATION * 5, ai_max_attempts=2)
+            ai_daily_token_limit=PIPELINE_RESERVATION * 5, ai_max_attempts=2)
 
     def enqueue(self):
         return enqueue_analysis(self.machine, self.user, mode="description", research=True, authorize_ai=True)
@@ -41,15 +44,15 @@ class ResearchWorkerBudgetTests(TestCase):
     def test_new_jobs_reserve_every_research_stage_for_each_allowed_attempt(self):
         job = self.enqueue()
         self.assertEqual(job.prompt_version, PROMPT_VERSION)
-        self.assertEqual(job.result["reservation_per_attempt"], RESEARCH_RESERVATION)
-        self.assertEqual(job.reserved_tokens, 2 * RESEARCH_RESERVATION)
-        self.assertEqual(_reservation(3, "analysis", True), 3 * 12200 + RESEARCH_RESERVATION + VALUATION_RESERVATION)
+        self.assertEqual(job.result["reservation_per_attempt"], PIPELINE_RESERVATION)
+        self.assertEqual(job.reserved_tokens, 2 * PIPELINE_RESERVATION)
+        self.assertEqual(_reservation(3, "analysis", True), 3 * 12200 + PIPELINE_RESERVATION)
         self.assertEqual(_reservation(0, "description", False), 9000)
         self.limits.refresh_from_db()
-        self.assertEqual(self.limits.ai_daily_token_limit, 5 * RESEARCH_RESERVATION)
+        self.assertEqual(self.limits.ai_daily_token_limit, 5 * PIPELINE_RESERVATION)
 
     def test_admission_rejects_insufficient_full_pipeline_budget_before_any_remote_call(self):
-        self.limits.ai_daily_token_limit = RESEARCH_RESERVATION - 1
+        self.limits.ai_daily_token_limit = PIPELINE_RESERVATION - 1
         self.limits.save()
         with patch("openai.OpenAI") as provider, self.assertRaises(ValidationError):
             self.enqueue()
@@ -61,27 +64,27 @@ class ResearchWorkerBudgetTests(TestCase):
         claimed = _claim_job()
         self.assertEqual(claimed.pk, job.pk)
         self.assertEqual(claimed.attempts, 1)
-        self.assertEqual(claimed.reserved_tokens, 2 * RESEARCH_RESERVATION)
-        self.assertEqual(claimed.result["reservation_per_attempt"], RESEARCH_RESERVATION)
+        self.assertEqual(claimed.reserved_tokens, 2 * PIPELINE_RESERVATION)
+        self.assertEqual(claimed.result["reservation_per_attempt"], PIPELINE_RESERVATION)
         self.limits.refresh_from_db()
-        self.assertEqual(self.limits.ai_daily_token_limit, 5 * RESEARCH_RESERVATION)
+        self.assertEqual(self.limits.ai_daily_token_limit, 5 * PIPELINE_RESERVATION)
 
     def test_legacy_upgrade_counts_other_reservations_and_can_reduce_to_one_attempt(self):
         job = self.legacy()
-        self.limits.ai_daily_token_limit = 2 * RESEARCH_RESERVATION
+        self.limits.ai_daily_token_limit = 2 * PIPELINE_RESERVATION
         self.limits.save()
         AnalysisJob.objects.create(machine=self.machine, requested_by=self.user,
             revision=self.machine.revision,
-            fingerprint="other-budget", status="running", reserved_tokens=RESEARCH_RESERVATION,
+            fingerprint="other-budget", status="running", reserved_tokens=PIPELINE_RESERVATION,
             attempts=1, locked_at=timezone.now())
         claimed = _claim_job()
         self.assertEqual(claimed.pk, job.pk)
         self.assertEqual(claimed.result["attempt_limit"], 1)
-        self.assertEqual(claimed.reserved_tokens, RESEARCH_RESERVATION)
+        self.assertEqual(claimed.reserved_tokens, PIPELINE_RESERVATION)
 
     def test_legacy_upgrade_without_capacity_fails_without_claim_or_provider(self):
         job = self.legacy()
-        self.limits.ai_daily_token_limit = RESEARCH_RESERVATION - 1
+        self.limits.ai_daily_token_limit = PIPELINE_RESERVATION - 1
         self.limits.save()
         with patch("portal.processing.process_analysis") as process, patch("openai.OpenAI") as provider:
             self.assertFalse(process_next_job())
@@ -109,24 +112,24 @@ class ResearchWorkerBudgetTests(TestCase):
     def test_expired_new_lease_retries_once_and_accounts_one_reserved_attempt_each_time(self):
         job = self.enqueue()
         _claim_job()
-        expired = timezone.now() - timedelta(seconds=MIN_JOB_LEASE_SECONDS + 1)
+        expired = timezone.now() - timedelta(seconds=_job_lease_seconds(job) + 1)
         AnalysisJob.objects.filter(pk=job.pk).update(locked_at=expired)
         retry = _claim_job()
         self.assertEqual((retry.attempts, retry.input_tokens, retry.reserved_tokens),
-                         (2, RESEARCH_RESERVATION, RESEARCH_RESERVATION))
+                         (2, PIPELINE_RESERVATION, PIPELINE_RESERVATION))
         AnalysisJob.objects.filter(pk=job.pk).update(locked_at=expired)
         self.assertIsNone(_claim_job())
         job.refresh_from_db()
         self.assertEqual((job.status, job.input_tokens, job.reserved_tokens),
-                         ("failed", 2 * RESEARCH_RESERVATION, 0))
+                         ("failed", 2 * PIPELINE_RESERVATION, 0))
 
     def test_legacy_expired_attempt_accounts_old_cost_then_reserves_new_retry_cost(self):
         job = self.legacy(status="running", attempts=1)
         retry = _claim_job()
         self.assertEqual(retry.pk, job.pk)
         self.assertEqual((retry.attempts, retry.input_tokens, retry.reserved_tokens),
-                         (2, 20000, RESEARCH_RESERVATION))
-        self.assertEqual(retry.result["reservation_per_attempt"], RESEARCH_RESERVATION)
+                         (2, 20000, PIPELINE_RESERVATION))
+        self.assertEqual(retry.result["reservation_per_attempt"], PIPELINE_RESERVATION)
 
     def test_reduced_admin_attempt_limit_does_not_double_charge_old_lease(self):
         job = self.legacy(status="running", attempts=1)
@@ -145,7 +148,7 @@ class ResearchWorkerBudgetTests(TestCase):
             self.assertFalse(process_next_job())
         job.refresh_from_db()
         self.assertEqual((job.status, job.attempts, job.input_tokens, job.output_tokens, job.reserved_tokens),
-                         ("queued", 1, 430, 70, RESEARCH_RESERVATION))
+                         ("queued", 1, 430, 70, PIPELINE_RESERVATION))
         self.assertGreater(job.locked_at, timezone.now())
 
     def test_partial_multistage_usage_survives_completion_without_research_retry(self):

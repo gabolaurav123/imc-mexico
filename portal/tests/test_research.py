@@ -433,6 +433,7 @@ class ResearchPipelineTests(TestCase):
         # These tests isolate technical research; valuation is covered separately.
         from portal.research import UsageTotals
         self.enterContext(patch("portal.processing.estimate_machine", return_value=({"status": "not_run"}, UsageTotals())))
+        self.enterContext(patch("portal.processing.complete_machine_reference", return_value=(None, UsageTotals())))
         self.media = tempfile.TemporaryDirectory(prefix="imc-research-test-")
         self.override = override_settings(MEDIA_ROOT=self.media.name)
         self.override.enable()
@@ -441,7 +442,8 @@ class ResearchPipelineTests(TestCase):
         self.user = User.objects.create_user(email="research@example.invalid", password="Test-only-483")
         self.machine = Machine.objects.create(owner=self.user)
         from portal.valuation import VALUATION_RESERVATION
-        self.per_attempt = 12200 + RESEARCH_RESERVATION + VALUATION_RESERVATION
+        from portal.ai_completion import COMPLETION_RESERVATION
+        self.per_attempt = 12200 + RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION_RESERVATION
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True,
             ai_daily_token_limit=2 * self.per_attempt + 10000, ai_max_attempts=2)
         Consent.objects.create(user=self.user, machine=self.machine, kind="ai", granted=True)
