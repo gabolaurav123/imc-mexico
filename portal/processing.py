@@ -41,7 +41,7 @@ from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v41"
+PROMPT_VERSION = "imc-excavators-2026-09-v42"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
