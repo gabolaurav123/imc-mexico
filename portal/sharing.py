@@ -129,6 +129,10 @@ def manage(request, pk):
             raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
         mode = preparation_mode(machine)
         completed_preparation = has_completed_preparation(machine)
+        from .intake import preparation_completeness
+        completion = preparation_completeness(machine)
+        if completion.get("missing_fields"):
+            raise ValidationError(completion["message"])
         require_consistent_photos(machine)
         eligible = {str(asset.pk): asset for asset in _safe_assets(machine)}
         requested = body.get("asset_ids")

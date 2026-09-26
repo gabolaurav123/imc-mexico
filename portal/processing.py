@@ -38,8 +38,10 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
+from .ai_completion import (complete_machine_reference, completion_reservation,
+                            merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v40"
+PROMPT_VERSION = "imc-excavators-2026-09-v41"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -557,10 +559,10 @@ def ingest_asset(machine, user, uploaded, purpose="general"):
 def _reservation(image_count, mode, research=False, *, research_description_only=False, model=""):
     # A conservative operational reservation, not a token prediction or price quote.
     if mode == "description" and research and research_description_only:
-        return research_reservation(model)
+        return research_reservation(model) + valuation_reservation(model) + completion_reservation(model)
     reading = (token_reservation(model, 9000) if mode == "description"
                else max(1, image_count) * token_reservation(model, IMAGE_RESERVATION))
-    return reading + (research_reservation(model) if research else 0) + (valuation_reservation(model) if research and mode == "analysis" else 0)
+    return reading + (research_reservation(model) + valuation_reservation(model) + completion_reservation(model) if research else 0)
 
 
 def _attempt_limit(job, limits):
@@ -628,8 +630,9 @@ def _job_lease_seconds(job=None):
     research_extra = (3 * (request_timeout(model, 65) - 65) + 2 * (request_timeout(model, 55) - 55)
                       if research_requested else 0)
     valuation_extra = (180 + request_timeout(model, 60) - 60 + request_timeout(model, 45) - 45
-                       if job and job.mode == "analysis" and research_requested else 0)
-    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout + research_extra + valuation_extra,
+                       if research_requested else 0)
+    completion_extra = request_timeout(model, 45) if research_requested else 0
+    configured = max(MIN_JOB_LEASE_SECONDS + vision_extra + additional_images * timeout + research_extra + valuation_extra + completion_extra,
                      int(option("AI_JOB_STALE_SECONDS", MIN_JOB_LEASE_SECONDS)))
     recorded = job.result.get("execution_lease_seconds") if job else None
     return max(configured, recorded) if type(recorded) in {int, float} and recorded > 0 else configured
@@ -1835,6 +1838,7 @@ def process_analysis(job):
         result["preflight"] = job.result.get("preflight") is True
         result["input_category_id"] = job.result.get("input_category_id")
         result["research_description_only"] = research_description_only
+        result["identifier_only"] = bool(research_description_only and not bindings and declared.get("serial"))
         result["attempt_limit"] = _attempt_limit(job, platform_settings())
         result["reservation_per_attempt"] = _reserved_attempt_cost(job, platform_settings())
         if job.mode == "analysis" and check_equipment_consistency(result, snapshot):
@@ -1905,7 +1909,7 @@ def process_analysis(job):
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         else:
             result["research"] = empty_research()
-        if job.mode == "analysis" and research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
+        if research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
             _record_progress(job, "valuation", len(image_readings), len(bindings))
             def valuation_allowed():
                 try:
@@ -1931,7 +1935,7 @@ def process_analysis(job):
             if valuation.get("status") == "estimated" and valuation.get("suggested_price"):
                 result["data"]["estimate_suggested_price"] = valuation["suggested_price"]
                 result["provenance"]["estimate_suggested_price"] = {"source": "valuation", "review": "needs_review", "component": "machine"}
-        elif job.mode == "analysis" and research_requested:
+        elif research_requested:
             result["valuation"] = {"status": "not_run", "reason": "image_pipeline_incomplete" if image_pipeline_interrupted else "budget_unavailable"}
         if job.mode == "analysis" and not image_pipeline_interrupted:
             # A legible family with an unread suffix can still use reviewed
@@ -1940,6 +1944,27 @@ def process_analysis(job):
             family = build_family_reference(result, snapshot, category=job.machine.category)
             if family:
                 merge_family_reference(result, family, snapshot)
+        if research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, completion_reservation(job.model)):
+            _record_progress(job, "completion", len(image_readings), len(bindings))
+            # The same revocation/deletion checks apply to the optional final
+            # request, including the existing serial-only description route.
+            def completion_allowed():
+                try:
+                    _check_image_execution(job)
+                except ValidationError:
+                    return False
+                latest = Consent.objects.filter(user=job.requested_by, user__is_active=True,
+                    machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
+                return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
+
+            reference, reference_usage = complete_machine_reference(client, job.model, result, snapshot,
+                allowed=completion_allowed, allowed_categories=job.result.get("category_names", []),
+                category_profile=job.result.get("category_profile", {}) if job.machine.category_id else {})
+            usage.add(reference_usage)
+            usage.estimated_tokens += reference_usage.estimated_tokens
+            usage.web_search_calls += reference_usage.web_search_calls
+            if reference:
+                merge_machine_reference(result, reference, snapshot)
         if not str(result["data"].get("title", "")).strip() and job.mode == "analysis":
             result["data"]["title"] = result.get("category") or "Maquinaria para revisión"
             result["title"] = result["data"]["title"]
@@ -1948,6 +1973,8 @@ def process_analysis(job):
             result["data"]["description"] = compose_description(result["data"], result["provenance"], result.get("category"))
             result["description"] = result["data"]["description"]
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
+        result["completion"] = {"missing_fields": missing_fields({**result["data"], **declared},
+            result.get("category") or snapshot.get("category"))}
         result["usage"] = usage.as_dict()
         result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
         return result, usage

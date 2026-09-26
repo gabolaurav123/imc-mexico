@@ -80,11 +80,14 @@ class PublishEntryTests(TestCase):
         self.assertEqual(user.contact_preference, 'whatsapp')
         self.assertFalse(Machine.objects.exists())
 
-    def test_new_machine_requires_type_without_losing_existing_drafts(self):
+    def test_new_machine_can_investigate_serial_without_type_or_losing_existing_drafts(self):
         user = User.objects.create_user(email='contact-ready@example.invalid', phone='+525512345678')
         existing = Machine.objects.create(owner=user, data={'serial':'KEEP-123'})
         self.client.force_login(user)
-        response = self.client.post('/panel/maquinarias/nueva/', {'category':'unsure'})
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(Machine.objects.count(), 1)
+        response = self.client.post('/panel/maquinarias/nueva/', {'category':'unsure', 'serial':'CAT320D12345', 'entry_mode':'serial'})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Machine.objects.count(), 2)
+        new = Machine.objects.exclude(pk=existing.pk).get()
+        self.assertIsNone(new.category_id)
+        self.assertEqual(new.data['serial'], 'CAT320D12345')
         self.assertEqual(Machine.objects.get(pk=existing.pk).data, {'serial':'KEEP-123'})

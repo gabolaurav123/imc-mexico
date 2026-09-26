@@ -115,11 +115,11 @@ class CommercialSheetTests(TestCase):
                 html, document, text = self.render(fixture, public=public)
                 pdf_text = " ".join(text.split())
                 if not public:
-                    self.assertIn("Precio estimado", html)
+                    self.assertIn("Rango de precio estimado", html)
                     self.assertIn("1000.25–2000.75", html)
                     self.assertNotIn("BASE FIRMADA", html)
                     self.assertNotIn("1500.50", html)
-                    self.assertIn("Valor estimado", pdf_text)
+                    self.assertIn("Rango de precio estimado", pdf_text)
                     self.assertIn("BASE FIRMADA", pdf_text)
                 else:
                     self.assertNotIn("Referencia de mercado condicional", html)
@@ -139,10 +139,11 @@ class CommercialSheetTests(TestCase):
                         self.assertIn(fixture["data"][key], html)
                     else:
                         self.assertNotIn(fixture["data"][key], html)
-                    expected = str(fixture["data"][key]).rstrip(".")
+                    expected = "Pintura con desgaste visible" if key == "preservation_notes" else str(fixture["data"][key]).rstrip(".")
                     if not public and key not in {"operating_status", "applications"}:
                         self.assertIn(expected, " ".join(text.split()))
-                self.assertIn(fixture["data"]["description"], html)
+                self.assertIn("PRUEBA NO INVENTARIO.", html)
+                self.assertIn("Equipo ficticio para verificar el documento.", html)
                 self.assertNotIn(ESTIMATE_LABEL, html)
                 self.assertNotIn(fixture["data"]["estimate_basis"], html)
                 self.assertNotIn("BORRADOR-ACTUAL-PRIVADO", html)
@@ -150,7 +151,7 @@ class CommercialSheetTests(TestCase):
                 self.assertNotIn("99999999", html)
                 pdf_text = " ".join(text.split())
                 if not public:
-                    self.assertIn("Valor estimado", pdf_text)
+                    self.assertIn("Rango de precio estimado", pdf_text)
                 else:
                     self.assertNotIn(ESTIMATE_LABEL, pdf_text)
                 self.assertNotIn("Precio de anuncio", pdf_text)
@@ -249,8 +250,8 @@ class CommercialSheetTests(TestCase):
             with self.subTest(public=public):
                 html, _, _ = self.render(fixture, public=public)
                 self.assertIn('<dt>Precio</dt><dd>3456.75 USD', html)
-                self.assertNotIn('<dt>Precio estimado</dt>', html)
-                self.assertNotIn('1000.25–2000.75', html)
+                self.assertIn('<dt>Rango de precio estimado</dt>', html)
+                self.assertIn('1000.25–2000.75', html)
         self.assertEqual(fixture, original, 'The concise display must not delete prior valuation evidence')
 
 
@@ -264,9 +265,9 @@ class CommercialSheetTests(TestCase):
             with self.subTest(public=public):
                 html, _, text = self.render(fixture, public=public)
                 self.assertIn("<dt>Año</dt><dd>2007", html)
-                self.assertNotIn("2004–2009", html)
-                self.assertNotIn("Año aproximado", html)
-                self.assertIn("Año aproximado", text)
+                self.assertIn("2004–2009", html)
+                self.assertIn("Rango de año estimado", html)
+                self.assertIn("Rango de año estimado", text)
                 self.assertNotIn("por confirmar", text)
                 for output in (html, text):
                     if output == text:
@@ -281,7 +282,7 @@ class CommercialSheetTests(TestCase):
                 self.assertIn('id="sheet-identification"', html)
         self.assertEqual(fixture["data"]["year"], 2007)
 
-    def test_partial_age_endpoints_remain_visible_but_basis_alone_is_not_a_range(self):
+    def test_partial_age_endpoints_and_basis_alone_are_not_publishable_ranges(self):
         for start, end, expected in ((2004, None, "Desde 2004"), (None, 2009, "Hasta 2009"),
                                      (None, None, None)):
             with self.subTest(start=start, end=end):
@@ -289,14 +290,11 @@ class CommercialSheetTests(TestCase):
                 fixture["data"].update(estimated_year_from=start, estimated_year_to=end,
                     estimated_year_basis="INDICIO-ANTERIOR-A-RANGO-BORRADO")
                 html, _, text = self.render(fixture, public=True)
-                if expected:
-                    self.assertIn(expected, html)
-                    self.assertIn(expected, text)
-                else:
-                    self.assertNotIn('id="sheet-age"', html)
-                    self.assertNotIn("Año aproximado", text)
-                    self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", html)
-                    self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", text)
+                for output in (html, text):
+                    if expected:
+                        self.assertNotIn(expected, output)
+                    self.assertNotIn("Rango de año estimado", output)
+                    self.assertNotIn("INDICIO-ANTERIOR-A-RANGO-BORRADO", output)
 
     def test_age_basis_is_omitted_on_screen_and_private_serial_stays_out_of_public_documents(self):
         fixture = commercial_snapshot()
@@ -331,7 +329,7 @@ class CommercialSheetTests(TestCase):
                 self.assertEqual([source["period"] for source in refs[0]["sources"]], ["1996–2002", "2003–2007"])
                 html, document, text = self.render(fixture, public=public)
                 self.assertIn("1996–2007", html)
-                self.assertIn("Año aproximado", html)
+                self.assertIn("Rango de año estimado", html)
                 self.assertIn("Rango estimado", html)
                 self.assertIn("1996–2007", " ".join(text.split()))
                 self.assertNotIn("no sustituye el año exacto de fabricación", " ".join(text.split()))

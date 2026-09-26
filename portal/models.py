@@ -603,8 +603,10 @@ class Publication(models.Model):
             raise ValidationError("La maquinaria está en la papelera.")
         if self.version_id and self.version.machine_id != self.machine_id:
             raise ValidationError("La versión no pertenece a esta maquinaria.")
-        if self.enabled and (not self.version_id or self.machine.approved_version_id != self.version_id or self.machine.owner.advertiser_status != "approved"):
-            raise ValidationError("Se requiere una versión y un anunciante aprobados.")
+        if self.enabled and (not self.version_id or self.machine.approved_version_id != self.version_id
+                             or not self.machine.owner.is_active or self.machine.owner.is_guest
+                             or self.machine.owner.advertiser_status != "approved"):
+            raise ValidationError("Se requiere una versión aprobada y un anunciante activo y aprobado.")
         if self.current_delivery_id and self.current_delivery.publication_id != self.pk:
             raise ValidationError("La entrega activa no pertenece a esta publicación.")
         if self.imc_selection_version_id and self.imc_selection_version.machine_id != self.machine_id:

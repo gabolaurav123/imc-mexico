@@ -186,7 +186,9 @@ class PlateReanalysisPipelineTests(TestCase):
             provider.return_value.responses.parse.return_value = response
             provider.return_value.responses.create.side_effect = TimeoutError("synthetic unavailable search")
             result, _ = process_analysis(job)
-        request = json.loads(provider.return_value.responses.parse.call_args.kwargs["input"][0]["content"][0]["text"])
+        # The first call is the isolated image reading; a later optional
+        # completion request has a different schema and cannot anchor its OCR.
+        request = json.loads(provider.return_value.responses.parse.call_args_list[0].kwargs["input"][0]["content"][0]["text"])
         self.assertEqual(request["declared_data"]["data"], {})
         self.assertIsNone(request["recorded_data"])
         self.assertEqual(result["data"]["power"], VALUES["power"])

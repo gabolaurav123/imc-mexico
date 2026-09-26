@@ -26,7 +26,6 @@
     models.forEach(item=>addOption(modelSelect,item.id,item.name)); modelSelect.disabled=!models.length;
   }
   next.addEventListener('click', () => {
-    if (!category.value) { document.getElementById('start-category-selection').textContent='Escribe el tipo de máquina y elige una de las sugerencias.'; document.getElementById('start-category-search').focus(); return; }
     stage='question'; show(question);
   });
   root.querySelectorAll('[data-identifier-answer]').forEach(button => button.addEventListener('click', () => {
@@ -38,6 +37,7 @@
   }));
   root.querySelectorAll('[data-photo-answer]').forEach(button => button.addEventListener('click', () => {
     const hasPhotos=button.dataset.photoAnswer==='yes'; stage=hasPhotos?'photos':'catalogue'; if(mode)mode.value=hasPhotos?'photos':'catalogue';
+    if(!hasPhotos&&!category.value){stage='category';document.getElementById('start-category-selection').textContent='Para buscar un modelo del catálogo, selecciona primero el tipo de máquina.';show(type);document.getElementById('start-category-search').focus();return;}
     if (hasPhotos) show(photosYes); else { manual=false; manualFields.hidden=true; populateBrands(); show(catalogue); }
   }));
   brandSelect.addEventListener('change',populateModels);
@@ -48,12 +48,13 @@
   root.querySelectorAll('[data-type-back]').forEach(button => button.addEventListener('click', () => { stage='category'; show(type); }));
   form.addEventListener('submit', event => {
     const button=event.submitter, section=button?.closest('.intake-question');
-    if (!category.value || !button?.matches('.intake-finish') || button.hidden || !section || section.hidden) { event.preventDefault(); if(stage==='category')next.click(); return; }
+    if (!button?.matches('.intake-finish') || button.hidden || !section || section.hidden) { event.preventDefault(); if(stage==='category')next.click(); return; }
     if(stage==='typed'){ serial.value=!typedWrap.hidden?typed.value.trim():''; if(!serial.value){event.preventDefault();typed.setCustomValidity('Escribe la serie o elige continuar con fotografías.');typed.reportValidity();typed.focus();} return; }
     if(stage==='plate'){serial.value='';return;}
     if(stage==='photos'){serial.value='';if(mode)mode.value='photos';return;}
     if(stage==='catalogue'){
       serial.value='';
+      if(!category.value){event.preventDefault();stage='category';show(type);document.getElementById('start-category-search').focus();return;}
       if(catalogueModel.value){if(mode)mode.value='catalogue';return;}
       if(manual && manualBrand.value.trim() && manualModel.value.trim()){if(mode)mode.value='manual_identity';return;}
       event.preventDefault(); catalogueHelp.textContent='Selecciona un modelo del catálogo o escribe la marca y el modelo que conoces.';

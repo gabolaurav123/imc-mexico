@@ -4,10 +4,38 @@ import json
 
 from django.test import SimpleTestCase
 
-from portal.sheet_details import build_sheet_details
+from portal.sheet_details import build_sheet_details, build_technical_summary, finished_sheet_data
 
 
 class SheetDetailsTests(SimpleTestCase):
+    def test_finished_copy_omits_workflow_values_without_rewriting_defects_or_draft(self):
+        data = {"model": "Pendiente", "condition": "unknown", "hours": 0,
+                "description": "Fuga hidráulica visible. Potencia por confirmar. Cabina cerrada.",
+                "location_city": "La Paz", "power": float("nan")}
+        original = deepcopy(data)
+        copy = finished_sheet_data(data)
+        self.assertNotIn("model", copy)
+        self.assertNotIn("condition", copy)
+        self.assertNotIn("power", copy)
+        self.assertEqual(copy["hours"], 0)
+        self.assertIn("Fuga hidráulica visible.", copy["description"])
+        self.assertIn("Cabina cerrada.", copy["description"])
+        self.assertNotIn("Potencia", copy["description"])
+        self.assertEqual(data["description"], original["description"])
+
+    def test_technical_summary_is_bounded_enriched_and_never_copies_private_identifiers(self):
+        data = {"description": "Equipo hidráulico con cabina cerrada.", "power": "100 kW", "weight": "20 t",
+                "capacity": "1 m³", "fuel": "Diésel", "serial": "PRIVATE1234"}
+        summary = build_technical_summary(data)
+        self.assertEqual(len(summary), 4)
+        self.assertIn("Potencia: 100 kW", summary)
+        self.assertIn("Peso operativo: 20 t", summary)
+        self.assertTrue(all(len(line) <= 145 for line in summary))
+        data["description"] = "Identificación PRIVATE1234"
+        self.assertNotIn("PRIVATE1234", " ".join(build_technical_summary(data)))
+        self.assertEqual(build_technical_summary({}), [])
+        self.assertEqual(build_technical_summary({"description": "Pendiente de confirmar"}), [])
+
     def test_present_values_are_preserved_without_conversions_specs_or_mutation(self):
         data = {"power": "4.8 kW / 6.5 HP", "weight": "90 Kg", "vibration_frequency": "4200 VPM",
                 "centrifugal_force": "13 kN", "compaction_depth": "30 CM", "dimensions": None, "capacity": ""}

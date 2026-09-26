@@ -57,9 +57,8 @@ class PublicCatalogueTests(TestCase):
         examples=(
             ({'hours':0},'Horas de uso','0'),
             ({'price':0,'currency':'USD'},'Precio','0 USD'),
-            ({'estimate_min':1000,'estimate_max':2000,'estimate_currency':'USD'},'Precio estimado','1000–2000 USD'),
-            ({'estimated_year_from':2004},'Año aproximado','Desde 2004'),
-            ({'estimated_year_to':2009},'Año aproximado','Hasta 2009'),
+            ({'estimate_min':1000,'estimate_max':2000,'estimate_currency':'USD'},'Rango de precio estimado','1000–2000 USD'),
+            ({'estimated_year_from':2004,'estimated_year_to':2009},'Rango de año estimado','2004–2009'),
             ({'usage_condition':'Usada'},'Estado de uso aparente','Usada'),
             ({'location_country':'MX'},'País','MX'),
             ({'location_region':'Quintana Roo'},'Estado / provincia','Quintana Roo'),
@@ -88,8 +87,10 @@ class PublicCatalogueTests(TestCase):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/ficha/')
         self.assertEqual(response.status_code,200)
         for label,value in (('País','MX'),('Estado / provincia','Quintana Roo'),('Ciudad','Cancún'),
-                            ('Peso','22000 kg'),('Profundidad máxima de excavación','6.7 m'),('Horas de uso','0')):
+                            ('Horas de uso','0')):
             self.assertContains(response,f'<div><dt>{label}</dt><dd>{value}</dd></div>',html=True)
+        for value in ('Peso operativo: 22000 kg', 'Profundidad de excavación: 6.7 m'):
+            self.assertContains(response, value)
         # Specialized attributes remain translated and available to the editor,
         # snapshots and catalogue filters; the shared sheet presents essentials.
         fields={field['key']:field['value'] for field in response.context['extra_fields']}
@@ -123,9 +124,9 @@ class PublicCatalogueTests(TestCase):
                     self.assertContains(response,'<dt>Familia de modelo</dt><dd>320D</dd>',html=True)
                     self.assertContains(response,'Variante exacta no identificada; rangos de referencia de la familia.')
                     self.assertNotContains(response,'<dt>Modelo</dt>',html=True)
-                self.assertContains(response,'<dt>Año aproximado</dt>',html=True)
+                self.assertContains(response,'<dt>Rango de año estimado</dt>',html=True)
                 self.assertContains(response,'2006–2026')
-                self.assertContains(response,'<dt>Precio estimado</dt>',html=True)
+                self.assertContains(response,'<dt>Rango de precio estimado</dt>',html=True)
                 self.assertContains(response,'60000–75900 USD')
                 self.assertContains(response,'<dt>Estado de uso aparente</dt><dd>Usada</dd>',html=True)
                 for hidden in ('PRIVATE-FAMILY-SERIAL','PRIVATE-FAMILY-NOTE','<dt>Año</dt>','<dt>Precio</dt>','<dt>Estado de uso</dt>'):

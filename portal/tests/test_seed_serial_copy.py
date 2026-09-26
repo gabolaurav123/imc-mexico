@@ -69,6 +69,6 @@ class SerialCopySeedTests(TestCase):
     def test_public_templates_offer_written_serial_without_a_plate_photo(self):
         home=self.client.get('/')
         self.assertContains(home,'escríbela sin necesidad de una foto de la placa')
-        self.assertContains(home,'contexto general, no especificaciones de tu unidad')
+        self.assertContains(home,'estimaciones orientativas del modelo')
         guide=self.client.get('/guia-de-fotos/')
         self.assertContains(guide,'puedes escribirla sin fotografiar la placa')
