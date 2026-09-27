@@ -112,7 +112,8 @@ class QuickIntakeTests(TestCase):
         self.assertContains(response,'¿Tienes el número de serie?')
         self.assertContains(response,'¿Tienes fotografías de la máquina?')
         self.assertContains(response,'No tengo fotos')
-        self.assertContains(response,'Agrega fotos de tu máquina')
+        self.assertNotContains(response,'id="photos-yes"')
+        self.assertContains(response,'type="submit" data-photo-answer="yes"')
         self.assertContains(response,'Identifica el modelo que conoces')
         self.assertContains(response,'id="typed-serial"')
         self.assertContains(response,'portal/start-intake.js')
@@ -126,6 +127,22 @@ class QuickIntakeTests(TestCase):
         self.assertContains(response,'id="analysis-loading"')
         self.assertNotContains(response,'¿Tienes una foto de la placa de identificación o conoces el número de serie?')
         self.assertContains(response,'Añadir una placa')
+
+    def test_photo_choice_opens_existing_upload_wizard_with_optional_category(self):
+        for category in (str(self.category.pk),''):
+            with self.subTest(category=category):
+                response=self.client.post('/panel/maquinarias/nueva/',{'category':category,'entry_mode':'photos','serial':''})
+                self.assertEqual(response.status_code,302)
+                created=Machine.objects.filter(owner=self.owner).order_by('-created_at').first()
+                self.assertEqual(created.category_id,self.category.pk if category else None)
+                self.assertEqual(created.status,'draft')
+                self.assertEqual(response.url,f'/panel/maquinarias/{created.pk}/?entrada=photos')
+                wizard=self.client.get(response.url)
+                self.assertEqual(wizard.status_code,200)
+                self.assertContains(wizard,'type="file" id="gallery-input"')
+                self.assertFalse(created.assets.exists())
+                self.assertFalse(AnalysisJob.objects.exists())
+                self.assertFalse(Submission.objects.exists())
 
     def test_editable_commercial_estimator_stays_inside_the_single_preview_sheet(self):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')

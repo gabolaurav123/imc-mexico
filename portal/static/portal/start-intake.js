@@ -4,13 +4,13 @@
   if (!root || !form) return;
   const category=document.getElementById('start-category'), next=document.getElementById('start-category-next');
   const type=document.getElementById('type-question'), question=document.getElementById('identifier-question'), yes=document.getElementById('identifier-yes');
-  const photosQuestion=document.getElementById('photos-question'), photosYes=document.getElementById('photos-yes'), catalogue=document.getElementById('catalogue-question');
+  const photosQuestion=document.getElementById('photos-question'), catalogue=document.getElementById('catalogue-question');
   const typedWrap=document.getElementById('typed-serial-wrap'), typed=document.getElementById('typed-serial'), serial=document.getElementById('start-serial'), mode=document.getElementById('start-entry-mode');
   const catalogueModel=document.getElementById('catalogue-model'), brandSelect=document.getElementById('catalogue-brand-select'), modelSelect=document.getElementById('catalogue-model-select');
   const manualToggle=document.getElementById('catalogue-manual-toggle'), manualFields=document.getElementById('catalogue-manual-fields'), manualBrand=document.getElementById('catalogue-manual-brand'), manualModel=document.getElementById('catalogue-manual-model'), catalogueHelp=document.getElementById('catalogue-selection-help');
   let catalogueModels=[]; try { catalogueModels=JSON.parse(document.getElementById('catalogue-intake-data')?.textContent || '[]'); } catch { catalogueModels=[]; }
   let stage='category', manual=false;
-  const stages=[type,question,yes,photosQuestion,photosYes,catalogue].filter(Boolean);
+  const stages=[type,question,yes,photosQuestion,catalogue].filter(Boolean);
   const show=node => { stages.forEach(item => { item.hidden=item!==node; }); node.hidden=false; node.scrollIntoView({behavior:'smooth',block:'nearest'}); };
   const addOption=(select,value,label) => { const option=document.createElement('option'); option.value=String(value); option.textContent=label; select.append(option); };
   const resetSelect=(select,label) => { select.textContent=''; addOption(select,'',label); };
@@ -32,18 +32,18 @@
     stage=button.dataset.identifierAnswer==='yes'?'yes':'photos-question'; typedWrap.hidden=true; serial.value=''; if(mode)mode.value='photos'; show(stage==='yes'?yes:photosQuestion);
   }));
   root.querySelectorAll('[data-identifier-choice]').forEach(button => button.addEventListener('click', () => {
-    const isTyped=button.dataset.identifierChoice==='typed'; typedWrap.hidden=!isTyped; yes.querySelector('.intake-finish').hidden=false;
+    const isTyped=button.dataset.identifierChoice==='typed'; typedWrap.hidden=!isTyped; typed.setCustomValidity(''); yes.querySelector('.intake-finish').hidden=false;
     stage=isTyped?'typed':'plate'; if(mode)mode.value=isTyped?'serial':'plate'; if(isTyped)typed.focus(); else serial.value='';
   }));
   root.querySelectorAll('[data-photo-answer]').forEach(button => button.addEventListener('click', () => {
     const hasPhotos=button.dataset.photoAnswer==='yes'; stage=hasPhotos?'photos':'catalogue'; if(mode)mode.value=hasPhotos?'photos':'catalogue';
     if(!hasPhotos&&!category.value){stage='category';document.getElementById('start-category-selection').textContent='Para buscar un modelo del catálogo, selecciona primero el tipo de máquina.';show(type);document.getElementById('start-category-search').focus();return;}
-    if (hasPhotos) show(photosYes); else { manual=false; manualFields.hidden=true; populateBrands(); show(catalogue); }
+    if (!hasPhotos) { manual=false; manualFields.hidden=true; populateBrands(); show(catalogue); }
   }));
   brandSelect.addEventListener('change',populateModels);
   modelSelect.addEventListener('change',()=>{ catalogueModel.value=modelSelect.value; manual=false; manualFields.hidden=true; catalogueHelp.textContent=modelSelect.value?'Prepararemos una ficha editable con referencias del modelo, no datos de esta unidad.':''; });
   manualToggle.addEventListener('click',()=>{ manual=!manual; manualFields.hidden=!manual; if(manual){catalogueModel.value='';modelSelect.value='';catalogueHelp.textContent='Escribe la marca y el modelo que conoces.';manualBrand.focus();} });
-  root.querySelectorAll('[data-identifier-back]').forEach(button => button.addEventListener('click', () => { stage='question'; typedWrap.hidden=true; typed.value=''; serial.value=''; show(question); }));
+  root.querySelectorAll('[data-identifier-back]').forEach(button => button.addEventListener('click', () => { stage='question'; typedWrap.hidden=true; typed.value=''; typed.setCustomValidity(''); serial.value=''; show(question); }));
   root.querySelectorAll('[data-photo-back]').forEach(button => button.addEventListener('click', () => { stage='photos-question'; show(photosQuestion); }));
   root.querySelectorAll('[data-type-back]').forEach(button => button.addEventListener('click', () => { stage='category'; show(type); }));
   form.addEventListener('submit', event => {

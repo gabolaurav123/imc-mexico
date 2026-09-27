@@ -43,13 +43,6 @@
     const open = button.getAttribute('aria-expanded') !== 'true';
     button.setAttribute('aria-expanded', String(open)); nav?.classList.toggle('open', open);
   });
-  let creating = false;
-  $$('[data-create]').forEach(button => button.addEventListener('click', async () => {
-    if (creating) return;
-    creating = true; const label = button.textContent; button.disabled = true; button.textContent = 'Preparando tu borrador…';
-    try { const result = await api('/api/maquinarias/', {}); location.assign(result.url || `/panel/maquinarias/${result.id}/`); }
-    catch (error) { toast(error.message, true); creating = false; button.disabled = false; button.textContent = label; }
-  }));
   const deleteDraftConfirmation = '¿Eliminar este borrador? Podrás recuperarlo desde la papelera.';
   $$('[data-machine-action]').forEach(button => button.addEventListener('click', async () => {
     if (button.disabled) return;
