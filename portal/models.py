@@ -858,7 +858,7 @@ class PlatformSettings(models.Model):
     max_image_mb = models.PositiveSmallIntegerField("MB por imagen", default=20, validators=[MinValueValidator(1), MaxValueValidator(100)])
     max_video_mb = models.PositiveSmallIntegerField("MB por video", default=100, validators=[MinValueValidator(1), MaxValueValidator(1000)])
     max_video_seconds = models.PositiveIntegerField("segundos por video", default=120, validators=[MinValueValidator(1), MaxValueValidator(1800)])
-    ai_user_daily_limit = models.PositiveIntegerField("trabajos por usuario/día", default=10)
+    ai_user_daily_limit = models.PositiveIntegerField("trabajos por usuario/día", default=20)
     ai_global_daily_limit = models.PositiveIntegerField("trabajos globales/día", default=100)
     ai_daily_token_limit = models.PositiveIntegerField("límite global tokens/día", default=200000)
     ai_max_attempts = models.PositiveSmallIntegerField("intentos IA", default=2, validators=[MinValueValidator(1), MaxValueValidator(5)])

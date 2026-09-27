@@ -176,9 +176,12 @@ para desarrollo local con un worker.
   Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
   el resultado de una lease posterior.
-- Valores por defecto del código: 10 trabajos por usuario/día, 100 globales/día y 200000 tokens
+- Valores por defecto del código: 20 trabajos por usuario/día, 100 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
+- La migración `0021` eleva el límite por usuario de 10 a 20 cuando la configuración
+  existente conserva ese valor. Preserva otros límites personalizados y presupuestos
+  globales. La comprobación automática de fotografías también consume un trabajo.
 - Reserva base conservadora por intento (modelos anteriores): 12200 tokens por imagen; descripción
   reserva 9000. La investigación añade 78000 por intento: hasta tres etapas de búsqueda
   de 14000 y dos normalizaciones de 18000. La segunda normalización sólo es necesaria

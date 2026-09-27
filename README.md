@@ -243,7 +243,7 @@ Para revertir código, desplegar el último commit validado **sólo si es compat
 
 ## Operación
 
-La IA conserva trabajos, intentos, modelo, prompt y consumo. Los límites **configurados en producción** son 10 trabajos por usuario/día, 50 globales/día, 100000 tokens reservados/consumidos al día y dos intentos por trabajo. Pueden diferir de los valores iniciales del seed y se administran en `PlatformSettings`. No son una garantía de coste monetario; no se modifican recargas automáticas de OpenAI. [Procesamiento](docs/processing.md) explica reservas, errores, reintentos y limitaciones.
+La IA conserva trabajos, intentos, modelo, prompt y consumo. El límite inicial es de **20 trabajos por usuario/día**; la migración `0021` también eleva de 10 a 20 la configuración existente que conservaba el valor anterior. Las comprobaciones automáticas de fotos cuentan como trabajos. Los límites personalizados y los presupuestos globales se conservan y se administran en `PlatformSettings`. No son una garantía de coste monetario; no se modifican recargas automáticas de OpenAI. [Procesamiento](docs/processing.md) explica reservas, errores, reintentos y limitaciones.
 
 Para diagnosticar un lote de trabajo:
 
