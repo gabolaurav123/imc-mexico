@@ -9,6 +9,7 @@ from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 import json
 import re
+from typing import Literal
 
 from django.core import signing
 from django.utils import timezone
@@ -51,6 +52,13 @@ No conviertas monedas ni simules cotizaciones actuales. Usa USD, MXN o EUR y nom
 el mercado de referencia. Si no conoces suficientemente ese modelo, devuelve null.
 No estimes precios de maquinaria desconocida sólo a partir de su categoría. Los dos
 extremos de cada intervalo van juntos y ordenados. Años entre 1900 y current_year.
+price_min y price_max son importes absolutos escritos sólo con dígitos y punto decimal,
+por ejemplo "45000.00": nunca comas, espacios, signos de moneda, miles abreviados ni rangos.
+La condición desconocida de la UNIDAD no impide una referencia condicional del MODELO
+identificado. Si sólo conoces su mercado de segunda mano, puedes dar el rango típico
+del modelo usado y debes indicarlo en price_basis, sin afirmar que esta unidad sea usada
+ni que funcione. La ausencia de horas, año o condición de la unidad no es por sí sola
+motivo para omitir esa referencia del modelo; no ajustes importes por datos ausentes.
 Respeta condición, configuración y datos humanos; una foto o el año no prueban
 funcionamiento ni horas. No inventes descuentos ni ajustes por horas/ubicación.
 technical_lines son de tres a cuatro líneas breves sobre diseño, función y principales
@@ -70,11 +78,13 @@ class MachineReference(BaseModel):
     year_from: StrictInt | None
     year_to: StrictInt | None
     year_basis: str | None
-    price_min: str | None
-    price_max: str | None
-    currency: str | None
+    price_min: str | None = Field(pattern=r"^\d{1,10}(?:\.\d{1,2})?$",
+        description="Importe mínimo absoluto, sólo dígitos y punto decimal (ejemplo: 45000.00); null si el modelo no permite estimar.")
+    price_max: str | None = Field(pattern=r"^\d{1,10}(?:\.\d{1,2})?$",
+        description="Importe máximo absoluto en la misma moneda, sin comas ni símbolos; debe ser mayor o igual al mínimo.")
+    currency: Literal["USD", "MXN", "EUR"] | None
     market: str | None
-    price_basis: str | None
+    price_basis: str | None = Field(description="Base del intervalo, conocimiento general o referencias aportadas y condición del modelo de referencia; no certifica la unidad.")
     technical_lines: list[str] = Field(default_factory=list)
 
 
@@ -83,7 +93,10 @@ def completion_reservation(model):
 
 
 def _manifest(reference):
-    return {key: reference.get(key) for key in ("version", "identity", "fields", "sources", "missing_fields")}
+    value = {key: reference.get(key) for key in ("version", "identity", "fields", "sources", "missing_fields")}
+    if "diagnostics" in reference:
+        value["diagnostics"] = reference["diagnostics"]
+    return value
 
 
 def is_validated_ai_reference(reference):
@@ -142,10 +155,17 @@ def missing_fields(data, category=None):
     return missing
 
 
-def _safe_text(value, private, limit=600):
+def _safe_text(value, private, limit=600, *, reference_basis=False):
     if not isinstance(value, str):
         return ""
     value = " ".join(value.split())
+    if reference_basis:
+        # Uncertainty about the unit is legitimate in an estimate's basis. It
+        # must not discard an otherwise valid range or publish workflow labels.
+        for pattern, replacement in ((r"\bpor confirmar\b", "no verificado"),
+                (r"\bpendiente(?: de (?:confirmar|confirmaci[oó]n|revisi[oó]n|verificaci[oó]n))?\b", "no verificado"),
+                (r"\bsin datos\b", "con información limitada"), (r"\bno disponible\b", "no documentado")):
+            value = re.sub(pattern, replacement, value, flags=re.I)
     normalized = identifier_key(value)
     if (len(value) > limit or any(token and token in normalized for token in private)
             or re.search(r"https?://|www\.|@|[<>]|\b(?:pendiente|por confirmar|sin datos|no disponible|"
@@ -155,7 +175,15 @@ def _safe_text(value, private, limit=600):
 
 
 def _amount(value):
-    if not isinstance(value, str) or not re.fullmatch(r"\d{1,10}(?:\.\d{1,2})?", value):
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    # Older responses used ordinary thousands grouping because the schema had
+    # no formatting contract. Accept only a complete, unambiguous grouping;
+    # never interpret decimal commas, currency symbols, shorthand or ranges.
+    if re.fullmatch(r"[1-9]\d{0,2}(?:,\d{3})+(?:\.\d{1,2})?", value):
+        value = value.replace(",", "")
+    if not re.fullmatch(r"\d{1,10}(?:\.\d{1,2})?", value):
         return None
     try:
         amount = Decimal(value)
@@ -173,13 +201,27 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
     fields = {}
     if "category" in missing and parsed.category in allowed_categories:
         fields["category"] = parsed.category
-    year_basis = _safe_text(parsed.year_basis, private)
+    year_basis = _safe_text(parsed.year_basis, private, reference_basis=True)
     if ("year_range" in missing and type(parsed.year_from) is int and type(parsed.year_to) is int
             and 1900 <= parsed.year_from <= parsed.year_to <= timezone.localdate().year and year_basis):
         fields.update(estimated_year_from=parsed.year_from, estimated_year_to=parsed.year_to,
                       estimated_year_basis=f"{LABEL}; intervalo de generación, no año exacto de esta unidad. {year_basis}")
     low, high = _amount(parsed.price_min), _amount(parsed.price_max)
-    basis, market = _safe_text(parsed.price_basis, private), _safe_text(parsed.market, private, 120)
+    basis, market = _safe_text(parsed.price_basis, private, reference_basis=True), _safe_text(parsed.market, private, 120)
+    price_rejections = []
+    if "price_range" not in missing:
+        price_rejections.append("not_requested")
+    for name, raw, amount in (("minimum", parsed.price_min, low), ("maximum", parsed.price_max, high)):
+        if amount is None:
+            price_rejections.append(name + ("_omitted" if raw in (None, "") else "_invalid"))
+    if low is not None and high is not None and low > high:
+        price_rejections.append("inverted_range")
+    if parsed.currency not in {"USD", "MXN", "EUR"}:
+        price_rejections.append("currency_omitted" if parsed.currency is None else "currency_invalid")
+    if not basis:
+        price_rejections.append("basis_omitted" if not parsed.price_basis else "basis_rejected")
+    if not market:
+        price_rejections.append("market_omitted" if not parsed.market else "market_rejected")
     if "price_range" in missing and low is not None and high is not None and low <= high and parsed.currency in {"USD", "MXN", "EUR"} and basis and market:
         fields.update(estimate_min=format(low, ".2f"), estimate_max=format(high, ".2f"),
                       estimate_currency=parsed.currency, estimate_date=timezone.localdate().isoformat(),
@@ -201,7 +243,9 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
     combined = {**data, **fields}
     reference = {"version": VERSION, "identity": deepcopy(identity), "fields": fields,
                  "sources": [deepcopy(source) for source in sources if isinstance(source, dict) and safe_public_url(source.get("url"))][:6],
-                 "missing_fields": missing_fields(combined, category or fields.get("category"))}
+                 "missing_fields": missing_fields(combined, category or fields.get("category")),
+                 "diagnostics": {"price": {"status": "accepted" if "estimate_min" in fields else "omitted",
+                                            "reasons": price_rejections}}}
     reference["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(reference), compress=True)
     return reference
 

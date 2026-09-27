@@ -28,7 +28,9 @@ def proposal(**changes):
         technical_lines=["Excavadora hidráulica de orugas para excavación y carga de materiales.",
                          "Superestructura giratoria con pluma y brazo articulados.",
                          "Equipo de referencia para movimiento de tierras y construcción."])
-    return MachineReference(**{**values, **changes})
+    # model_copy also permits malformed historical/provider values in the
+    # local normalizer's defense-in-depth regression cases below.
+    return MachineReference(**values).model_copy(update=changes)
 
 
 def reference(**changes):
@@ -36,6 +38,39 @@ def reference(**changes):
 
 
 class AICompletionBoundaryTests(SimpleTestCase):
+    def test_price_schema_requires_canonical_amounts_and_explicit_currency(self):
+        from openai.lib._pydantic import to_strict_json_schema
+        from pydantic import ValidationError
+        schema = to_strict_json_schema(MachineReference)
+        self.assertEqual(schema["properties"]["price_min"]["anyOf"][0]["pattern"], r"^\d{1,10}(?:\.\d{1,2})?$")
+        for update in ({"price_min": "45,000"}, {"price_max": "USD 90000"}, {"currency": "CAD"}):
+            with self.subTest(update=update), self.assertRaises(ValidationError):
+                MachineReference.model_validate({**proposal().model_dump(), **update})
+
+    def test_historical_unambiguous_grouping_and_uncertainty_keep_the_price_range(self):
+        value = reference(price_min="45,000", price_max="90,000.00",
+            price_basis="Referencia del modelo usado; condición de la unidad por confirmar.")
+        self.assertEqual(value["fields"]["estimate_min"], "45000.00")
+        self.assertEqual(value["fields"]["estimate_max"], "90000.00")
+        self.assertIn("modelo usado", value["fields"]["estimate_basis"])
+        self.assertNotIn("por confirmar", value["fields"]["estimate_basis"])
+        self.assertEqual(value["diagnostics"]["price"], {"status": "accepted", "reasons": []})
+        self.assertTrue(is_validated_ai_reference(value))
+
+    def test_price_diagnostics_distinguish_omission_and_rejection_without_raw_data(self):
+        omitted = reference(price_min=None, price_max=None, currency=None, market=None, price_basis=None)
+        self.assertIn("minimum_omitted", omitted["diagnostics"]["price"]["reasons"])
+        for raw in ("45,50", "45.000", "45k", "USD 45000", "45000-90000", "45,000,50", "0,500", "00,500"):
+            with self.subTest(raw=raw):
+                rejected = reference(price_min=raw)
+                self.assertNotIn("estimate_min", rejected["fields"])
+                self.assertIn("minimum_invalid", rejected["diagnostics"]["price"]["reasons"])
+                self.assertNotIn(raw, str(rejected["diagnostics"]))
+        private = normalize_reference(proposal(price_basis="Serie PRIVATE123 por confirmar"),
+            IDENTITY, DATA, None, ["Excavadoras"], ["PRIVATE123"])
+        self.assertIn("basis_rejected", private["diagnostics"]["price"]["reasons"])
+        self.assertNotIn("PRIVATE123", str(private))
+
     def test_signed_range_has_clear_estimate_labels_and_four_line_summary(self):
         value = reference()
         self.assertTrue(is_validated_ai_reference(value))
