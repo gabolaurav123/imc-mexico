@@ -30,6 +30,9 @@ COMPLETION_KEYS = frozenset({"category", "description", "estimated_year_from", "
 PRICE_KEYS = frozenset({"estimate_min", "estimate_max", "estimate_currency", "estimate_date", "estimate_market", "estimate_basis"})
 YEAR_KEYS = frozenset({"estimated_year_from", "estimated_year_to", "estimated_year_basis"})
 LABEL = "Estimación orientativa de IA del modelo"
+PREVIOUS_PRICE_LABEL = "Referencia previa del modelo"
+PREVIOUS_PRICE_NOTE = ("Referencia previa del modelo: conserva el mercado y la fecha indicados; "
+                       "no incorpora cambios posteriores de horas, año o ubicación de la unidad.")
 TECHNICAL_KEYS = ("power", "weight", "capacity", "dimensions", "engine", "digging_depth", "hydraulic_system",
                   "lift_height", "voltage", "working_width", "maximum_reach_ground", "fuel", "transmission")
 TECHNICAL_TERMS = {"power": r"potencia|power", "weight": r"peso|weight", "capacity": r"capacidad|capacity",
@@ -115,6 +118,8 @@ def ai_reference_identity_matches(data, reference):
     identity = reference.get("identity", {})
     if not all(identity.get(key) and identifier_key(data.get(key)) == identifier_key(identity[key]) for key in ("brand", "model")):
         return False
+    if identity.get("serial") and identifier_key(data.get("serial")) != identifier_key(identity["serial"]):
+        return False
     current = _identity({}, {"data": data, "provenance": {key: {"source": "user"} for key in data}})
     if current.get("condition") != identity.get("condition"):
         return False
@@ -132,6 +137,60 @@ def ai_reference_identity_matches(data, reference):
     return _valuation_identity_matches(data, {"identity": identity, "status": "estimated"})
 
 
+def _context_value(value):
+    return _fold(str(value)) if value is not None else ""
+
+
+def ai_reference_price_context_changed(data, reference):
+    """Identify an old model reference without pretending to revalue the unit."""
+    from .valuation import _market_hint
+    identity = reference.get("identity", {})
+    context = identity.get("completion_context", identity.get("compatibility", {}))
+    location_changed = (any(_context_value(data.get(key)) != _context_value(value)
+                           for key, value in identity["location_context"].items())
+                        if "location_context" in identity else
+                        _market_hint(data.get("location_country")) != identity.get("market_hint"))
+    return (any(_context_value(data.get(key)) != _context_value(context.get(key)) for key in ("hours", "year"))
+            or location_changed)
+
+
+def ai_reference_field_matches(data, reference, key):
+    """Validate each proposal against the facts that actually support it.
+
+    Hours and location belong to the unit, not its design or model generation.
+    A price may survive those edits only as its original, labelled reference;
+    condition and technical corrections still reject an incompatible price.
+    """
+    if not is_validated_ai_reference(reference) or not isinstance(data, dict) or key not in COMPLETION_KEYS:
+        return False
+    identity = reference["identity"]
+    if not all(identity.get(name) and identifier_key(data.get(name)) == identifier_key(identity[name])
+               for name in ("brand", "model")):
+        return False
+    if identity.get("serial") and identifier_key(data.get("serial")) != identifier_key(identity["serial"]):
+        return False
+    context = identity.get("completion_context", identity.get("compatibility", {}))
+    if _context_value(data.get("variant")) != _context_value(context.get("variant")):
+        return False
+    if key in YEAR_KEYS:
+        from .structured_data import has_valid_year_or_range
+        return not has_valid_year_or_range({"year": data.get("year")})
+    if key == "category":
+        return True
+    if any(_context_value(data.get(name)) != _context_value(value)
+           for name, value in identity.get("technical_context", {}).items()):
+        return False
+    if any(_context_value(data.get(name)) != _context_value(value)
+           for name, value in context.items() if name not in {"hours", "year"}):
+        return False
+    if key == "description":
+        return True
+    current = _identity({}, {"data": data, "provenance": {name: {"source": "user"} for name in data}})
+    return (current.get("condition") == identity.get("condition")
+            and all(_context_value(data.get(name)) == _context_value(value)
+                    for name, value in identity.get("configurations", {}).items()))
+
+
 def is_validated_ai_field(result, key, value, meta):
     reference = result.get("ai_reference", {}) if isinstance(result, dict) else {}
     if (key not in COMPLETION_KEYS or not isinstance(meta, dict)
@@ -143,10 +202,11 @@ def is_validated_ai_field(result, key, value, meta):
 
 
 def missing_fields(data, category=None):
+    from .structured_data import has_valid_year_or_range
     missing = [key for key in ("brand", "model") if not str(data.get(key) or "").strip()]
     if not category:
         missing.append("category")
-    if not all(data.get(key) not in (None, "") for key in ("estimated_year_from", "estimated_year_to")):
+    if not has_valid_year_or_range(data):
         missing.append("year_range")
     if not all(data.get(key) not in (None, "") for key in ("estimate_min", "estimate_max", "estimate_currency")):
         missing.append("price_range")
@@ -194,8 +254,11 @@ def _amount(value):
 
 def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=()):
     identity = deepcopy(identity)
+    if data.get("serial"):
+        identity["serial"] = data["serial"]
     identity["technical_context"] = {key: data.get(key) for key in TECHNICAL_KEYS}
     identity["completion_context"] = {key: data.get(key) for key in COMPATIBILITY_KEYS}
+    identity["location_context"] = {key: data.get(key) for key in ("location_country", "location_region", "location_city")}
     private = [identifier_key(value) for value in private_identifiers if value]
     missing = missing_fields(data, category)
     fields = {}
@@ -280,6 +343,15 @@ def complete_machine_reference(client, model, result, snapshot=None, allowed=Non
         if not accepted:
             data.pop(key, None)
     declared = human_declared_data(snapshot)
+    for key in ("location_country", "location_region", "location_city"):
+        if key not in declared:
+            data.pop(key, None)
+    serial_meta = result.get("provenance", {}).get("serial", {})
+    if ("serial" not in declared and not (
+            serial_meta.get("source") in {"plate", "image"} and serial_meta.get("review") == "clear"
+            and serial_meta.get("component") == "machine"
+            or serial_meta.get("source") == "web" and is_validated_web_field(result, "serial", data.get("serial"), serial_meta))):
+        data.pop("serial", None)
     data.update(declared)
     if not identity.get("brand") or not identity.get("model"):
         return None, usage

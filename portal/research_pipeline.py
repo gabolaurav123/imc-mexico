@@ -3,7 +3,8 @@ import json
 from urllib.parse import urlsplit
 
 from django.core import signing
-from .ai_model import is_reasoning_model, model_options, output_limit, request_timeout, token_reservation
+from .ai_model import (is_reasoning_model, model_options, output_limit, request_timeout,
+                       token_reservation, provider_configuration_failure)
 
 from .research import (
     MAX_CITED_PASSAGES, MAX_RESEARCH_SOURCES, NORMALIZE_RESERVATION,
@@ -204,6 +205,7 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
     if not _can_allocate(model, usage, NORMALIZE_RESERVATION):
         raise ResearchBudgetExhausted('Research extraction allocation unavailable')
     received = False
+    rejected_configuration = False
     try:
         response = client.responses.parse(
             model=model, store=False, timeout=request_timeout(model, 55),
@@ -253,8 +255,11 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
             normalized["diagnostics"]["discovered_identity_rejected"] = rejected_identity
             normalized["warnings"].append("La identificación encontrada por serie no pudo confirmarse al contrastar las fuentes; no se aplicaron datos dependientes de ella.")
         return normalized
+    except Exception as exc:
+        rejected_configuration = bool(provider_configuration_failure(exc))
+        raise
     finally:
-        if not received:
+        if not received and not rejected_configuration:
             usage.estimate(token_reservation(model, NORMALIZE_RESERVATION))
 
 
@@ -274,6 +279,17 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     serial_model_leads = []
     interrupted = False
     observed_search_cost = 0
+    provider_error_code = ""
+
+    def configuration_failure(exc):
+        code = provider_configuration_failure(exc)
+        if code and result.get("identifier_only") is True:
+            # No visual reading exists to preserve. Let the worker expose its
+            # safe configuration error, retaining any earlier successful usage.
+            exc.accounted_usage = usage
+            raise exc
+        return code
+
     from .research_documents import collect_registered_fields
     registered_fields, document_attempts, interrupted = collect_registered_fields(
         identity, category, sources, passages, titles, allowed)
@@ -345,12 +361,17 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                 serial_model_leads = serial_model_extension_leads(identity, passages, sources, titles)
                 attempt["serial_model_extension_lead_count"] = len(serial_model_leads)
         except Exception as exc:
-            if not received:
+            provider_error_code = configuration_failure(exc)
+            if not received and not provider_error_code:
                 usage.estimate(token_reservation(model, SEARCH_RESERVATION))
             attempt.update(status="failed", error_type=type(exc).__name__[:80])
+            if type(getattr(exc, "status_code", None)) is int:
+                attempt["error_status"] = exc.status_code
+            if provider_error_code:
+                attempt["provider_error_code"] = provider_error_code
             # Other public sources can still work after a timeout. A provider
             # authentication/rate limit failure will affect every later query.
-            if getattr(exc, "status_code", None) in {401, 403, 429}:
+            if provider_error_code or getattr(exc, "status_code", None) in {401, 403, 429}:
                 break
             continue
         finally:
@@ -372,7 +393,13 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                             identity[field["key"]] = value
                 attempt["identity_resolved"] = bool(identity.get("brand") and identity.get("model"))
             except Exception as exc:
+                provider_error_code = configuration_failure(exc)
                 attempt["identity_resolution_error"] = type(exc).__name__[:80]
+                if type(getattr(exc, "status_code", None)) is int:
+                    attempt["error_status"] = exc.status_code
+                if provider_error_code:
+                    attempt["provider_error_code"] = provider_error_code
+                    break
     if not interrupted and retrieved:
         from .research_documents import collect_document_fields
         extra_fields, extra_attempts, interrupted = collect_document_fields(
@@ -384,7 +411,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             interrupted = True
         else:
             try:
-                if all(p.get("origin") == "direct_document" for p in passages):
+                if provider_error_code or all(p.get("origin") == "direct_document" for p in passages):
                     # No model summary to normalize: the public rows already
                     # have a typed parser and the same provenance validator.
                     outcome = normalize_direct_fields(original_identity, basis, sources,
@@ -393,23 +420,28 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                     outcome = _normalize(client, model, identity, basis, sources, passages, titles, usage,
                                          original_identity, direct_fields, serial_model_leads, category)
             except Exception as exc:
+                provider_error_code = configuration_failure(exc)
                 outcome = normalize_direct_fields(original_identity, basis, sources,
                     "\n\n".join(p["text"] for p in passages), passages, titles, direct_fields=direct_fields)
                 if not outcome["fields"]:
                     outcome["status"] = "degraded"
                 outcome["error_stage"] = "normalization"
                 outcome["error_type"] = type(exc).__name__[:80]
-                outcome["warnings"].append("No se pudo completar la comprobación de las fuentes externas. Se conservó la lectura de las fotografías.")
+                if type(getattr(exc, "status_code", None)) is int:
+                    outcome["error_status"] = exc.status_code
+                outcome["warnings"].append("No se pudo completar la comprobación de las fuentes externas. Se conservó la información disponible.")
     failed = bool(outcome.get("error_stage")) or any(a["status"] in {'failed', 'budget_unavailable'} or a.get("identity_resolution_error") for a in attempts)
     if interrupted:
         # Never apply partial data after consent cancellation or draft deletion.
         outcome = empty_research("degraded", identity, basis)
-        outcome["warnings"].append("La autorización de búsqueda ya no está vigente. Se conservó la lectura de las fotos.")
+        outcome["warnings"].append("La autorización de búsqueda ya no está vigente. Se conservó la información disponible.")
     elif failed:
         if not outcome["fields"]:
             outcome["status"] = "degraded"
         outcome["warnings"].append("Una etapa de la investigación no se completó; se conservaron los datos comprobados en las demás fuentes.")
     diagnostics = outcome.setdefault("diagnostics", {})
+    if provider_error_code:
+        outcome["provider_error_code"] = provider_error_code
     diagnostics.update(
         stages=attempts, stage_count=len(attempts), search_complete=not failed and not interrupted,
         tool_source_count=sum(a.get("tool_source_count", 0) for a in attempts),

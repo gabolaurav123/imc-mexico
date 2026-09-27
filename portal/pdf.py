@@ -418,6 +418,11 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
                             if isinstance(item, dict) and item.get("price_type")}
         market_label = "Precios anunciados de referencia" if comparable_types == {"asking"} else "Referencia de mercado"
         cover_note(estimate_cell, market_label, values.get("estimate_market"))
+        cover_note(estimate_cell, "Fecha de referencia", values.get("estimate_date"))
+        from .public_data import estimate_reference_note
+        reference_note = values.get("estimate_reference_note") if public else estimate_reference_note(provenance)
+        if reference_note and reference_note not in str(values.get("estimate_basis") or ""):
+            estimate_cell.append(para(reference_note, "Small"))
         cover_note(estimate_cell, ESTIMATE_LABELS["estimate_basis"], values.get("estimate_basis"))
         cover_reference.append(estimate_cell)
     if cover_reference:

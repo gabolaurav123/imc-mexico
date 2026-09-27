@@ -514,6 +514,8 @@ def sheet_context(machine,version=None,public=False,token=None):
     # The helper needs private exclusions, but returns only allowlisted reading aids.
     technical_interpretation=build_sheet_details(original_data,field_provenance,category=category_name)
     reference_snapshot=version.data if version else {'data':machine.data,'provenance':machine.provenance,'web_research':services.web_research_for_provenance(machine.provenance)}
+    from .public_data import public_projection
+    estimate_reference_note = public_projection(reference_snapshot).get('estimate_reference_note', '')
     web_references=services.public_web_references(reference_snapshot,include_private=not public)
     if public:
         technical_interpretation=[item for item in technical_interpretation if item['key'] in data]
@@ -531,7 +533,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     essential_keys = {'weight', 'power', 'capacity', 'digging_depth', 'lift_height', 'working_height', 'drum_width', 'engine', 'dimensions', 'fuel'}
     essential_fields = [item for item in extra_fields if item['key'] in essential_keys][:6]
     return {'technical_summary_lines': build_technical_summary(data,field_provenance,category=category_name), 'essential_fields': essential_fields, 'main_assets': gallery[:4], 'additional_assets': gallery[4:10], 'asset_base_url': asset_base_url, 'machine':machine,'data':data,'assets':assets,'public':public,'version':version,'token':token,'category_name':category_name,'extra_fields':extra_fields,'field_origins':{} if public else field_origins,'technical_interpretation':technical_interpretation,'whatsapp_url':whatsapp_url,'web_references':web_references,'provenance':{} if public else field_provenance,'display_location':display_location,'has_identification':has_identification,
-            'commercial_rows':commercial_rows(data,field_provenance),'valuation':{} if public else services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL}
+            'commercial_rows':commercial_rows(data,field_provenance),'valuation':{} if public else services.public_valuation(valuation_snapshot),'estimate_label':ESTIMATE_LABEL,'estimate_reference_note':estimate_reference_note}
 
 @login_required
 def machine_sheet(request,pk):
