@@ -102,7 +102,12 @@ class ImageRelevanceNormalizationTests(SimpleTestCase):
         self.assertEqual(result["category"], "Montacargas")
         self.assertNotIn("Equipo amarillo con mástil vertical", result["description"])
         self.assertIn("Equipo amarillo con mástil vertical", result["visual_description"])
-        for unwanted in ("WrongBrand", "WrongModel", "900", "999", "Persona", "Mascota", "persona@example.com", "GLOBAL AJENO"):
+        field_keys = {item["key"] for item in result["fields"]}
+        for key in ("power", "weight"):
+            self.assertNotIn(key, result["data"])
+            self.assertNotIn(key, field_keys)
+        # Match complete rejected values: number fragments can occur in source_date.
+        for unwanted in ("WrongBrand", "WrongModel", "900 kW", "999 kg", "Persona", "Mascota", "persona@example.com", "GLOBAL AJENO"):
             self.assertNotIn(unwanted, str(result))
         self.assertEqual([item["asset_id"] for item in result["fields"]], ["good"])
 
