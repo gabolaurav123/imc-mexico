@@ -574,6 +574,9 @@ def _conflicting_explicit_model_reason(evidence, identity, *, in_title=False):
     variant_reason = _model_variant_conflict_reason(evidence, model, in_title=in_title)
     if variant_reason:
         return variant_reason
+    occurrence_reason = _ambiguous_model_occurrence_reason(evidence, identity)
+    if occurrence_reason:
+        return occurrence_reason
     aliases = [alias for alias in _brand_aliases(identity.get("brand")) if alias]
     optional_brand = (r"(?:(?:" + "|".join(re.escape(alias) for alias in sorted(aliases, key=len, reverse=True))
                       + r")\s+)?") if aliases else ""
@@ -604,6 +607,62 @@ def _conflicting_explicit_model_reason(evidence, identity, *, in_title=False):
                 continue
             return "explicit_model_mismatch"
     return ""
+
+
+def _ambiguous_model_occurrence_reason(evidence, identity):
+    """A code tail or another maker's component is not machine identity.
+
+    Check occurrences rather than banning component specifications: a valid
+    machine heading can accompany an engine with its own brand and model.
+    This also applies offline to manifests signed before these checks existed.
+    """
+    if not isinstance(identity, dict):
+        return ""
+    model = identity.get("model")
+    pattern = _model_identifier_pattern(model)
+    if not pattern:
+        return ""
+    text = str(evidence or "")
+    aliases = [alias for alias in _brand_aliases(identity.get("brand")) if alias]
+
+    def ends_with_brand(prefix):
+        return any(re.search(r"(?<!\w)" + _model_identifier_pattern(alias) + r"\s*[:=-]?\s*$",
+                             prefix, re.I) for alias in aliases)
+
+    component = r"(?:engine|motor|transmission|transmisi[oó]n)"
+    fillers = r"(?:(?:di[eé]sel|gasolina|gas|el[eé]ctrico|electric|modelo?|model|de|del|marca)\s*[:=-]?\s*)*"
+    reason = ""
+    pattern = r"(?<![^\W_])(?<![\w]-)" + pattern + r"(?![^\W_]|[.-][^\W_])"
+    for match in re.finditer(pattern, text, re.I):
+        prefix, tail = text[:match.start()], text[match.end():]
+        code = re.search(r"\b([A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)\s+$", prefix)
+        if (code and not ends_with_brand(prefix)
+                and any(c.isalpha() for c in code.group(1)) and any(c.isdigit() for c in code.group(1))
+                and not re.fullmatch(r"\d+(?:kw|hp|kg|mm|cm|km|m3|rpm|l|t)", code.group(1), re.I)):
+            reason = "model_fragment_prefix"
+            continue
+        before_component = re.search(r"\b" + component + r"\s*[:=-]?\s*([^.;,\n]{0,60})$", prefix, re.I)
+        after_component = re.match(r"\s+(?:(?:di[eé]sel|gas|electric)\s+)?" + component + r"\b", tail, re.I)
+        if after_component:
+            # 'compactor BW62H engine Hatz 1D40' starts a separate engine
+            # specification; it does not label BW62H as an engine model.
+            following = tail[after_component.end():]
+            separate_code = re.match(r"\s*[:=-]?\s*[A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,2}\s+"
+                                     r"((?=[A-Za-z0-9.-]*\d)(?=[A-Za-z0-9.-]*[A-Za-z])"
+                                     r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)\b",
+                                     following, re.I)
+            if (separate_code and not re.fullmatch(r"\d+(?:kw|hp|kg|mm|cm|km|m3|rpm|l|t)",
+                                                   separate_code.group(1), re.I)):
+                after_component = None
+        component_owned = ends_with_brand(prefix)
+        if before_component and re.fullmatch(fillers, before_component.group(1), re.I):
+            # 'Hatz engine model 1D40' identifies a Hatz engine legitimately.
+            component_owned = component_owned or ends_with_brand(prefix[:before_component.start()])
+        if (before_component or after_component) and not component_owned:
+            reason = "component_model_identity"
+            continue
+        return ""
+    return reason
 
 
 def _conflicting_explicit_model(evidence, identity, *, in_title=False):
@@ -1375,6 +1434,10 @@ def is_validated_web_field(result, key, value, meta):
                 and type(value) is int and not isinstance(field.get("value"), bool)):
             same_value = str(field.get("value")) == str(value)
         if field.get("key") == key and same_value:
+            # A valid signature authenticates saved evidence; it does not turn
+            # a component code or a fragment into a complete machine model.
+            if _ambiguous_model_occurrence_reason(field.get("evidence"), research.get("identity", {})):
+                return False
             if key in MODEL_YEAR_KEYS and key not in validated_model_period_fields(research):
                 return False
             if key == "capacity" and not machine_capacity_evidence(value, field.get("evidence")):

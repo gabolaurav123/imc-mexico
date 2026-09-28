@@ -1,5 +1,6 @@
 """An incomplete old visual label is not definitive proof against an owner correction."""
 from copy import deepcopy
+from datetime import timedelta
 import json
 from uuid import uuid4
 
@@ -139,10 +140,62 @@ class HistoricalModelCorrectionTests(TestCase):
         response = self.share()
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn("no coinciden", response.json()["error"])
+        self.assertIn("Modelo: guardado «BW211D40»; lectura de foto «1D-40»", response.json()["error"])
+        self.assertIn("referencia documentada", response.json()["error"])
+        self.assertIn(text, response.json()["error"])
+        self.assertIn(url, response.json()["error"])
+        self.assertNotIn(self.result["research"]["proof"], response.json()["error"])
         # Unsigned research prose alone does not turn the old fragment into proof.
         self.result["research"].pop("proof")
         self.save_result(self.result)
         self.assertEqual(self.share().status_code, 200)
+
+    def test_private_error_explains_visibility_and_does_not_expose_owner_details_to_other_users(self):
+        self.result["fields"][1]["model_label_visibility"] = "complete"
+        self.save_result(self.result)
+        before = deepcopy(self.job.result)
+        response = self.share()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("etiqueta completa", response.json()["error"])
+        self.assertIn("BW211D40", response.json()["error"])
+        self.assertIn("1D-40", response.json()["error"])
+        self.assertFalse(PreparedShare.objects.exists())
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.result, before)
+        self.assertEqual(AnalysisJob.objects.count(), 1)
+        self.client.force_login(User.objects.create_user(email="other-fragment-owner@example.invalid"))
+        response = self.share()
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("BW211D40", response.json()["error"])
+        self.client.logout()
+        response = self.share()
+        self.assertEqual(response.status_code, 401)
+        self.assertNotIn("1D-40", response.json()["error"])
+
+    def test_missing_machine_observation_explains_the_actual_restriction(self):
+        self.result["image_observations"] = []
+        self.save_result(self.result)
+        response = self.share()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("vista de la máquina completa", response.json()["error"])
+
+    def test_older_multi_photo_analysis_cannot_replace_the_latest_conflict_explanation(self):
+        second = Asset.objects.create(machine=self.machine, kind="image", purpose="general",
+            processing_status="ready", original="test/second.jpg", sha256="b" * 64)
+        older = deepcopy(self.result)
+        older["fields"].append(self.field("model", "1D-40", asset_id=str(second.pk)))
+        older["image_observations"].append({**older["image_observations"][0], "asset_id": str(second.pk)})
+        older["relevance"]["accepted_asset_ids"].append(str(second.pk))
+        previous = AnalysisJob.objects.create(machine=self.machine, requested_by=self.owner,
+            revision=self.machine.revision, status="completed", mode="analysis", fingerprint=uuid4().hex,
+            asset_ids=[str(self.asset.pk), str(second.pk)], result=older)
+        AnalysisJob.objects.filter(pk=previous.pk).update(created_at=self.job.created_at - timedelta(seconds=1))
+        self.result["fields"][1]["model_label_visibility"] = "complete"
+        self.save_result(self.result)
+        response = self.share()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("etiqueta completa", response.json()["error"])
+        self.assertNotIn("no procede de una fotografía clasificada como vista general", response.json()["error"])
 
     def test_other_identity_and_multiple_machine_conflicts_remain_blocking(self):
         for change in ("brand", "serial", "category", "machine_count", "cross_photo"):

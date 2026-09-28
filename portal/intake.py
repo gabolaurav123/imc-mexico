@@ -141,13 +141,14 @@ def require_consistent_photos(machine, asset_ids=None):
     states = assessed_photo_states(machine)
     if any(states.get(pk) == "unrelated" for pk in ids):
         raise ValidationError("Retira las fotografías que no corresponden a maquinaria antes de compartir o enviar esta ficha.")
-    from .analysis_specialization import check_equipment_consistency, historical_model_fragments
+    from .analysis_specialization import check_equipment_consistency, historical_model_fragments, private_consistency_error
     # Recompare the latest readable evidence with current owner corrections.
     # A human correction can resolve a conflict without suspending the person.
     seen = set()
     snapshot = {"data": machine.data, "provenance": machine.provenance,
         "category": machine.category.name if machine.category_id else "", "revision": machine.revision}
     model_fragments = set()
+    model_diagnostics = {}
     combined = {"fields": [], "image_observations": []}
     for job in AnalysisJob.objects.filter(machine=machine, status="completed", mode="analysis").order_by("-created_at", "-pk"):
         if not isinstance(job.result, dict):
@@ -157,13 +158,15 @@ def require_consistent_photos(machine, asset_ids=None):
             continue
         seen |= relevant
         result = deepcopy(job.result)
+        result["fields"] = [field for field in result.get("fields", []) if str(field.get("asset_id")) in relevant]
+        result["image_observations"] = [item for item in result.get("image_observations", []) if str(item.get("asset_id")) in relevant]
         model_fragments.update(historical_model_fragments(result, snapshot,
-            {pk for pk in relevant if purposes[pk] == "general"}))
-        combined["fields"].extend(field for field in result.get("fields", []) if str(field.get("asset_id")) in relevant)
-        combined["image_observations"].extend(item for item in result.get("image_observations", []) if str(item.get("asset_id")) in relevant)
+            {pk for pk in relevant if purposes[pk] == "general"}, diagnostics=model_diagnostics))
+        combined["fields"].extend(result["fields"])
+        combined["image_observations"].extend(result["image_observations"])
     # Photos analysed in separate jobs still belong to one fiche. Compare their
     # latest readable evidence together, not only within individual jobs.
     combined["category"] = next((item.get("category") for item in combined["image_observations"] if item.get("category")), None)
     check_equipment_consistency(combined, snapshot, model_fragments=model_fragments)
     if combined.get("consistency", {}).get("status") == "contradiction":
-        raise ValidationError("Los datos de identificación no coinciden con las fotografías. Corrige el tipo, la marca, el modelo o la serie, o retira la foto que no corresponde.")
+        raise ValidationError(private_consistency_error(combined, model_diagnostics))
