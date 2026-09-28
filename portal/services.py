@@ -1035,6 +1035,29 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, category_meta if category_meta.get("source") == "ai_reference" else {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
+    cleared_model = []
+    old_model = base.get("refresh_fields", {}).get("model") if not legacy else None
+    model_meta = provenance.get("model", {})
+    if (job.mode == "analysis" and isinstance(old_model, dict) and isinstance(model_meta, dict)
+            and old_model.get("provenance", {}).get("source") in {"image", "plate"}
+            and old_model.get("provenance", {}).get("review") == "clear"
+            and old_model == _automatic_field_record(machine, "model")
+            and model_meta.get("source") in {"image", "plate"}
+            and model_meta.get("component") == "machine" and model_meta.get("review") == "needs_review"
+            and model_meta.get("asset_id") in job.asset_ids
+            and model_meta.get("asset_id") == old_model["provenance"].get("asset_id")):
+        from .model_reading import partial_model_label
+        from .research import identifier_key
+        evidence = str(model_meta.get("evidence") or "")
+        fragments = re.findall(r'["«“]([^"»”\n]{1,80})["»”]', evidence)
+        if (partial_model_label(evidence)
+                and any(identifier_key(fragment) == identifier_key(old_model["value"]) for fragment in fragments)):
+            # The same photograph now identifies the old automatic model as
+            # only a fragment. Retire that exact untouched reading, not a human
+            # choice, a newer analysis or an identifier read in another photo.
+            machine.data.pop("model", None)
+            machine.provenance.pop("model", None)
+            cleared_model.append("model")
     cleared_power = []
     old_power = base.get("refresh_fields", {}).get("power") if not legacy else None
     if (job.mode == "analysis" and isinstance(old_power, dict)
@@ -1048,7 +1071,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             machine.data.pop("power", None)
             machine.provenance.pop("power", None)
             cleared_power.append("power")
-    invalidated = cleared_valuation + cleared_power + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
+    invalidated = cleared_valuation + cleared_model + cleared_power + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:

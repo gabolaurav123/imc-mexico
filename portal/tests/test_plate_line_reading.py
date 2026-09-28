@@ -105,6 +105,52 @@ class PlateLineReadingTests(SimpleTestCase):
                 self.assertIsNone(result['data']['serial'])
                 self.assertEqual(result['provenance']['serial']['review'], 'needs_review')
 
+    def test_product_identification_label_and_paired_external_markers_preserve_clear_serial(self):
+        for readability in ('clear', 'partial'):
+            for label, printed, value in (
+                    ('PRODUCT IDENTIFICATION NUMBER', 'ALJ816015', 'ALJ816015'),
+                    ('PRODUCT IDENTIFICATION NUMBER', '*ALJ816015*', 'ALJ816015'),
+                    ('PRODUCT IDENTIFICATION NUMBER', '*ALJ816015*', '*ALJ816015*'),
+                    ('SERIAL NUMBER', '*ALJ816015*', 'ALJ816015'),
+                    ('SERIAL NUMBER', '*ALJ816015*', '*ALJ816015*')):
+                with self.subTest(readability=readability, label=label, value=value, printed=printed):
+                    transcription = f'MODEL S650\n{label} {printed}\nMODEL YEAR 2015'
+                    result = normalize_analysis(analysis([extracted('serial', value)], transcription,
+                        readability=readability), [ASSET])
+                    self.assertEqual(result['data']['serial'], 'ALJ816015')
+                    self.assertEqual(result['provenance']['serial']['review'], 'clear')
+                    self.assertEqual(result['plates'][0]['transcription'], transcription)
+                    self.assertNotIn('ALJ816015', result['data']['description'])
+
+    def test_serial_markers_never_reconstruct_missing_characters_or_accept_ambiguous_labels(self):
+        for value, transcription in (
+                ('*ALJ816015*', 'PRODUCT IDENTIFICATION NUMBER *ALJ81*015*'),
+                ('*ALJ81*015*', 'PRODUCT IDENTIFICATION NUMBER *ALJ81*015*'),
+                ('*ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*'),
+                ('ALJ816015*', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*'),
+                ('*ALJ816015*', 'PRODUCT IDENTIFICATION NUMBER ALJ816015'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER ALJ816015*'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER **ALJ816015**'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015?*'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*?'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*7'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*-7'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015* [ilegible]'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015* or ALJ816016'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015* / ALJ816016'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ8160157*'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *XALJ816015*'),
+                ('ALJ816015', 'PRODUCT IDENTIFICATION NUMBER *ALJ816015*\nSERIAL NUMBER OTHER1234'),
+                ('*ALJ816015*', 'ENGINE PRODUCT IDENTIFICATION NUMBER *ALJ816015*'),
+                ('*ALJ816015*', 'PART NUMBER *ALJ816015*'),
+                ('*ALJ816015*', '*ALJ816015*')):
+            for readability in ('clear', 'partial'):
+                with self.subTest(value=value, transcription=transcription, readability=readability):
+                    result = normalize_analysis(analysis([extracted('serial', value)], transcription,
+                        readability=readability), [ASSET])
+                    self.assertIsNone(result['data']['serial'])
+
     def test_ambiguous_conflicting_or_longer_serial_line_is_rejected(self):
         field = extracted('serial', 'FORK123456')
         for transcription in (

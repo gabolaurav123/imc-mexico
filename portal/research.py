@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, StrictInt
 from typing import Literal
 from .research_evidence import explicit_manufacturing_origin, has_conflicting_unit_reference
 from .research_field_values import is_valid_research_field_value
+from .model_reading import allows_model_prefix_hint
 from .ai_model import is_reasoning_model, model_options, output_limit, request_timeout, token_reservation
 
 RESEARCH_VERSION = "imc-research-2026-09-v3"
@@ -315,6 +316,8 @@ def _accepted_visual_model_hint(result):
         value = _identifier(field.get("value"))
         asset_id = field.get("asset_id")
         evidence = " ".join(str(field.get("evidence", "")).split())
+        if not allows_model_prefix_hint(evidence):
+            continue
         # An uncertain label may be retained in the evidence while its value
         # stays null.  Recover it solely as a search constraint, and only
         # when this field is already bound to an accepted machine photograph.

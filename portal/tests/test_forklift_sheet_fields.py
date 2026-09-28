@@ -79,6 +79,42 @@ class ForkliftSheetFieldsTests(TestCase):
         self.assertNotIn("serial", self.machine.data)
         self.assertEqual(self.machine.data["front_tire_size"], "21x7x15")
 
+    def test_normalized_serial_markers_fill_a_photo_combo_but_preserve_human_values_and_clears(self):
+        from portal.processing import MachineAnalysis, normalize_analysis
+
+        general = Asset.objects.create(machine=self.machine, kind="image", purpose="general",
+            processing_status="ready", sha256="b" * 64, original="test/general.jpg", size=1, mime_type="image/jpeg")
+        asset_id = str(self.asset.pk)
+        asset_ids = [asset_id, str(general.pk)]
+        parsed = MachineAnalysis(title="", description="", category=None,
+            fields=[{"key": "serial", "label": "PIN", "value": "*TEST-FORK1234*", "source": "plate",
+                "review": "clear", "component": "machine", "asset_id": asset_id,
+                "evidence": "PRODUCT IDENTIFICATION NUMBER *TEST-FORK1234*"}],
+            plates=[{"asset_id": asset_id, "component": "machine", "readability": "partial",
+                "transcription": "PRODUCT IDENTIFICATION NUMBER *TEST-FORK1234*\nCAPACITY [ilegible]"}],
+            image_observations=[{"asset_id": asset_id, "kind": "plate"},
+                                {"asset_id": str(general.pk), "kind": "machine"}], warnings=[], questions=[])
+        normalized = normalize_analysis(parsed, asset_ids)
+        self.assertEqual(normalized["data"]["serial"], "TEST-FORK1234")
+        for human_value in (None, "OWNER-1234", ""):
+            for concurrent in (False, True):
+                with self.subTest(human_value=human_value, concurrent=concurrent):
+                    self.machine.data, self.machine.provenance = {}, {}
+                    self.machine.save(update_fields=["data", "provenance"])
+                    if human_value is not None and not concurrent:
+                        self.machine = save_draft(self.machine, self.owner,
+                            {"data": {"serial": human_value}}, self.machine.revision)
+                    job = self.job({})
+                    job.asset_ids, job.result = asset_ids, deepcopy(normalized)
+                    job.save(update_fields=["asset_ids", "result"])
+                    if human_value is not None and concurrent:
+                        self.machine = save_draft(self.machine, self.owner,
+                            {"data": {"serial": human_value}}, self.machine.revision)
+                    result = self.apply(job)
+                    self.assertEqual(self.machine.data["serial"], human_value if human_value is not None else "TEST-FORK1234")
+                    self.assertEqual("serial" in result["applied_fields"], human_value is None)
+                    self.assertEqual(self.machine.provenance["serial"]["source"], "plate" if human_value is None else "user")
+
     def test_manual_fields_save_and_same_image_numeric_conflicts_preserve_human_corrections(self):
         self.apply(self.job())
         self.machine = save_draft(self.machine, self.owner,
