@@ -5,6 +5,7 @@ import json
 from tempfile import TemporaryDirectory
 import uuid
 import zipfile
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
@@ -65,6 +66,41 @@ class WebAutofillTests(TestCase):
     def apply(self,job):
         self.machine,summary=apply_analysis_automatically(self.machine,self.owner,job,self.machine.revision)
         return summary
+
+    def legacy_fuel_as_power(self):
+        with patch('portal.research.is_valid_research_field_value', return_value=True):
+            old_result = self.result({'power': 'LP'})
+        previous = self.job(old_result)
+        self.machine.data['power'] = 'LP'
+        self.machine.provenance['power'] = {**old_result['provenance']['power'], 'analysis_id': str(previous.pk)}
+        self.machine.save()
+        return previous
+
+    def test_new_analysis_removes_unchanged_old_fuel_as_power_without_losing_history(self):
+        previous = self.legacy_fuel_as_power()
+        summary = self.apply(self.job(self.result({'fuel': 'LP'})))
+        self.assertNotIn('power', self.machine.data)
+        self.assertNotIn('power', self.machine.provenance)
+        self.assertEqual(self.machine.data['fuel'], 'LP')
+        self.assertIn('power', summary['invalidated_fields'])
+        self.assertNotIn('Potencia: LP', self.machine.data['description'])
+        previous.refresh_from_db()
+        self.assertEqual(previous.result['data']['power'], 'LP')
+
+    def test_research_power_cleanup_preserves_human_confirmation_change_and_clear(self):
+        for during in (False, True):
+            for value in ('LP', '70 kW', ''):
+                with self.subTest(during=during, value=value):
+                    self.legacy_fuel_as_power()
+                    job = self.job(self.result({'fuel': 'LP'})) if during else None
+                    self.machine = save_draft(self.machine, self.owner,
+                        {'data': {'power': value}, 'provenance': {'power': {'source': 'user', 'review': 'confirmed'}}},
+                        self.machine.revision)
+                    job = job or self.job(self.result({'fuel': 'LP'}))
+                    summary = self.apply(job)
+                    self.assertEqual(self.machine.data['power'], value)
+                    self.assertEqual(self.machine.provenance['power']['review'], 'confirmed')
+                    self.assertNotIn('power', summary.get('invalidated_fields', []))
 
     def test_verified_model_specs_fill_gaps_with_source_and_cautious_description(self):
         summary=self.apply(self.job(self.result()))

@@ -121,7 +121,7 @@
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   let preflightTimer, preflightRunning = false, preflightStamp = '', checkedPhotoStamp = '', photoCheckBlocked = false;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
-    const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad del cucharón',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
+    const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
     const additionalPlateLabels = { digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
   const conditionLabels = { usage_condition:'Uso aparente',preservation_condition:'Conservación aparente',preservation_notes:'Observaciones de conservación',operating_status:'Funcionamiento',visible_defects:'Defectos visibles',visible_components:'Componentes visibles',applications:'Aplicaciones y usos' };
   const estimateLabels = { estimate_min:'Mínimo estimado',estimate_max:'Máximo estimado',estimate_suggested_price:'Precio sugerido',estimate_currency:'Moneda de la estimación',estimate_date:'Fecha de la estimación',estimate_market:'Mercado de referencia',estimate_basis:'Base de la estimación',estimate_missing_info:'Información que falta para afinar el precio' };
@@ -129,6 +129,7 @@
   const catalogueTechnicalLabels = { engine_displacement:'Cilindrada',boom_length:'Longitud de pluma',stick_length:'Longitud de brazo',maximum_reach_ground:'Alcance máximo a nivel de suelo',maximum_loading_height:'Altura máxima de carga',bucket_digging_force:'Fuerza de excavación del cucharón',stick_digging_force:'Fuerza de excavación del brazo',hydraulic_flow:'Caudal hidráulico',swing_speed:'Velocidad de giro',drum_width:'Ancho de tambor',drum_diameter:'Diámetro de tambor',travel_speed:'Velocidad de desplazamiento',fuel_capacity:'Capacidad de combustible',water_tank_capacity:'Capacidad de tanque de agua',platform_height:'Altura de plataforma',horizontal_outreach:'Alcance horizontal',gradeability:'Pendiente superable',swing:'Giro',blade_width:'Ancho de hoja' };
   Object.assign(keyLabels,additionalPlateLabels,conditionLabels,estimateLabels,ageLabels,catalogueTechnicalLabels);
   keyLabels.model_family = 'Familia de modelo';
+  const fieldLabel = key => (key === 'capacity' ? $('[data-field="capacity"]',wizard)?.dataset.fieldLabel : '') || keyLabels[key] || key || 'Especificación';
   const sourceLabels = { image:'Imagen',plate:'Placa',user:'Declarado por ti',visual:'Lectura visual',visual_proposal:'Lectura visual',user_declared:'Declarado por ti',unknown:'Por identificar',web_model:'Especificación del modelo',web_serial:'Coincidencia de serie en fuente web',web:'Fuente web',system:'Texto preparado',valuation:'Estimación orientativa',ai_reference:'Estimación orientativa del modelo' };
   const purposeLabels = { general:'Vista general',detail:'Detalle',plate:'Placa · privada',document:'Documento · privado' };
   const missing = value => value === undefined || value === null || value === '';
@@ -754,7 +755,7 @@
       if (!field || typeof field !== 'object' || missing(field.value)) continue;
       const row = el('div'), value = typeof field.value === 'object' ? JSON.stringify(field.value) : String(field.value), definition = el('dd');
       definition.append(el('strong','',value),el('span','research-scope',scopeLabels[field.scope] || 'Referencia por revisar'));
-      row.append(el('dt','',keyLabels[field.key] || field.key || 'Especificación'),definition); list.append(row);
+      row.append(el('dt','',fieldLabel(field.key)),definition); list.append(row);
     }
     if (list.children.length) target.append(list);
   }
@@ -822,7 +823,7 @@
       el('p','','Conservamos este campo sin asignar. Revisa cada lectura antes de corregirlo en la ficha.'));
     for (const [key,readings] of fields) {
       const group = el('div','analysis-reading-conflict'), list = el('ul'), seen = new Set();
-      group.append(el('b','',keyLabels[key] || key));
+      group.append(el('b','',fieldLabel(key)));
       for (const reading of readings) {
         if (!reading || typeof reading !== 'object' || missing(reading.value)
             || !['string','number'].includes(typeof reading.value)) continue;
@@ -864,7 +865,7 @@
     for (const key of keys) {
       const label = el('label','check-card'), input = el('input'); input.type = 'checkbox'; input.value = key; input.checked = true;
       const value = job.result.data[key], current = fieldValue(state,key); const text = el('span','');
-      text.append(el('b','',keyLabels[key] || key),el('small','',`Guardado: ${missing(current) ? 'sin indicar' : typeof current === 'object' ? JSON.stringify(current) : String(current)} · Propuesta: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`));
+      text.append(el('b','',fieldLabel(key)),el('small','',`Guardado: ${missing(current) ? 'sin indicar' : typeof current === 'object' ? JSON.stringify(current) : String(current)} · Propuesta: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`));
       label.append(input,text); list.append(label);
     }
     const apply = el('button','button button-outline button-small','Usar cambios seleccionados'); apply.type = 'button';
@@ -924,14 +925,14 @@
       const brief = $('#research-brief');
       if (brief) { brief.hidden = false; brief.textContent = `Identificamos la familia ${state.data.model_family}. Los rangos usan referencias compatibles; puedes indicar el modelo, año o precio exactos si los conoces.`; }
     }
-    if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(key => keyLabels[key] || key).join(', ')+'.'));
+    if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(fieldLabel).join(', ')+'.'));
     if (Array.isArray(metadata.proposals) && metadata.proposals.length) target.append(el('p','small','Las propuestas que contradicen tu ficha quedan aquí para revisarlas juntas; los datos no conflictivos se conservaron sin pedirte confirmar cada uno.'));
     renderConflictBatch(job,target,metadata);
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }
     renderReadingConflicts(result,target);
     const data = result.data || {};
     const provenance = el('dl','analysis-provenance');
-    for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',keyLabels[key] || key),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }
+    for (const [key,value] of Object.entries(data)) if (!missing(value)) { const row = el('div'); const origin = result.provenance?.[key]; row.append(el('dt','',fieldLabel(key)),el('dd','',`${typeof value === 'object' ? JSON.stringify(value) : value} · ${sourceLabels[origin?.source] || 'Lectura de IA'}`)); provenance.append(row); }
     if (provenance.children.length) target.append(provenance);
     for (const plate of Array.isArray(result.plates) ? result.plates : []) { target.append(el('p','small',`Placa: ${plate.component || 'componente por identificar'}`),el('pre','plate-text',plate.transcription || 'No identificable')); if ($$('.asset-card',wizard).some(card => card.dataset.assetId === String(plate.asset_id))) { const link = el('a','text-link small','Ver placa original ↗'); link.href = `${assetUrl(plate.asset_id)}?original=1`; link.target = '_blank'; link.rel = 'noopener'; target.append(link); } }
     renderPreview();
@@ -985,7 +986,7 @@
         ? lowValid&&highValid?`${format(low)}–${format(high)} ${currency}`:lowValid?`Desde ${format(low)} ${currency}`:highValid?`Hasta ${format(high)} ${currency}`:'' : '';
       priceSummary.hidden=!priceSummary.textContent;
     }
-    function addField(target,key,text,label=keyLabels[key] || key) {
+    function addField(target,key,text,label=fieldLabel(key)) {
       if (missing(text)) return;
       const control = $(`[data-field="${key}"]`,wizard);
       if (control?.tagName === 'SELECT') {
@@ -1080,7 +1081,7 @@
     const excavatorFields = profile.key === 'excavator' ? [
       {key:'hours_recorded_at',type:'date'}, {key:'weight',help:'Escribe número y unidad, por ejemplo: 21 500 kg.'},
       {key:'digging_depth',help:'Escribe número y unidad, por ejemplo: 6.7 m.'}, {key:'power',help:'Escribe número y unidad, por ejemplo: 110 kW.'},
-      {key:'capacity',help:'Capacidad del cucharón con unidad, por ejemplo: 1.2 m3.'}, {key:'power_type',kind:'choice'},
+      {key:'capacity',label:'Capacidad del cucharón',help:'Capacidad del cucharón con unidad, por ejemplo: 1.2 m3.'}, {key:'power_type',kind:'choice'},
       {key:'depth_configuration'}, {key:'location_country'}, {key:'location_region'}, {key:'location_city'}
     ] : [];
     const fields = [...profileFields,...excavatorFields,...(category?.fields || [])];
@@ -1100,12 +1101,13 @@
         for (const option of options) { const value = typeof option === 'object' ? option.value ?? option.key ?? option.label : option; const optionLabel = typeof option === 'object' ? option.label ?? option.name ?? value : option; if (value === undefined || value === null) continue; const node = el('option','',String(optionLabel)); node.value = String(value); node.selected = String(current) === String(value); input.append(node); }
       } else if (field.type === 'textarea') { input = el('textarea'); input.rows = 2; input.maxLength = 2000; }
       else { input = el('input'); input.type = field.type === 'number' ? 'number' : field.type === 'date' || field.kind === 'date' ? 'date' : 'text'; input.maxLength = 500; if (input.type === 'number') { input.step = 'any'; input.inputMode = 'decimal'; } }
-      input.id = label.htmlFor; input.dataset.field = key; input.value = current; input.disabled = !editable || submitting || deleting; bindInput(input); group.append(label,input);
+      input.id = label.htmlFor; input.dataset.field = key; input.dataset.fieldLabel = field.label || keyLabels[key] || key; input.value = current; input.disabled = !editable || submitting || deleting; bindInput(input); group.append(label,input);
       if (field.help) group.append(el('span','field-help',String(field.help)));
       target.append(group);
     }
     updatePhotoGuidance(category,profile);
     renderCompletionActions();
+    renderPreview();
   }
   function updatePhotoGuidance(category,profile={}) {
     const target = $('#category-photo-guidance'); if (!target) return;

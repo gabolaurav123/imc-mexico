@@ -36,13 +36,14 @@ from .storage import option
 from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compose_description, research_reservation,
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
+from .research_field_values import is_fuel_name
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v43"
+PROMPT_VERSION = "imc-excavators-2026-09-v44"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -119,6 +120,9 @@ elevación y centro de carga corresponden a voltage, lift_height y load_center;
 capacidad declarada corresponde a capacity. No calcules capacidad, voltaje,
 combustible ni año exacto (year) a partir del modelo. XXX, guiones y espacios vacíos en una línea
 no son valores técnicos; usa null para esa línea y conserva las otras legibles.
+TYPE LP, Fuel LPG o GLP indican combustible: copia el valor literal en fuel,
+nunca en power. Potencia corresponde a su cifra y unidad impresas (HP, kW, etc.);
+si sólo aparece el tipo de combustible, no inventes una potencia.
 Peso y capacidad de batería corresponden a battery_weight y battery_capacity;
 longitud de horquillas a fork_length. No confundas peso de batería con peso total,
 ni capacidad de batería con capacidad de carga. Conserva la unidad impresa.
@@ -1398,6 +1402,10 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
             item["review"] = "needs_review"
         if key not in AI_KEYS or item["component"] != "machine":
             continue
+        if key == "power" and item["source"] != "user" and is_fuel_name(item["value"]):
+            # Preserve the original plate transcription and any independently
+            # extracted fuel; a fuel name cannot substantiate engine power.
+            item["value"], item["review"] = None, "needs_review"
         if key == "country_of_origin" and item["source"] != "user" and (
                 not explicit_manufacturing_origin(item["evidence"], item["value"]) or
                 (item["source"] == "plate" and (not plate or not explicit_manufacturing_origin(plate["transcription"], item["value"])))):

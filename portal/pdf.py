@@ -21,7 +21,7 @@ from reportlab.platypus import (CondPageBreak, Flowable, KeepInFrame, LongTable,
 from .services import (CATALOGUE_TECHNICAL_LABELS, PLATE_TECHNICAL_LABELS, WEB_FIELD_LABELS, _reference_text,
                        public_valuation, valuations_for_provenance)
 from .commercial import VISUAL_LABELS, ESTIMATE_LABELS, AGE_LABELS
-from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
+from .category_profiles import PROFILE_FIELD_LABELS, capacity_label, display_field_value
 from .sheet_details import build_technical_summary, clean_sheet_text
 
 NAVY = colors.HexColor("#000033")
@@ -281,7 +281,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
         shown_fields.update(key for key, value in entries)
         rows = [[para(label, "WhiteHeading"), ""]]
         for key, value in entries:
-            name = LABELS.get(key, (labels or {}).get(key, key.replace("_", " ").capitalize()))
+            name = sheet_labels.get(key, (labels or {}).get(key, key.replace("_", " ").capitalize()))
             rows.append([para(name, "TableLabel"), para(value, "TableValue")])
         table = LongTable(rows, colWidths=[43 * mm, 133 * mm], hAlign="LEFT",
                           splitInRow=1, repeatRows=1)
@@ -298,6 +298,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
     now = timezone.localtime(version.created_at if version else timezone.now())
     category = getattr(machine, "category", None)
     category_name = snapshot.get("category_name", "") if version else getattr(category, "name", "")
+    sheet_labels = {**LABELS, "capacity": capacity_label(category_name)}
     state = "FICHA PARA DIFUSIÓN" if public else "FICHA DEL PROPIETARIO"
     story = [para(f"TIPO DE MÁQUINA · {category_name.upper()}" if category_name else "FICHA TÉCNICA Y COMERCIAL", "Eyebrow"),
              para(title, "Title"),
@@ -381,7 +382,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
                   if _present(_display_value(key, values.get(key))) and len(str(values[key])) <= 65 and "\n" not in str(values[key])][:3]
     if highlights:
         shown_fields.update(highlights)
-        cells = [[para(LABELS[key].upper(), "Label"), para(_display_value(key, values[key]), "Value")]
+        cells = [[para(sheet_labels[key].upper(), "Label"), para(_display_value(key, values[key]), "Value")]
                  for key in highlights]
         story.extend([Spacer(1, 2 * mm), panel(cells, [width / len(cells)] * len(cells))])
     cover_reference, reference_continuations = [], []

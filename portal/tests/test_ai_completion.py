@@ -106,6 +106,36 @@ class AICompletionBoundaryTests(SimpleTestCase):
         value = reference(technical_lines=["Funcionamiento pendiente de confirmar.", "Sin datos.", "Perfecto estado."])
         self.assertNotIn("description", value["fields"])
 
+    def test_summary_can_quote_one_printed_measurement_from_an_accepted_dual_unit_field(self):
+        cases = (
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 8240 lb para la configuración documentada."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 189 in en la configuración de placa."),
+        )
+        for key, literal, line in cases:
+            with self.subTest(key=key, line=line):
+                lines = [line, *proposal().technical_lines[1:]]
+                value = normalize_reference(proposal(technical_lines=lines), IDENTITY,
+                    {**DATA, key: literal}, "Excavadoras", ["Excavadoras"])
+                self.assertIn(line, value["fields"]["description"])
+                self.assertEqual(value["identity"]["technical_context"][key], literal)
+
+    def test_dual_units_do_not_license_conversion_changed_values_or_wrong_labels(self):
+        cases = (
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3.74 t para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3750 kg para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Capacidad de carga declarada de 3740 kg para la configuración documentada."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4.8 m en la configuración de placa."),
+            ("lift_height", "MAX 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
+            ("weight", "3740 kg / 4200 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+        )
+        for key, literal, line in cases:
+            with self.subTest(key=key, literal=literal, line=line):
+                value = normalize_reference(proposal(technical_lines=[line, *proposal().technical_lines[1:]]),
+                    IDENTITY, {**DATA, key: literal}, "Excavadoras", ["Excavadoras"])
+                self.assertNotIn("description", value["fields"])
+
     def test_owner_range_and_description_are_preserved_as_groups(self):
         result = {"data": {}, "provenance": {}}
         snapshot = {"data": {"estimated_year_from": 2010, "estimate_currency": "MXN", "description": "Texto del dueño"},

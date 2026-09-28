@@ -1355,6 +1355,8 @@ def is_validated_web_field(result, key, value, meta):
     research = result.get("research", {}) if isinstance(result, dict) else {}
     if key not in WEB_KEYS or not isinstance(research, dict) or meta.get("source") != "web" or meta.get("review") not in {"needs_review", "confirmed"}:
         return False
+    if not is_valid_research_field_value(key, value):
+        return False
     try:
         verified = signing.Signer(salt=SIGNING_SALT).unsign_object(research.get("proof", ""))
     except (signing.BadSignature, ValueError, TypeError):

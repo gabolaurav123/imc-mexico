@@ -1035,7 +1035,20 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             add_validated("category", matches[0].pk, category_meta if category_meta.get("source") == "ai_reference" else {"source": "visual_proposal", "review": "needs_review"})
         else:
             skip("category", "no_exact_category")
-    invalidated = cleared_valuation + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
+    cleared_power = []
+    old_power = base.get("refresh_fields", {}).get("power") if not legacy else None
+    if (job.mode == "analysis" and isinstance(old_power, dict)
+            and old_power.get("provenance", {}).get("source") in {"web", "plate", "image"}
+            and old_power == _automatic_field_record(machine, "power")):
+        from .research_field_values import is_fuel_name
+        if is_fuel_name(old_power.get("value")):
+            # An absent new rating must not retain the old mislabeled fuel.
+            # Only retire the unchanged automatic value captured at admission;
+            # confirmations, edits and the historical analysis remain intact.
+            machine.data.pop("power", None)
+            machine.provenance.pop("power", None)
+            cleared_power.append("power")
+    invalidated = cleared_valuation + cleared_power + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated
     if conflicting_fields:

@@ -16,7 +16,7 @@ from django.utils import timezone
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .ai_model import model_options, output_limit, request_timeout, token_reservation
-from .description_quality import has_technical_description
+from .description_quality import has_technical_description, is_generic_variation_notice
 from .research import (UsageTotals, _get, human_declared_data, identifier_key,
                        is_validated_web_field, safe_public_url)
 from .valuation import COMPATIBILITY_KEYS, _identity, _fold
@@ -66,12 +66,16 @@ motivo para omitir esa referencia del modelo; no ajustes importes por datos ause
 Respeta condición, configuración y datos humanos; una foto o el año no prueban
 funcionamiento ni horas. No inventes descuentos ni ajustes por horas/ubicación.
 technical_lines son de tres a cuatro líneas breves sobre diseño, función y principales
-características del modelo. Cifras técnicas sólo si ya aparecen en accepted_data;
+características del modelo. Cada línea debe aportar una característica concreta distinta,
+como un componente, un mecanismo, el diseño o su función; no rellenes con avisos genéricos.
+Cifras técnicas sólo si ya aparecen en accepted_data;
 si no hay cifras, describe rasgos generales del modelo en términos técnicos útiles.
 No generalices aptitudes que cambien por variante, homologación o configuración:
 uso interior/exterior, terreno admisible, resistencia al viento, propulsión o equipos
 opcionales. Sin respaldo de esa versión, elige rasgos estables corroborados; si una
 referencia sólo acredita una variante, expresa esa condición sin atribuirla a la unidad.
+Integra esa condición en la misma frase que describe el rasgo concreto; no dediques
+una línea a decir que configuración, uso o equipamiento varían según versión o unidad.
 Máximo 150 caracteres por línea. No incluyas series, contactos, ubicaciones privadas,
 precio, año, códigos numéricos de modelo, garantías mecánicas ni instrucciones de revisión. No escribas pendiente,
 por confirmar, sin datos, no disponible ni instrucciones para el propietario.
@@ -257,6 +261,24 @@ def _amount(value):
         return None
 
 
+def _technical_literals(key, literal):
+    """Allow a printed dual-unit measurement without inventing its conversion.
+
+    Repeated units may be different load conditions, not equivalent measures.
+    Keep qualifiers such as MAX and all other field formats as whole literals.
+    """
+    values = [literal]
+    expected_units = {"weight": {"lb", "kg"}, "lift_height": {"in", "mm"}}.get(key)
+    if expected_units is None:
+        return values
+    prefix = r"(?:[A-Z]:\s*)?" if key == "lift_height" else ""
+    match = re.fullmatch(prefix + r"(?P<first>\d+(?:\.\d+)?\s+(?P<unit_a>lb|lbs|kg|in|mm))\s*/\s*"
+                         r"(?P<second>\d+(?:\.\d+)?\s+(?P<unit_b>lb|lbs|kg|in|mm))", literal, re.I)
+    if match and {match[name].casefold().removesuffix("s") for name in ("unit_a", "unit_b")} == expected_units:
+        values.extend((match["first"], match["second"]))
+    return values
+
+
 def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=(), provenance=None):
     identity = deepcopy(identity)
     if data.get("serial"):
@@ -303,8 +325,9 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
         for key, term in TECHNICAL_TERMS.items():
             literal = str(data.get(key) or "").strip()
             if literal and re.search(term, clean, re.I):
-                remaining = re.sub(re.escape(literal), "", remaining, flags=re.I)
-        if clean and not re.search(r"\d", remaining) and clean not in lines:
+                for accepted_literal in _technical_literals(key, literal):
+                    remaining = re.sub(re.escape(accepted_literal), "", remaining, flags=re.I)
+        if clean and not is_generic_variation_notice(clean) and not re.search(r"\d", remaining) and clean not in lines:
             lines.append(clean)
     if len(lines) >= 3:
         description = "Características de referencia del modelo:\n" + "\n".join(lines[:3])

@@ -8,6 +8,8 @@ import re
 import unicodedata
 from textwrap import wrap
 
+from .category_profiles import capacity_label
+
 
 _EMPTY_COPY = {
     "n/a", "na", "n.d.", "nd", "n/d", "unknown", "desconocido", "desconocida",
@@ -81,7 +83,7 @@ def build_technical_summary(data, provenance=None, *, category=None):
 
     description = safe_text(data.get("description"))
     paragraphs = [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[\r\n]+", description) if part.strip()]
-    paragraphs.extend(f"{label}: {value}" for key, label in _SUMMARY_FIELDS
+    paragraphs.extend(f"{capacity_label(category) if key == 'capacity' else label}: {value}" for key, label in _SUMMARY_FIELDS
                       if (value := safe_text(data.get(key))) and value.casefold() not in description.casefold())
     lines = []
     for paragraph in paragraphs:

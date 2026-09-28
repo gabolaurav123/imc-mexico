@@ -239,6 +239,24 @@ def profile_for_category(category):
     return deepcopy(profile) if profile else {}
 
 
+def capacity_label(category=None):
+    """Name the existing capacity field in its equipment family's vocabulary.
+
+    Snapshot category names are resolved locally, so later draft edits cannot
+    relabel an approved platform load as an excavator's bucket volume.
+    """
+    profile = profile_for_category(category)
+    if not profile:
+        name = normalized_alias(getattr(category, "name", category))
+        profile = next((item for slug, item in PROFILES.items()
+                        if name and name in {normalized_alias(slug.replace("-", " ")),
+                                             normalized_alias(item["label"]),
+                                             *(normalized_alias(alias) for alias in item.get("aliases", []))}), {})
+    if profile.get("key") == "excavator":
+        return "Capacidad del cucharón"
+    return next((item["label"] for item in profile.get("fields", []) if item["key"] == "capacity"), "Capacidad")
+
+
 def category_catalog(categories):
     """Serialize active Category objects for local typeahead; never queries the web."""
     records = []
