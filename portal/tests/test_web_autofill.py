@@ -87,6 +87,54 @@ class WebAutofillTests(TestCase):
         previous.refresh_from_db()
         self.assertEqual(previous.result['data']['power'], 'LP')
 
+    def test_old_fuel_as_power_does_not_block_the_new_reference_price_or_description(self):
+        from portal.ai_completion import merge_machine_reference, normalize_reference
+        from portal.tests.test_ai_completion import proposal
+        from portal.valuation import _identity
+
+        previous = self.legacy_fuel_as_power()
+        result = self.result({'fuel': 'LP'})
+        accepted = {key: value for key, value in {**self.machine.data, **result['data']}.items() if key != 'power'}
+        snapshot = {'data': accepted, 'provenance': {
+            key: {'source': 'user', 'review': 'confirmed'} for key in accepted}}
+        reference = normalize_reference(proposal(), _identity({}, snapshot), accepted, None,
+            ['Excavadoras'], [accepted['serial']])
+        merge_machine_reference(result, reference, snapshot)
+        self.assertIsNone(reference['identity']['technical_context']['power'])
+        self.assertIn('estimate_min', result['data'])
+        self.assertIn('description', result['data'])
+
+        outcome = self.apply(self.job(result))
+
+        self.assertNotIn('power', self.machine.data)
+        self.assertIn('power', outcome['invalidated_fields'])
+        self.assertEqual(self.machine.data['estimate_min'], 45000)
+        self.assertEqual(self.machine.data['estimate_max'], 90000)
+        self.assertEqual(self.machine.data['estimate_currency'], 'USD')
+        self.assertEqual(self.machine.data['estimate_basis'], reference['fields']['estimate_basis'])
+        self.assertEqual(self.machine.data['description'], reference['fields']['description'])
+        self.assertEqual(self.machine.provenance['description']['source'], 'ai_reference')
+        previous.refresh_from_db()
+        self.assertEqual(previous.result['data']['power'], 'LP')
+
+    def test_old_fuel_cleanup_preserves_new_power_and_a_newer_automatic_snapshot(self):
+        self.legacy_fuel_as_power()
+        outcome = self.apply(self.job(self.result({'power': '70 kW', 'fuel': 'LP'})))
+        self.assertEqual(self.machine.data['power'], '70 kW')
+        self.assertIn('power', outcome['applied_fields'])
+        self.assertEqual(self.machine.provenance['power']['source'], 'web')
+
+        self.legacy_fuel_as_power()
+        stale = self.job(self.result({'fuel': 'LP'}))
+        newer = self.job(self.result({'power': '75 kW'}))
+        self.machine.data['power'] = '75 kW'
+        self.machine.provenance['power'] = {**newer.result['provenance']['power'], 'analysis_id': str(newer.pk)}
+        self.machine.save()
+        outcome = self.apply(stale)
+        self.assertEqual(self.machine.data['power'], '75 kW')
+        self.assertNotIn('power', outcome.get('invalidated_fields', []))
+        self.assertEqual(self.machine.provenance['power']['analysis_id'], str(newer.pk))
+
     def test_research_power_cleanup_preserves_human_confirmation_change_and_clear(self):
         for during in (False, True):
             for value in ('LP', '70 kW', ''):

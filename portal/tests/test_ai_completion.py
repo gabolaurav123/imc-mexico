@@ -123,6 +123,9 @@ class AICompletionBoundaryTests(SimpleTestCase):
 
     def test_summary_can_quote_one_printed_measurement_from_an_accepted_dual_unit_field(self):
         cases = (
+            ("weight", "8240 lb; 3740 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+            ("capacity", "500 lbs; 227 kg", "Capacidad de plataforma declarada de 227 kg para la configuración documentada."),
+            ("lift_height", "189 in; 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
             ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
             ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 8240 lb para la configuración documentada."),
             ("weight", "2742 lbs / 1244 kg", "Peso operativo declarado de 1244 kg para la configuración documentada."),
@@ -154,6 +157,8 @@ class AICompletionBoundaryTests(SimpleTestCase):
             ("capacity", "MAX 500 lbs / 227 kg", "Capacidad de plataforma declarada de 227 kg para la configuración documentada."),
             ("capacity", "2250 kg / 1950 kg", "Capacidad de carga declarada de 2250 kg para la configuración documentada."),
             ("capacity", "2250 kg a 3300 mm / 1950 kg a 4800 mm", "Capacidad de carga declarada de 2250 kg para la configuración documentada."),
+            ("capacity", "2250 kg a 600 mm; 1950 kg a 760 mm", "Capacidad de carga declarada de 2250 kg para la configuración documentada."),
+            ("lift_height", "MAX 189 in; 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
         )
         for key, literal, line in cases:
             with self.subTest(key=key, literal=literal, line=line):

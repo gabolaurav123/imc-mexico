@@ -38,13 +38,14 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        research_machine, sanitize_visual_description)
 from .research_field_values import is_fuel_name
 from .model_reading import allows_model_prefix_hint, partial_model_label
+from .dual_measurements import canonical_dual_measurement
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v45"
+PROMPT_VERSION = "imc-excavators-2026-09-v46"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -1444,6 +1445,8 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
                 item["review"] = "needs_review"
         if key not in AI_KEYS or item["component"] != "machine":
             continue
+        if item["source"] in {"image", "plate"} and item["review"] == "clear":
+            item["value"] = canonical_dual_measurement(key, item["value"])
         if key == "power" and item["source"] != "user" and is_fuel_name(item["value"]):
             # Preserve the original plate transcription and any independently
             # extracted fuel; a fuel name cannot substantiate engine power.

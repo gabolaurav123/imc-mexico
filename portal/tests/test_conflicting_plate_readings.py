@@ -60,6 +60,54 @@ class ConflictingPlateReadingsTests(TestCase):
         self.assertIn("power", summary["applied_fields"])
         self.assertEqual(self.machine.provenance["power"]["review"], "clear")
 
+    def test_equivalent_dual_units_accept_new_readings_and_their_reference(self):
+        from portal.ai_completion import merge_machine_reference, normalize_reference
+        from portal.tests.test_ai_completion import proposal
+
+        self.machine.data = {"brand": "Caterpillar", "model": "420F2", "weight": "8240 lb / 3740 kg",
+                             "lift_height": "C: 189 in / 4800 mm"}
+        self.machine.provenance = {key: self.meta(value, self.prior.pk)
+                                   for key, value in self.machine.data.items()}
+        self.machine.save()
+        new_values = {"weight": "8240 lb; 3740 kg", "lift_height": "189 in; 4800 mm"}
+        result = {"data": deepcopy(new_values), "provenance": {key: self.meta(value)
+                    for key, value in new_values.items()}, "fields": [], "plates": []}
+        accepted = {**self.machine.data, **new_values}
+        identity = {"brand": "Caterpillar", "model": "420F2", "condition": None,
+                    "configurations": {}, "compatibility": {}, "market_hint": None}
+        reference = normalize_reference(proposal(), identity, accepted, None, ["Excavadoras"])
+        merge_machine_reference(result, reference, {})
+        job = self.job()
+        job.result = result
+        job.save(update_fields=["result"])
+
+        outcome = self.apply(job)
+
+        self.assertFalse(outcome.get("conflicting_fields"))
+        for key, value in new_values.items():
+            self.assertEqual(self.machine.data[key], value)
+            self.assertEqual(self.machine.provenance[key]["review"], "clear")
+        self.assertEqual(self.machine.data["estimate_min"], 45000)
+        self.assertEqual(self.machine.data["description"], reference["fields"]["description"])
+        self.assertEqual(self.machine.provenance["description"]["source"], "ai_reference")
+
+    def test_different_dual_numbers_qualifiers_and_existing_conflicts_remain_conflicts(self):
+        for key, old, new, prior_conflict in (
+                ("weight", "8240 lb / 3740 kg", "8240 lb; 3750 kg", False),
+                ("lift_height", "MAX 189 in / 4800 mm", "189 in; 4800 mm", False),
+                ("capacity", "2250 kg / 1950 kg", "2250 kg; 1950 kg", False),
+                ("weight", "8240 lb / 3740 kg", "8240 lb; 3740 kg", True)):
+            with self.subTest(key=key, old=old, new=new, prior_conflict=prior_conflict):
+                self.machine.data[key] = old
+                self.machine.provenance[key] = self.meta(old, self.prior.pk)
+                if prior_conflict:
+                    self.machine.provenance[key].update(review="needs_review", review_reason="conflicting_reading")
+                self.machine.save()
+                outcome = self.apply(self.job(**{key: new}))
+                self.assertIn(key, outcome["conflicting_fields"])
+                self.assertEqual(self.machine.data[key], old)
+                self.assertEqual(self.machine.provenance[key]["review_reason"], "conflicting_reading")
+
     def test_new_photograph_can_refresh_but_human_correction_stays_authoritative(self):
         self.asset = Asset.objects.create(machine=self.machine, kind="image", purpose="plate", processing_status="ready",
             sha256="b" * 64, original="test/new-plate.jpg", size=1, mime_type="image/jpeg")
