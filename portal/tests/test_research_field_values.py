@@ -1,8 +1,10 @@
 """Field meaning guards: no network, database, translation or guessed values."""
 from django.test import SimpleTestCase
+from unittest.mock import patch
 
+from portal.research import is_validated_web_field, merge_research
 from portal.research_field_values import is_valid_research_field_value
-from portal.tests.test_research import IDENTITY, fact, normalized
+from portal.tests.test_research import IDENTITY, fact, normalized, vision
 
 
 class FuelValueTests(SimpleTestCase):
@@ -66,3 +68,33 @@ class FuelValueTests(SimpleTestCase):
                 else:
                     self.assertEqual(result["fields"], [])
                     self.assertEqual(result["diagnostics"]["rejection_counts"], {"invalid_field_value": 1})
+
+
+class PowerMeaningTests(SimpleTestCase):
+    def test_fuel_names_are_not_power_but_numeric_ratings_remain_unchanged(self):
+        for value in ("LP", "LPG", "Gas L.P.", "Diésel", "Electric", "Gasolina / GLP"):
+            with self.subTest(value=value):
+                self.assertFalse(is_valid_research_field_value("power", value))
+                self.assertTrue(is_valid_research_field_value("fuel", value))
+        for value in ("70 kW", "93 hp", "4.8 kW / 6.5 HP", "Potencia neta 70 kW", "70"):
+            with self.subTest(value=value):
+                self.assertTrue(is_valid_research_field_value("power", value))
+
+    def test_cited_lp_is_kept_as_fuel_and_cannot_become_power(self):
+        evidence = "Toyota 8FGCU25: TYPE LP."
+        identity = {"brand": "Toyota", "model": "8FGCU25", "serial": None}
+        fields = [fact(key=key, value="LP", evidence=evidence,
+                       matched_brand="Toyota", matched_model="8FGCU25")
+                  for key in ("power", "fuel")]
+        result = normalized(fields, identity=identity, text=evidence)
+        self.assertEqual([(field["key"], field["value"]) for field in result["fields"]], [("fuel", "LP")])
+        self.assertEqual(result["diagnostics"]["field_rejection_counts"], {"power": {"invalid_field_value": 1}})
+
+    def test_previously_signed_fuel_as_power_is_not_reapplied_or_exportable(self):
+        evidence = "Caterpillar 420F2: combustible LP."
+        with patch("portal.research.is_valid_research_field_value", return_value=True):
+            legacy = normalized([fact(value="LP", evidence=evidence)], text=evidence)
+        field = legacy["fields"][0]
+        meta = {**field, "source": "web", "review": "needs_review"}
+        self.assertFalse(is_validated_web_field({"research": legacy}, "power", "LP", meta))
+        self.assertNotIn("power", merge_research(vision(), legacy)["data"])

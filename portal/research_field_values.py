@@ -31,14 +31,8 @@ def _literal_names(value):
     return 2 <= len(parts) <= 3 and all(part in _FUEL_NAMES for part in parts)
 
 
-def is_valid_research_field_value(key, value):
-    """Veto invalid fuel prose; other fields retain their existing validation.
-
-    A true result is only a shape check. The caller must still require a literal
-    value in a retrieved citation and an exact compatible equipment identity.
-    """
-    if key != "fuel":
-        return True
+def is_fuel_name(value):
+    """Recognize bounded, literal fuel/energy names without inferring a fuel."""
     if not isinstance(value, str) or not value.strip() or len(value) > 120:
         return False
     normalized = unicodedata.normalize("NFKD", value).casefold()
@@ -54,3 +48,16 @@ def is_valid_research_field_value(key, value):
         main, detail = (part.strip() for part in match.groups())
         return (main in {"hibrido", "hibrida", "hybrid"} or _literal_names(main)) and _literal_names(detail)
     return False
+
+
+def is_valid_research_field_value(key, value):
+    """Veto fuel prose and fuel names misplaced in the power field.
+
+    A true result is only a shape check. The caller must still require a literal
+    value in a retrieved citation and an exact compatible equipment identity.
+    """
+    if key == "fuel":
+        return is_fuel_name(value)
+    if key == "power":
+        return not is_fuel_name(value)
+    return True

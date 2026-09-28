@@ -472,7 +472,7 @@ def public_record(token):
 
 def sheet_context(machine,version=None,public=False,token=None):
     from .sheet_details import build_sheet_details, build_technical_summary, finished_sheet_data
-    from .category_profiles import PROFILE_FIELD_LABELS, display_field_value
+    from .category_profiles import PROFILE_FIELD_LABELS, capacity_label, display_field_value
     from .commercial import commercial_rows, ESTIMATE_LABEL
     original_data=version.data.get('data',{}) if version else machine.data
     plate_ids=services.detected_plate_asset_ids(machine)
@@ -508,6 +508,7 @@ def sheet_context(machine,version=None,public=False,token=None):
     field_origins={key:origin_label(key) for key in data if data.get(key) not in (None,'')}
     labels={'power':'Potencia','weight':'Peso','capacity':'Capacidad','dimensions':'Dimensiones','fuel':'Combustible','kilometers':'Kilometraje','engine':'Motor','transmission':'Transmisión','attachments':'Accesorios',**services.PLATE_TECHNICAL_LABELS,**services.CATALOGUE_TECHNICAL_LABELS}
     labels={**{key:labels[key] for key in ('weight','digging_depth')}, **PROFILE_FIELD_LABELS, **labels}
+    labels['capacity'] = capacity_label(category_name)
     extra_fields=[{'key':key,'label':label,'value':display_field_value(key,data[key]),'source_label':'' if public else field_origins[key]} for key,label in labels.items() if data.get(key) not in (None,'')]
     display_location=data.get('location') or ', '.join(str(data[key]) for key in ('location_city','location_region','location_country') if data.get(key))
     has_identification=bool(category_name or any(data.get(key) not in (None,'') for key in ('brand','model','model_family','year','hours','condition','price','estimate_min','estimate_max','estimated_year_from','estimated_year_to','location','location_country','location_region','location_city')) or data.get('usage_condition') not in (None,'','Por confirmar') or not public)
@@ -844,6 +845,7 @@ def _export_machine(request,pk):
     estimated_year_range = 'Pendiente'
     if values.get('estimated_year_from') or values.get('estimated_year_to'):
         estimated_year_range = f'{copy_value("estimated_year_from")} a {copy_value("estimated_year_to")}'
+    from .category_profiles import capacity_label
     data_for_imc = '\n'.join([
         f'Ficha local: {machine.folio}', f'Versión: {version.number}',
         f'Tipo: {snapshot.get("category_name") or "Pendiente"}', f'Marca: {copy_value("brand")}',
@@ -856,7 +858,7 @@ def _export_machine(request,pk):
         f'Ubicación ciudad: {copy_value("location_city")}',
         f'Ubicación adicional: {copy_value("location")}',
         f'Peso: {copy_value("weight")}', f'Potencia: {copy_value("power")}',
-        f'Capacidad: {copy_value("capacity")}', f'Profundidad de excavación: {copy_value("digging_depth")}',
+        f'{capacity_label(snapshot.get("category_name"))}: {copy_value("capacity")}', f'Profundidad de excavación: {copy_value("digging_depth")}',
         '', 'Descripción pública:', copy_value('description', 'Pendiente de redactar o confirmar.'),
     ])
     manifest_lines = [

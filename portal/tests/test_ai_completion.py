@@ -78,6 +78,21 @@ class AICompletionBoundaryTests(SimpleTestCase):
         self.assertIn("Estimación orientativa de IA", value["fields"]["estimate_basis"])
         self.assertIn("no año exacto", value["fields"]["estimated_year_basis"])
         self.assertEqual(len(value["fields"]["description"].splitlines()), 4)
+
+    def test_accepted_technical_lines_reach_the_sheet_without_losing_the_last_feature(self):
+        from portal.sheet_details import build_technical_summary
+
+        lines = [
+            "Excavadora hidráulica sobre orugas con pluma y brazo articulados para excavar, cargar material y hacer movimientos de tierra en obras de construcción.",
+            "Superestructura giratoria que permite orientar el implemento hacia distintas zonas de trabajo sin cambiar la posición del tren de rodaje.",
+            "Cabina elevada con controles para accionar los movimientos de la pluma, del brazo y del cucharón durante las tareas de excavación.",
+        ]
+        self.assertEqual(len(lines[0]), 150)
+        value = reference(technical_lines=lines)
+        self.assertIn("description", value["fields"])
+        summary = build_technical_summary(value["fields"])
+        self.assertEqual(len(summary), 4)
+        self.assertEqual(summary[1:], lines)
         self.assertEqual(value["missing_fields"], [])
         self.assertTrue(is_validated_ai_field({"ai_reference": value}, "estimate_min", "45000.00", META))
         value["fields"]["estimate_min"] = "1.00"
@@ -105,6 +120,36 @@ class AICompletionBoundaryTests(SimpleTestCase):
         self.assertNotIn("description", value["fields"])
         value = reference(technical_lines=["Funcionamiento pendiente de confirmar.", "Sin datos.", "Perfecto estado."])
         self.assertNotIn("description", value["fields"])
+
+    def test_summary_can_quote_one_printed_measurement_from_an_accepted_dual_unit_field(self):
+        cases = (
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 8240 lb para la configuración documentada."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 189 in en la configuración de placa."),
+        )
+        for key, literal, line in cases:
+            with self.subTest(key=key, line=line):
+                lines = [line, *proposal().technical_lines[1:]]
+                value = normalize_reference(proposal(technical_lines=lines), IDENTITY,
+                    {**DATA, key: literal}, "Excavadoras", ["Excavadoras"])
+                self.assertIn(line, value["fields"]["description"])
+                self.assertEqual(value["identity"]["technical_context"][key], literal)
+
+    def test_dual_units_do_not_license_conversion_changed_values_or_wrong_labels(self):
+        cases = (
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3.74 t para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3750 kg para la configuración documentada."),
+            ("weight", "8240 lb / 3740 kg", "Capacidad de carga declarada de 3740 kg para la configuración documentada."),
+            ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4.8 m en la configuración de placa."),
+            ("lift_height", "MAX 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
+            ("weight", "3740 kg / 4200 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+        )
+        for key, literal, line in cases:
+            with self.subTest(key=key, literal=literal, line=line):
+                value = normalize_reference(proposal(technical_lines=[line, *proposal().technical_lines[1:]]),
+                    IDENTITY, {**DATA, key: literal}, "Excavadoras", ["Excavadoras"])
+                self.assertNotIn("description", value["fields"])
 
     def test_owner_range_and_description_are_preserved_as_groups(self):
         result = {"data": {}, "provenance": {}}

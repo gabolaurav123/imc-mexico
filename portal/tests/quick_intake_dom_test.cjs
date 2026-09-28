@@ -27,6 +27,38 @@ function input(ctx,id,value){const node=ctx.doc.getElementById(id);assert.ok(nod
 function click(ctx,id){ctx.doc.getElementById(id).click();}
 function completed(state,extra={},metadata={}){return {id:'job',status:'completed',result:{data:extra,provenance:{},warnings:[],questions:[]},machine:{...state,revision:state.revision+1,data:{...state.data,...extra}},auto_apply:{requested:true,status:'applied',applied_fields:Object.keys(extra),skipped_fields:[],revision_before:state.revision,revision_after:state.revision+1,...metadata}};}
 (async()=>{
+ for(const [name,profile,label] of [
+   ['Plataformas elevadoras',{key:'aerial_platform',fields:[{key:'capacity',label:'Capacidad de plataforma'}]},'Capacidad de plataforma'],
+   ['Minicargadores',{key:'compact_loader',fields:[{key:'capacity',label:'Capacidad operativa nominal'}]},'Capacidad operativa nominal'],
+   ['Excavadoras',{key:'excavator',fields:[]},'Capacidad del cucharón']]){
+   const capacity=setup(async()=>{await pause(1);const job=completed(capacity.state,{capacity:'500 lbs / 227 kg'},
+     {skipped_fields:['capacity'],field_reasons:{capacity:'existing_value'}});
+     job.result.provenance={capacity:{source:'plate',review:'clear'}};
+     job.result.research={status:'completed',match:'model',fields:[{key:'capacity',value:'500 lbs / 227 kg',scope:'model'}]};
+     job.result.conflicts={capacity:[{value:'500 lbs / 227 kg',source:'plate',asset_id:'1'},{value:'400 lbs / 181 kg',source:'plate',asset_id:'2'}]};
+     return response(200,job);
+   },{job:{id:'capacity-labels',status:'completed'},query:'?paso=2',data:{capacity:'500 lbs / 227 kg'},before(w){
+     const node=w.document.querySelector('#category-data'),categories=JSON.parse(node.textContent);
+     categories[0].name=name;categories[0].profile=profile;
+     categories[1].profile={key:'forklift',fields:[{key:'capacity',label:'Capacidad nominal'}]};
+     node.textContent=JSON.stringify(categories);w.document.querySelector('#category option[value="701"]').textContent=name;
+   }});
+   const field=capacity.doc.querySelector('[data-field="capacity"]');
+   await pause(40);
+   assert.equal(field.value,'500 lbs / 227 kg');assert.match(capacity.doc.querySelector(`label[for="${field.id}"]`).textContent,new RegExp(label));
+   assert.equal(capacity.doc.querySelector('[data-preview-field="capacity"] dt').textContent,label);
+   for(const selector of ['.research-field-list dt','.analysis-reading-conflict b','.analysis-provenance dt','.proposal-batch-list b'])
+     assert.equal(capacity.doc.querySelector(selector).textContent,label,selector);
+   assert.ok(capacity.doc.querySelector('#analysis-results').textContent.includes('Se conservaron tus datos en: '+label+'.'));
+   input(capacity,'category','702');
+   assert.equal(capacity.doc.querySelector('[data-field="capacity"]').value,'500 lbs / 227 kg');
+   assert.equal(capacity.doc.querySelector('[data-preview-field="capacity"] dt').textContent,'Capacidad nominal');
+   assert.doesNotMatch(capacity.doc.querySelector('#preview-technical-specs').textContent,/cucharón/);
+   capacity.close();
+ }
+ const genericCapacity=setup(async()=>{throw Error('Reading capacity needs no request');},{data:{capacity:'500 lbs / 227 kg'}});
+ assert.equal(genericCapacity.doc.querySelector('[data-preview-field="capacity"] dt').textContent,'Capacidad');
+ genericCapacity.close();pass('capacity keeps literal units and follows platform, loader, excavator and forklift vocabulary when the category changes');
  let saves=[],release;
  const c=setup(async(url,o)=>{assert.ok(url.endsWith('guardar/'));const body=JSON.parse(o.body);saves.push(body);if(saves.length===1)await new Promise(resolve=>release=resolve);return response(200,{revision:body.revision+1});});
  assert.equal(c.doc.querySelectorAll('[data-step-panel]').length,2);assert.equal(c.doc.querySelector('#contact-consent').checked,false);assert.equal(c.doc.querySelector('#contact-details').open,false);assert.equal(c.doc.querySelector('#commercial-details').tagName,'SECTION');for(const id of ['location_country','location_region','location_city']){const location=c.doc.querySelector('#'+id);assert.ok(location,id);assert.equal(location.closest('details'),null);assert.equal(location.required,false);}assert.equal(c.state.category,701,'fixture starts with required category');

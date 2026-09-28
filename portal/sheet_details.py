@@ -8,6 +8,8 @@ import re
 import unicodedata
 from textwrap import wrap
 
+from .category_profiles import capacity_label
+
 
 _EMPTY_COPY = {
     "n/a", "na", "n.d.", "nd", "n/d", "unknown", "desconocido", "desconocida",
@@ -81,13 +83,13 @@ def build_technical_summary(data, provenance=None, *, category=None):
 
     description = safe_text(data.get("description"))
     paragraphs = [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[\r\n]+", description) if part.strip()]
-    paragraphs.extend(f"{label}: {value}" for key, label in _SUMMARY_FIELDS
+    paragraphs.extend(f"{capacity_label(category) if key == 'capacity' else label}: {value}" for key, label in _SUMMARY_FIELDS
                       if (value := safe_text(data.get(key))) and value.casefold() not in description.casefold())
     lines = []
     for paragraph in paragraphs:
-        # Preserve full words and avoid broken decimal measurements. Three or
-        # four short lines remain readable on the web and the PDF cover.
-        lines.extend(wrap(paragraph, width=145, break_long_words=False, break_on_hyphens=False))
+        # Match the AI reference line limit so its heading and three accepted
+        # features fit without dropping the last feature from the web or PDF.
+        lines.extend(wrap(paragraph, width=150, break_long_words=False, break_on_hyphens=False))
         if len(lines) >= 4:
             break
     return lines[:4]

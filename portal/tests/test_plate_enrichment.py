@@ -36,6 +36,26 @@ def plate_analysis(asset="plate-image", **overrides):
 
 
 class PlateEquipmentTests(SimpleTestCase):
+    def test_plate_type_lp_is_fuel_and_cannot_be_published_as_power(self):
+        fields = [dict(key=key, label=key, value=value, source="plate", review="clear",
+                       asset_id="plate-image", component="machine", evidence=evidence)
+                  for key, value, evidence in (
+                      ("brand", "TOYOTA", "TOYOTA FORKLIFT TRUCK"),
+                      ("model", "8FGCU25", "MODEL 8FGCU25"),
+                      ("power", "LP", "TYPE LP"),
+                      ("fuel", "LP", "TYPE LP"),
+                  )]
+        transcription = "TOYOTA FORKLIFT TRUCK\nMODEL 8FGCU25\nTYPE LP"
+        result = normalize_analysis(plate_analysis(category="Montacargas", fields=fields,
+            plates=[dict(asset_id="plate-image", component="machine", readability="clear",
+                         transcription=transcription)]), ["plate-image"])
+        self.assertIsNone(result["data"]["power"])
+        self.assertEqual(result["provenance"]["power"]["review"], "needs_review")
+        self.assertEqual(result["data"]["fuel"], "LP")
+        self.assertEqual(result["provenance"]["fuel"]["source"], "plate")
+        self.assertEqual(result["plates"][0]["transcription"], transcription)
+        self.assertNotIn("Potencia: LP", result["data"]["description"])
+
     def test_plate_only_preserves_machine_facts_and_discards_label_appearance(self):
         result = normalize_analysis(plate_analysis(), ["plate-image"])
         self.assertEqual(result["data"]["title"], "Compactador ACME CP-90")

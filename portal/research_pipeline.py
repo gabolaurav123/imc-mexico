@@ -67,6 +67,8 @@ NORMALIZE_INSTRUCTIONS = (
     "expresamente identificado, nunca ubicación actual ni país de fabricación; no copies direcciones de vendedores. "
     "country_of_origin exige fabricación explícita del producto, no sede, distribuidor, eslogan ni idioma. "
     "fuel sólo es el tipo de combustible o energía (diésel, gasolina, gas, eléctrico), nunca ahorro, consumo o funciones comerciales. "
+    "LP, LPG o GLP en TYPE, Fuel o Power source son combustible (fuel), no potencia (power). "
+    "power corresponde a una potencia declarada, por ejemplo HP o kW; no inventes una cifra si sólo se indica el combustible. "
     "capacity sólo es capacidad explícita de carga, cucharón, tolva o producción; nunca cilindrada del motor "
     "ni capacidad de depósitos de combustible, aceite, refrigerante u otros fluidos de servicio. "
     "Una variante con sufijo separado, como 420F2 IT, es distinta de 420F2; no transfieras sus cifras. "
