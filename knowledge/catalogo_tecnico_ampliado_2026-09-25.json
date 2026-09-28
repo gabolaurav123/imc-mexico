@@ -88,7 +88,7 @@
         "note": "La página describe una plataforma de brazo articulado eléctrica y menciona jib opcional. Capacidad, alcance, altura, pendiente y giro son límites de la configuración publicada; no prueban que una unidad tenga el jib u otras opciones."
       },
       "specs": {
-        "power": {"value": "electric", "evidence": "JLG E450AJ: Electric Boom Lift."},
+        "fuel": {"value": "electric", "evidence": "JLG E450AJ: Electric Boom Lift."},
         "capacity": {"value": "500 lb", "evidence": "JLG E450AJ: Platform Capacity Unrestricted 500 lb."},
         "platform_height": {"value": "45 ft", "evidence": "JLG E450AJ: Max Platform Height 45 ft 0 in."},
         "horizontal_outreach": {"value": "22 ft 5 in", "evidence": "JLG E450AJ: Horizontal Outreach 22 ft 5 in."},
