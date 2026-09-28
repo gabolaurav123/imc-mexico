@@ -73,6 +73,52 @@ def _manual_snapshot_readings(snapshot):
     return manual
 
 
+def historical_model_fragments(result, snapshot, general_asset_ids):
+    """Old general-photo fragments cannot disprove a fuller owner correction.
+
+    The former OCR contract did not record whether both ends of a label were
+    visible. This exception is only for a proper, substantial literal fragment;
+    plates, explicit visibility and signed documentary evidence stay decisive.
+    It never makes the fragment a confirmed model or changes the stored reading.
+    """
+    declared = _manual_snapshot_readings(snapshot).get('model')
+    if not declared:
+        return set()
+    general = set(map(str, general_asset_ids))
+    machine_photos = {str(item.get('asset_id')) for item in result.get('image_observations', [])
+                      if item.get('kind') == 'machine' and item.get('relevance') in {'machinery', 'related'}}
+    research = result.get('research', {})
+    research = research if isinstance(research, dict) else {}
+    identity = research.get('identity', {})
+    identity = identity if isinstance(identity, dict) else {}
+    documented_readings = {(str(item.get('asset_id')), _identity_value('model', item.get('value')))
+                           for item in result.get('fields', [])
+                           if item.get('key') == 'model' and item.get('review') == 'clear'
+                           and item.get('component') == 'machine'
+                           and (item.get('source') == 'plate' or 'model_label_visibility' in item)}
+    fragments = set()
+    for field in result.get('fields', []):
+        if (field.get('key') != 'model' or field.get('source') != 'image'
+                or field.get('component') != 'machine' or field.get('review') != 'clear'
+                or 'model_label_visibility' in field):
+            continue
+        asset_id = str(field.get('asset_id'))
+        literal = _identity_value('model', field.get('value'))
+        if ((asset_id, literal) in documented_readings
+                or asset_id not in general or asset_id not in machine_photos or len(literal) < 3
+                or len(literal) >= len(declared['normalized']) or literal not in declared['normalized']):
+            continue
+        if _identity_value('model', identity.get('model')) == literal:
+            from .research import is_validated_web_field
+            if any(isinstance(item, dict) and item.get('key') != 'brand'
+                   and is_validated_web_field(result, item.get('key'), item.get('value'),
+                       {**item, 'source': 'web', 'review': 'needs_review'})
+                   for item in research.get('fields', [])):
+                continue
+        fragments.add((asset_id, literal))
+    return fragments
+
+
 def _consistency_cutoff(snapshot):
     """Make the immutable analysis boundary explicit to private consumers."""
     revision = snapshot.get('revision') if isinstance(snapshot, dict) else None
@@ -82,7 +128,8 @@ def _consistency_cutoff(snapshot):
     }
 
 
-def _set_private_consistency(result, snapshot, *, multiple_machines=False, category_conflict=False):
+def _set_private_consistency(result, snapshot, *, multiple_machines=False, category_conflict=False,
+                             model_fragments=()):
     """Derive a private, explainable congruence state from immutable inputs.
 
     A clear reading from one photograph is useful, but it does not compare two
@@ -131,10 +178,15 @@ def _set_private_consistency(result, snapshot, *, multiple_machines=False, categ
                 # A declaration only contradicts a readable identifier from the
                 # complete machine. It does not treat an engine plate as a
                 # competing model for the advertised unit.
-                observed = values[0] if values else None
+                candidates = [item for item in values if key != 'model'
+                              or (item['asset_id'], item['normalized']) not in model_fragments]
+                observed = candidates[0] if candidates else None
                 if observed:
                     add('contradiction', key, declared, observed,
                         f'La {key} declarada al iniciar el análisis difiere de una lectura clara de la máquina.')
+                elif values:
+                    add('insufficient_evidence', key, declared, values[0],
+                        'La lectura antigua puede ser un fragmento del modelo corregido; no confirma el modelo completo.')
 
     if multiple_machines:
         contradictions.append({'field': 'machine', 'outcome': 'contradiction',
@@ -163,7 +215,7 @@ def _set_private_consistency(result, snapshot, *, multiple_machines=False, categ
     return status
 
 
-def check_equipment_consistency(result, snapshot=None):
+def check_equipment_consistency(result, snapshot=None, *, model_fragments=()):
     """Keep all readings private, but stop research/application on conflicting units.
 
     Different literal machine identifiers are a reason to ask for separation,
@@ -193,7 +245,7 @@ def check_equipment_consistency(result, snapshot=None):
                                        'asset_ids': sorted(value for value in conflicting if value)}
         result['blocking_reason'] = 'multiple_machines'
         result.setdefault('warnings', []).append(message)
-        _set_private_consistency(result, snapshot, multiple_machines=True)
+        _set_private_consistency(result, snapshot, multiple_machines=True, model_fragments=model_fragments)
         return 'multiple_machines'
     selected, detected = snapshot.get('category'), result.get('category')
     if selected and detected and category_identity(selected) != category_identity(detected):
@@ -201,9 +253,9 @@ def check_equipment_consistency(result, snapshot=None):
         result['category_conflict'] = {'selected': selected, 'detected': detected, 'message': message}
         result['blocking_reason'] = 'category_conflict'
         result.setdefault('warnings', []).append(message)
-        _set_private_consistency(result, snapshot, category_conflict=True)
+        _set_private_consistency(result, snapshot, category_conflict=True, model_fragments=model_fragments)
         return 'category_conflict'
-    _set_private_consistency(result, snapshot)
+    _set_private_consistency(result, snapshot, model_fragments=model_fragments)
     return ''
 
 

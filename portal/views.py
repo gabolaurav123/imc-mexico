@@ -236,6 +236,7 @@ def api_catalogue_intake(request):
 @ensure_csrf_cookie
 def machine_wizard(request,pk):
     from .category_profiles import category_catalog
+    from .intake import preparation_completeness
     machine=owned(request,pk)
     try:step=max(1,min(2,int(request.GET.get('paso',request.GET.get('step',1)))))
     except ValueError:step=1
@@ -244,7 +245,8 @@ def machine_wizard(request,pk):
     catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
     shared=PreparedShare.objects.filter(machine=machine,authorized_by_id=machine.owner_id).first()
     share_context={'share_include_serial':bool(shared and shared.include_serial),
-        'share_include_contact':bool(shared and shared.snapshot.get('contact_authorized'))}
+        'share_include_contact':bool(shared and shared.snapshot.get('contact_authorized')),
+        'preparation_completion':preparation_completeness(machine)}
     state=machine_state(machine)
     return render(request,'portal/wizard.html',{**share_context,'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':state['data'],'provenance':machine.provenance,'machine_json':state})
 

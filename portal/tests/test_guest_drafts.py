@@ -60,6 +60,28 @@ class GuestDraftTests(TestCase):
         self.assertEqual(blocked.status_code, 400)
         self.assertEqual(Asset.objects.filter(machine=draft.machine).count(), 3)
 
+    def test_guest_editor_retains_incomplete_sheet_state_after_photo_check(self):
+        payload = self.start()
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        uploaded = self.client.post(f"/api/invitados/{draft.pk}/archivos/",
+            {"file": self.image(), "purpose": "general"})
+        self.assertEqual(uploaded.status_code, 201, uploaded.content)
+        asset = draft.machine.assets.get()
+        for fingerprint, result in (
+            ("normal-completion", {"completion": {"missing_fields": []}}),
+            ("later-photo-check", {"preflight": True}),
+        ):
+            AnalysisJob.objects.create(machine=draft.machine, requested_by=draft.owner,
+                revision=draft.machine.revision, status="completed", fingerprint=fingerprint,
+                asset_ids=[str(asset.pk)], result=result)
+
+        page = self.client.get(f"/invitados/{draft.pk}/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("year_range", page.context["preparation_completion"]["missing_fields"])
+        self.assertIn("price_range", page.context["preparation_completion"]["missing_fields"])
+        self.assertContains(page, '<h2 id="ready-heading">Completa la identificación del equipo</h2>', html=True)
+        self.assertNotContains(page, "Ficha lista")
+
     def test_guest_rejects_video_and_document_purpose_without_creating_assets(self):
         payload = self.start()
         draft = GuestDraft.objects.get(pk=payload["id"])

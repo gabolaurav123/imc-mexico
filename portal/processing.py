@@ -25,7 +25,7 @@ from django.db.models import F, Q, Sum
 from django.utils import timezone
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_serializer
 
 from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
 from .ai_quota import daily_budget_jobs, daily_quota_jobs
@@ -37,7 +37,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 from .research_field_values import is_fuel_name
-from .model_reading import allows_model_prefix_hint, partial_model_label
+from .model_reading import apply_model_label_visibility, allows_model_prefix_hint, partial_model_label
 from .dual_measurements import canonical_dual_measurement
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
@@ -45,7 +45,7 @@ from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v46"
+PROMPT_VERSION = "imc-excavators-2026-09-v47"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -217,6 +217,15 @@ Un fragmento final o intermedio no es un prefijo ni una familia de modelo:
 no lo uses como modelo en el título, descripción o model_family, y no reconstruyas
 los caracteres ausentes por apariencia, marca, memoria ni parecido de catálogo.
 Un modelo corto completo sí es válido; la longitud por sí sola no indica recorte.
+Para cada field incluye model_label_visibility. En key=model con source=image,
+usa complete SÓLO si comprobaste visualmente ambos extremos y todos los caracteres
+del rótulo. Usa partial_start si el comienzo está tapado por la cabina u otra pieza,
+partial_middle si falta una parte central y partial_end si sólo falta el extremo
+final. Si no puedes determinar si está completo, usa unknown; no deduzcas complete
+porque la parte visible parece un código de modelo. Este juicio describe el
+rótulo físico completo, no la nitidez de los caracteres que alcanzas a ver.
+Explica la zona oculta en evidence y conserva allí el fragmento literal entre
+comillas. En otros campos y lecturas de placa o datos declarados, usa null.
 Analízala de manera independiente: no hay otras fotos en esta solicitud.
 Copia image_001 en fields, plates e image_observations. No uses
 UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una
@@ -345,6 +354,14 @@ class ExtractedField(StrictModel):
     asset_id: str | None
     component: Literal["machine", "engine", "transmission", "other", "unknown"]
     evidence: str
+    model_label_visibility: Literal["complete", "partial_start", "partial_middle", "partial_end", "unknown"] | None = None
+
+    @model_serializer(mode="wrap")
+    def preserve_historical_visibility(self, handler):
+        data = handler(self)
+        if "model_label_visibility" not in self.model_fields_set:
+            data.pop("model_label_visibility", None)
+        return data
 
 
 class Plate(StrictModel):
@@ -1427,6 +1444,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         if item["source"] == "visual_proposal":
             item["review"] = "needs_review"
         key = item["key"]
+        apply_model_label_visibility(item)
         if key == "model" and item["source"] in {"image", "plate"} and partial_model_label(item["evidence"]):
             item["review"] = "needs_review"
             if not allows_model_prefix_hint(item["evidence"]):
@@ -1607,17 +1625,60 @@ def _photo_cache_keys(job, assets, snapshot):
             for asset in assets}
 
 
+def _uncorroborated_model_cache(prior, entry):
+    """A deliberate retry may reread an unresolved visual model, at normal cost.
+
+    Preflight and interrupted research do not disprove a reading. A finished
+    lookup with missing identity/ranges, however, must not replay the same
+    unsupported model forever, including through an older preflight cache.
+    """
+    result = prior.result
+    completion = result.get("completion", {})
+    missing = completion.get("missing_fields", []) if isinstance(completion, dict) else []
+    research = result.get("research", {})
+    if (result.get("preflight") or result.get("research_requested") is not True
+            or not isinstance(missing, list)
+            or not {"model", "year_range", "price_range"}.intersection(missing)
+            or not isinstance(research, dict)
+            or research.get("status") not in {"completed", "no_results", "insufficient_identifiers", "general_context"}
+            or entry.get("purpose") != "general"
+            or "model" in human_declared_data(result.get("input_snapshot"))):
+        return False
+    reading = entry.get("reading", {})
+    meta = reading.get("provenance", {}).get("model", {})
+    if (not isinstance(meta, dict) or meta.get("source") != "image"
+            or meta.get("component") != "machine" or meta.get("review") == "confirmed"):
+        return False
+    from .research import _brand_key, identifier_key, is_validated_web_field
+    model = identifier_key(reading.get("data", {}).get("model"))
+    brand = (human_declared_data(result.get("input_snapshot")).get("brand")
+             or reading.get("data", {}).get("brand"))
+    identity = research.get("identity", {})
+    if (model and brand and isinstance(identity, dict) and identifier_key(identity.get("model")) == model
+            and _brand_key(identity.get("brand")) == _brand_key(brand)):
+        for field in research.get("fields", []):
+            if (isinstance(field, dict) and field.get("key") != "brand"
+                    and is_validated_web_field(result, field.get("key"), field.get("value"),
+                        {**field, "source": "web", "review": "needs_review"})):
+                return False
+    return True
+
+
 def _cached_photo_readings(job, keys):
-    wanted, cached = set(keys.values()), {}
+    wanted, cached, rejected = set(keys.values()), {}, set()
     previous = AnalysisJob.objects.filter(machine_id=job.machine_id, requested_by_id=job.requested_by_id,
         status="completed", prompt_version=job.prompt_version).exclude(pk=job.pk).order_by('-created_at')[:8]
     for prior in previous:
         if prior.result.get('blocking_reason') == 'multiple_machines':
             continue
         for entry in prior.result.get('photo_cache', []):
-            if isinstance(entry, dict) and entry.get('key') in wanted and entry['key'] not in cached:
+            if (isinstance(entry, dict) and entry.get('key') in wanted
+                    and entry['key'] not in cached and entry['key'] not in rejected):
                 reading = entry.get('reading')
                 if isinstance(reading, dict) and reading.get('relevance', {}).get('status') == 'relevant':
+                    if _uncorroborated_model_cache(prior, entry):
+                        rejected.add(entry['key'])
+                        continue
                     cached[entry['key']] = deepcopy(reading)
     return cached
 
