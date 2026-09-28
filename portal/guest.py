@@ -246,6 +246,7 @@ def wizard(request, pk):
     """Render the normal wizard with a guest-scoped API base."""
     try:
         from .category_profiles import category_catalog
+        from .intake import preparation_completeness
         from .views import machine_state
         draft = _draft_for_request(request, pk)
         machine = draft.machine
@@ -262,6 +263,7 @@ def wizard(request, pk):
             "catalog_brands": Brand.objects.filter(active=True),
             "catalog_models_json": catalog_models, "step": 1, "job": job, "data": state["data"],
             "provenance": machine.provenance, "machine_json": state,
+            "preparation_completion": preparation_completeness(machine),
             "guest_draft": guest_state(draft), "guest_api_base": f"/api/invitados/{draft.pk}/",
             # The shared wizard reads this context for its client-side upload
             # guard.  Keep the visitor display limit aligned with the server,

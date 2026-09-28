@@ -29,6 +29,8 @@ state={'id':str(machine.id),'revision':1,'title':machine.title,'category':701,'d
 assets=[SimpleNamespace(id=str(i),kind=k,purpose=p,is_cover=i==1) for i,k,p in [(1,'image','general'),(2,'image','plate'),(3,'image','document'),(4,'video','general')]]
 guest_draft = SimpleNamespace(id='guest-draft-fixture') if guest else None
 context={'can_export':not guest,'can_delete_draft':not guest,'csrf_token':'a'*64,'machine':machine,'data':machine.data,'provenance':{},'machine_json':state,'assets':assets,'categories':categories,'categories_json':category_data,'catalog_models_json':[],'catalog_brands':[],'step':1,'user':user,'request':SimpleNamespace(path=f'/panel/maquinarias/{machine.id}/'),'analytics_settings':{'enabled':False},'guest_draft':guest_draft,'guest_api_base':'/api/invitados/guest-draft-fixture/' if guest else '', 'settings_context':{'max_images':3} if guest else None}
+if '--incomplete' in sys.argv:
+    context['preparation_completion'] = {'missing_fields': ['year_range', 'price_range', 'description']}
 with override_settings(STORAGES={'default':{'BACKEND':'django.core.files.storage.FileSystemStorage'},'staticfiles':{'BACKEND':'django.contrib.staticfiles.storage.StaticFilesStorage'}}):
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stdout.write(render_to_string('portal/wizard.html',context))

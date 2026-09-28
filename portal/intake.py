@@ -69,7 +69,11 @@ def preparation_completeness(machine, job=None):
     completion contract, so unavailable evidence cannot silently mean ready.
     """
     if job is None:
-        job = machine.analysis_jobs.filter(status="completed").order_by("-created_at", "-pk").first()
+        # A photo check does not generate a sheet or replace its completion
+        # contract. A later preflight must not make missing fields disappear.
+        job = next((candidate for candidate in machine.analysis_jobs.filter(status="completed")
+                    .order_by("-created_at", "-pk").iterator()
+                    if not (isinstance(candidate.result, dict) and candidate.result.get("preflight") is True)), None)
     if not job or not isinstance(job.result, dict) or "completion" not in job.result:
         return {}
     from .public_data import public_projection
@@ -129,17 +133,21 @@ def assessed_photo_states(machine):
 
 def require_consistent_photos(machine, asset_ids=None):
     """Restrict this fiche, not the account, when actual photo evidence conflicts."""
-    ids = {str(pk) for pk in machine.assets.filter(kind="image", processing_status="ready")
-           .exclude(purpose="document").values_list("pk", flat=True)}
+    purposes = {str(pk): purpose for pk, purpose in machine.assets.filter(kind="image", processing_status="ready")
+                .exclude(purpose="document").values_list("pk", "purpose")}
+    ids = set(purposes)
     if asset_ids is not None:
         ids &= {str(value) for value in asset_ids}
     states = assessed_photo_states(machine)
     if any(states.get(pk) == "unrelated" for pk in ids):
         raise ValidationError("Retira las fotografías que no corresponden a maquinaria antes de compartir o enviar esta ficha.")
-    from .analysis_specialization import check_equipment_consistency
+    from .analysis_specialization import check_equipment_consistency, historical_model_fragments
     # Recompare the latest readable evidence with current owner corrections.
     # A human correction can resolve a conflict without suspending the person.
     seen = set()
+    snapshot = {"data": machine.data, "provenance": machine.provenance,
+        "category": machine.category.name if machine.category_id else "", "revision": machine.revision}
+    model_fragments = set()
     combined = {"fields": [], "image_observations": []}
     for job in AnalysisJob.objects.filter(machine=machine, status="completed", mode="analysis").order_by("-created_at", "-pk"):
         if not isinstance(job.result, dict):
@@ -149,12 +157,13 @@ def require_consistent_photos(machine, asset_ids=None):
             continue
         seen |= relevant
         result = deepcopy(job.result)
+        model_fragments.update(historical_model_fragments(result, snapshot,
+            {pk for pk in relevant if purposes[pk] == "general"}))
         combined["fields"].extend(field for field in result.get("fields", []) if str(field.get("asset_id")) in relevant)
         combined["image_observations"].extend(item for item in result.get("image_observations", []) if str(item.get("asset_id")) in relevant)
     # Photos analysed in separate jobs still belong to one fiche. Compare their
     # latest readable evidence together, not only within individual jobs.
     combined["category"] = next((item.get("category") for item in combined["image_observations"] if item.get("category")), None)
-    check_equipment_consistency(combined, {"data": machine.data, "provenance": machine.provenance,
-        "category": machine.category.name if machine.category_id else "", "revision": machine.revision})
+    check_equipment_consistency(combined, snapshot, model_fragments=model_fragments)
     if combined.get("consistency", {}).get("status") == "contradiction":
         raise ValidationError("Los datos de identificación no coinciden con las fotografías. Corrige el tipo, la marca, el modelo o la serie, o retira la foto que no corresponde.")

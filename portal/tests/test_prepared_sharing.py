@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core.files.base import ContentFile
 from django.test import Client, TestCase, override_settings
 
-from portal.intake import has_completed_preparation, preparation_mode
+from portal.intake import has_completed_preparation, preparation_completeness, preparation_mode
 from portal.models import AnalysisJob, Asset, Category, Lead, Machine, MachineVersion, PreparedShare, Publication, User
 from portal.public_data import public_projection
 
@@ -300,6 +300,69 @@ class PreparedSharingTests(TestCase):
         preflight.result["preflight"] = False
         preflight.save(update_fields=["result"])
         self.assertTrue(has_completed_preparation(self.machine))
+        self.assertEqual(self.enable().status_code, 200)
+
+    def completed_preflight(self, photo):
+        return AnalysisJob.objects.create(machine=self.machine, requested_by=self.user, revision=self.machine.revision,
+            status="completed", fingerprint=uuid.uuid4().hex, asset_ids=[str(photo.pk)],
+            result={"preflight": True, "relevance": {"status": "relevant", "accepted_asset_ids": [str(photo.pk)]}})
+
+    def test_later_photo_checks_cannot_bypass_incomplete_sheet_validation(self):
+        photo = self.photo()
+        normal = self.machine.analysis_jobs.get()
+        normal.result["completion"] = {"missing_fields": []}
+        normal.save(update_fields=["result"])
+        for key in ("estimate_min", "estimate_max", "estimate_currency", "estimated_year_from", "estimated_year_to"):
+            self.machine.data.pop(key)
+        self.machine.save(update_fields=["data"])
+        expected = ["year_range", "price_range", "description"]
+        self.assertEqual(preparation_completeness(self.machine)["missing_fields"], expected)
+        self.assertEqual(self.enable().status_code, 400)
+
+        for _ in range(2):
+            self.completed_preflight(photo)
+            self.assertEqual(preparation_completeness(self.machine)["missing_fields"], expected)
+            blocked = self.enable()
+            self.assertEqual(blocked.status_code, 400, blocked.content)
+            for label in ("rango de años", "rango de precio", "características técnicas"):
+                self.assertIn(label, blocked.json()["error"])
+            self.assertFalse(PreparedShare.objects.exists())
+            editor = self.client.get(f"/panel/maquinarias/{self.machine.pk}/")
+            self.assertEqual(editor.context["preparation_completion"]["missing_fields"], expected)
+            self.assertContains(editor, '<h2 id="ready-heading">Completa la identificación del equipo</h2>', html=True)
+            self.assertNotContains(editor, 'Ficha lista')
+
+    def test_later_photo_check_keeps_a_complete_sheet_shareable(self):
+        photo = self.photo()
+        normal = self.machine.analysis_jobs.get()
+        normal.result["completion"] = {"missing_fields": ["year_range", "price_range", "description"]}
+        normal.save(update_fields=["result"])
+        self.machine.data["description"] = (
+            "Excavadora hidráulica sobre orugas para movimiento de tierras. "
+            "El brazo articulado permite excavar y cargar materiales. "
+            "La superestructura giratoria facilita la descarga alrededor del equipo.")
+        self.machine.save(update_fields=["data"])
+        self.completed_preflight(photo)
+
+        self.assertEqual(preparation_completeness(self.machine)["missing_fields"], [])
+        editor = self.client.get(f"/panel/maquinarias/{self.machine.pk}/")
+        self.assertContains(editor, '<h2 id="ready-heading">Ficha lista</h2>', html=True)
+        response = self.enable()
+        self.assertEqual(response.status_code, 200, response.content)
+        page = Client().get(self.path(response))
+        self.assertEqual(page.context["data"]["estimate_min"], "50000")
+        self.assertEqual(page.context["data"]["estimated_year_to"], 2012)
+
+    def test_later_photo_check_preserves_historical_sharing_contract(self):
+        photo = self.photo()
+        shared = self.enable()
+        self.assertEqual(shared.status_code, 200, shared.content)
+        self.completed_preflight(photo)
+
+        self.assertEqual(preparation_completeness(self.machine), {})
+        editor = self.client.get(f"/panel/maquinarias/{self.machine.pk}/")
+        self.assertContains(editor, '<h2 id="ready-heading">Ficha lista</h2>', html=True)
+        self.assertEqual(Client().get(self.path(shared)).status_code, 200)
         self.assertEqual(self.enable().status_code, 200)
 
     def test_serial_only_can_share_useful_completed_generation_and_contact_lead(self):

@@ -30,3 +30,30 @@ def allows_model_prefix_hint(evidence):
     """A missing beginning cannot constrain model discovery with startswith."""
     text = _evidence(evidence)
     return not _START_GAP.search(text) and (not _PARTIAL_LABEL.search(text) or bool(_END_GAP.search(text)))
+
+
+def apply_model_label_visibility(field):
+    """Honor the explicit visual extent without changing historical readings.
+
+    Absence belongs to the old schema; a new response's null/unknown is an
+    actual inability to verify completeness, never permission to say clear.
+    """
+    if (field.get("key") != "model" or field.get("source") != "image"
+            or "model_label_visibility" not in field):
+        return
+    visibility = field["model_label_visibility"]
+    if visibility == "complete":
+        return
+    reason = {
+        "partial_start": "Inicio del rótulo oculto.",
+        "partial_middle": "Rótulo parcialmente oculto en su parte central.",
+        "partial_end": "Final del rótulo no confirmable.",
+    }.get(visibility, "Inicio del rótulo no confirmable.")
+    evidence = str(field.get("evidence") or "")
+    if reason not in evidence:
+        literal = str(field.get("value") or "").strip()
+        fragment = f" Fragmento «{literal}»." if literal and len(literal) <= 80 else ""
+        field["evidence"] = f"{reason}{fragment} {evidence}".strip()
+    field["review"] = "needs_review"
+    if visibility != "partial_end":
+        field["value"] = None

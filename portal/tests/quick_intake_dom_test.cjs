@@ -9,7 +9,7 @@ let checks=0;
 function pass(name){checks++;console.log('PASS '+name);}
 function setup(fetcher,options={}){
  const errors=[],console=new VirtualConsole();console.on('jsdomError',e=>{if(!e.message.includes('navigation'))errors.push(e.message);});
- const dom=new JSDOM(html,{url:'https://test.invalid/panel/maquinarias/test/'+(options.query||''),runScripts:'outside-only',virtualConsole:console});
+ const dom=new JSDOM(options.html||html,{url:'https://test.invalid/panel/maquinarias/test/'+(options.query||''),runScripts:'outside-only',virtualConsole:console});
  const w=dom.window,doc=w.document;w.HTMLElement.prototype.scrollIntoView=function(){};w.fetch=fetcher;w.confirm=()=>true;
  Object.defineProperty(w.navigator,'onLine',{value:true,writable:true});
  const state=JSON.parse(doc.querySelector('#machine-state').textContent);
@@ -432,6 +432,20 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  let resumedCheck;
  resumedCheck=setup(async()=>{await pause(1);return response(200,{...completed(resumedCheck.state,{}),preflight:true,input_category:701,input_assets:[{id:'1',purpose:'general'},{id:'2',purpose:'plate'}],result:{preflight:true,relevance:{status:'relevant',accepted_asset_ids:['1','2']}}});},{job:{id:'resumed-check',status:'running'},query:'?paso=1'});
  await pause(40);assert.equal(resumedCheck.doc.querySelector('#analyze-button').disabled,false);assert.equal(resumedCheck.doc.querySelector('[data-step-panel="1"]').hidden,false);assert.equal(resumedCheck.doc.querySelector('#model').value,'');resumedCheck.close();pass('reloading a running preflight restores generate without marking the fiche ready or applying fields');
+ const incompleteHtml=execFileSync(process.env.PYTHON || 'python',[path.join(__dirname,'render_quick_fixture.py'),'--incomplete'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8',maxBuffer:4*1024*1024,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
+ let incompleteReload,releasePreflight;
+ incompleteReload=setup(async()=>{
+   await new Promise(resolve=>releasePreflight=resolve);
+   return response(200,{...completed(incompleteReload.state,{}),preflight:true,input_category:701,input_assets:[{id:'1',purpose:'general'},{id:'2',purpose:'plate'}],result:{preflight:true,relevance:{status:'relevant',accepted_asset_ids:['1','2']}}});
+ },{html:incompleteHtml,job:{id:'incomplete-preflight',status:'completed'},query:'?paso=2'});
+ assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');
+ assert.equal(incompleteReload.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
+ releasePreflight();await pause(40);
+ assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');
+ assert.equal(incompleteReload.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
+ assert.match(incompleteReload.doc.querySelector('#photo-validation').textContent,/Fotografías comprobadas/);
+ assert.equal(incompleteReload.doc.querySelector('#analyze-button').disabled,false);
+ incompleteReload.close();pass('incomplete saved sheet stays visibly incomplete before and after a resumed photo check');
  let staleCheck;const staleCalls=[];
  staleCheck=setup(async(url)=>{staleCalls.push(url);await pause(1);return response(200,{...completed(staleCheck.state,{model:'Modelo obsoleto'}),input_category:701,input_assets:[{id:'removed',purpose:'general'}]});},{job:{id:'old-photos',status:'completed'}});
  await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.equal(staleCheck.doc.querySelector('#ready-heading').textContent,'Fotos actualizadas');assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');

@@ -66,6 +66,23 @@ class PartialModelRefreshTests(TestCase):
         self.previous.refresh_from_db()
         self.assertEqual(self.previous.result["data"]["model"], "7T-20")
 
+    def test_structured_occlusion_retires_existing_auto_fragment_without_guessing_missing_text(self):
+        job = self.job()
+        parsed = reading("Texto «7T-20» legible en la carrocería.").model_dump()
+        parsed["fields"][1]["model_label_visibility"] = "partial_start"
+        for item in parsed["fields"] + parsed["image_observations"]:
+            item["asset_id"] = str(self.asset.pk)
+        job.result = normalize_analysis(MachineAnalysis(**parsed), [str(self.asset.pk)], allowed_categories=["Compactadores"])
+        job.result["research"] = empty_research("no_results")
+        job.save(update_fields=["result"])
+        summary = self.apply(job)
+        self.assertIn("model", summary["invalidated_fields"])
+        self.assertNotIn("model", self.machine.data)
+        self.assertEqual(self.machine.title, "Compactador ACME")
+        self.assertNotIn("7T-20", self.machine.data["description"])
+        self.previous.refresh_from_db()
+        self.assertEqual(self.previous.result["data"]["model"], "7T-20")
+
     def test_human_confirmation_correction_and_clear_survive_before_or_during_retry(self):
         for during in (False, True):
             for model in ("7T-20", "ZX-7T-20", ""):
