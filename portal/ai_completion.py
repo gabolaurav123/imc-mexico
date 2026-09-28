@@ -68,6 +68,10 @@ funcionamiento ni horas. No inventes descuentos ni ajustes por horas/ubicación.
 technical_lines son de tres a cuatro líneas breves sobre diseño, función y principales
 características del modelo. Cifras técnicas sólo si ya aparecen en accepted_data;
 si no hay cifras, describe rasgos generales del modelo en términos técnicos útiles.
+No generalices aptitudes que cambien por variante, homologación o configuración:
+uso interior/exterior, terreno admisible, resistencia al viento, propulsión o equipos
+opcionales. Sin respaldo de esa versión, elige rasgos estables corroborados; si una
+referencia sólo acredita una variante, expresa esa condición sin atribuirla a la unidad.
 Máximo 150 caracteres por línea. No incluyas series, contactos, ubicaciones privadas,
 precio, año, códigos numéricos de modelo, garantías mecánicas ni instrucciones de revisión. No escribas pendiente,
 por confirmar, sin datos, no disponible ni instrucciones para el propietario.

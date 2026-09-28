@@ -889,7 +889,10 @@
       if (!observation?.asset_id || missing(observation.quality_issue)) continue;
       const card = $(`.asset-card[data-asset-id="${String(observation.asset_id)}"]`,wizard);
       if (!card) continue;
-      const guidance = el('p','asset-quality-issue',`Esta foto puede ayudar más si ${String(observation.quality_issue)}. Agrega una nueva desde la galería y elimina esta sólo cuando confirmes el reemplazo.`);
+      const issue = String(observation.quality_issue).trim().replace(/(?:\.\s*){2,}$/u,'.');
+      if (!issue) continue;
+      const punctuation = /[.!?…]$/u.test(issue) ? '' : '.';
+      const guidance = el('p','asset-quality-issue',`Sugerencia para mejorar esta foto: ${issue}${punctuation} Puedes conservarla o añadir otra toma desde la galería.`);
       card.append(guidance);
     }
   }
