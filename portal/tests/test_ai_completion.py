@@ -78,6 +78,21 @@ class AICompletionBoundaryTests(SimpleTestCase):
         self.assertIn("Estimación orientativa de IA", value["fields"]["estimate_basis"])
         self.assertIn("no año exacto", value["fields"]["estimated_year_basis"])
         self.assertEqual(len(value["fields"]["description"].splitlines()), 4)
+
+    def test_accepted_technical_lines_reach_the_sheet_without_losing_the_last_feature(self):
+        from portal.sheet_details import build_technical_summary
+
+        lines = [
+            "Excavadora hidráulica sobre orugas con pluma y brazo articulados para excavar, cargar material y hacer movimientos de tierra en obras de construcción.",
+            "Superestructura giratoria que permite orientar el implemento hacia distintas zonas de trabajo sin cambiar la posición del tren de rodaje.",
+            "Cabina elevada con controles para accionar los movimientos de la pluma, del brazo y del cucharón durante las tareas de excavación.",
+        ]
+        self.assertEqual(len(lines[0]), 150)
+        value = reference(technical_lines=lines)
+        self.assertIn("description", value["fields"])
+        summary = build_technical_summary(value["fields"])
+        self.assertEqual(len(summary), 4)
+        self.assertEqual(summary[1:], lines)
         self.assertEqual(value["missing_fields"], [])
         self.assertTrue(is_validated_ai_field({"ai_reference": value}, "estimate_min", "45000.00", META))
         value["fields"]["estimate_min"] = "1.00"

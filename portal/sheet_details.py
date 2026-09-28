@@ -87,9 +87,9 @@ def build_technical_summary(data, provenance=None, *, category=None):
                       if (value := safe_text(data.get(key))) and value.casefold() not in description.casefold())
     lines = []
     for paragraph in paragraphs:
-        # Preserve full words and avoid broken decimal measurements. Three or
-        # four short lines remain readable on the web and the PDF cover.
-        lines.extend(wrap(paragraph, width=145, break_long_words=False, break_on_hyphens=False))
+        # Match the AI reference line limit so its heading and three accepted
+        # features fit without dropping the last feature from the web or PDF.
+        lines.extend(wrap(paragraph, width=150, break_long_words=False, break_on_hyphens=False))
         if len(lines) >= 4:
             break
     return lines[:4]
