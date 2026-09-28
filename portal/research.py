@@ -632,15 +632,14 @@ def _ambiguous_model_occurrence_reason(evidence, identity):
     component = r"(?:engine|motor|transmission|transmisi[oó]n)"
     fillers = r"(?:(?:di[eé]sel|gasolina|gas|el[eé]ctrico|electric|modelo?|model|de|del|marca)\s*[:=-]?\s*)*"
     reason = ""
+    valid_occurrence = False
     pattern = r"(?<![^\W_])(?<![\w]-)" + pattern + r"(?![^\W_]|[.-][^\W_])"
     for match in re.finditer(pattern, text, re.I):
         prefix, tail = text[:match.start()], text[match.end():]
         code = re.search(r"\b([A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)\s+$", prefix)
-        if (code and not ends_with_brand(prefix)
-                and any(c.isalpha() for c in code.group(1)) and any(c.isdigit() for c in code.group(1))
-                and not re.fullmatch(r"\d+(?:kw|hp|kg|mm|cm|km|m3|rpm|l|t)", code.group(1), re.I)):
-            reason = "model_fragment_prefix"
-            continue
+        compound_fragment = (code and not ends_with_brand(prefix)
+                             and any(c.isalpha() for c in code.group(1)) and any(c.isdigit() for c in code.group(1))
+                             and not re.fullmatch(r"\d+(?:kw|hp|kg|mm|cm|km|m3|rpm|l|t)", code.group(1), re.I))
         before_component = re.search(r"\b" + component + r"\s*[:=-]?\s*([^.;,\n]{0,60})$", prefix, re.I)
         after_component = re.match(r"\s+(?:(?:di[eé]sel|gas|electric)\s+)?" + component + r"\b", tail, re.I)
         if after_component:
@@ -661,8 +660,14 @@ def _ambiguous_model_occurrence_reason(evidence, identity):
         if (before_component or after_component) and not component_owned:
             reason = "component_model_identity"
             continue
-        return ""
-    return reason
+        # A summary may assert the requested short code before quoting the
+        # actual longer machine designation. Check the whole citation: an
+        # earlier literal match cannot make that contradiction disappear.
+        # Component-only occurrences above do not contradict a valid machine.
+        if compound_fragment:
+            return "model_fragment_prefix"
+        valid_occurrence = True
+    return "" if valid_occurrence else reason
 
 
 def _conflicting_explicit_model(evidence, identity, *, in_title=False):

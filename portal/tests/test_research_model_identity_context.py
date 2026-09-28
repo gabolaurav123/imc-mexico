@@ -10,6 +10,8 @@ from portal.research import (SIGNING_SALT, ResearchExtraction, ResearchField, _m
 
 
 URL = "https://www.bomag.com/test-only-model-document"
+CONFLICTING_SUMMARY = ('**Modelo:** 1D-40; el anuncio lo presenta dentro de la denominación '
+                       '“BOMAG COMPECTOR BW2 1D-40”.')
 
 
 def normalize(evidence, *, brand="BOMAG", model="1D-40", key="model", value=None):
@@ -28,6 +30,16 @@ def validate(research, field):
 class ResearchModelIdentityContextTests(SimpleTestCase):
     def test_tail_of_compound_model_does_not_establish_identity(self):
         for evidence in ("BOMAG COMPECTOR BW2 1D-40", "BOMAG compactor BW2 1D40: potencia 70 kW."):
+            with self.subTest(evidence=evidence):
+                research = normalize(evidence)
+                self.assertEqual(research["fields"], [])
+                self.assertEqual(research["diagnostics"]["field_rejection_counts"]["model"],
+                                 {"model_fragment_prefix": 1})
+
+    def test_summary_cannot_override_longer_designation_anywhere_in_its_citation(self):
+        for evidence in (CONFLICTING_SUMMARY,
+                         'La denominación es “BOMAG COMPECTOR BW2 1D-40”; **Modelo:** 1D-40.',
+                         'BOMAG 1D-40 comparado con BOMAG COMPECTOR BW2 1D-40.'):
             with self.subTest(evidence=evidence):
                 research = normalize(evidence)
                 self.assertEqual(research["fields"], [])
@@ -86,12 +98,19 @@ class ResearchModelIdentityContextTests(SimpleTestCase):
                 self.assertTrue(validate(research, research["fields"][0]))
 
     def test_matching_machine_heading_is_not_invalidated_by_same_component_code(self):
-        research = normalize("BOMAG 1D40: engine Hatz 1D40.")
-        self.assertEqual(len(research["fields"]), 1)
-        self.assertTrue(validate(research, research["fields"][0]))
+        for evidence in ("BOMAG 1D40: engine Hatz 1D40.",
+                         "Hatz 1D40 engine; BOMAG 1D40.",
+                         "BOMAG 1D40: engine Hatz BW2 1D40.",
+                         "Hatz BW2 1D40 engine; BOMAG 1D40."):
+            with self.subTest(evidence=evidence):
+                research = normalize(evidence)
+                self.assertEqual(len(research["fields"]), 1)
+                self.assertTrue(validate(research, research["fields"][0]))
 
     def test_old_signed_invalid_evidence_is_rechecked_without_rewriting_history(self):
-        for evidence in ("BOMAG COMPECTOR BW2 1D-40", "BOMAG compactor powered by Hatz 1D40 engine."):
+        for evidence in ("BOMAG COMPECTOR BW2 1D-40", "BOMAG compactor powered by Hatz 1D40 engine.",
+                         CONFLICTING_SUMMARY,
+                         'La denominación es “BOMAG COMPECTOR BW2 1D-40”; **Modelo:** 1D-40.'):
             with self.subTest(evidence=evidence):
                 # Simulate the preceding normalizer, which signed these exact
                 # passages before occurrence context was checked.
