@@ -49,7 +49,7 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
    assert.equal(capacity.doc.querySelector('[data-preview-field="capacity"] dt').textContent,label);
    for(const selector of ['.research-field-list dt','.analysis-reading-conflict b','.analysis-provenance dt','.proposal-batch-list b'])
      assert.equal(capacity.doc.querySelector(selector).textContent,label,selector);
-   assert.ok(capacity.doc.querySelector('#analysis-results').textContent.includes('Se conservaron tus datos en: '+label+'.'));
+   assert.ok(capacity.doc.querySelector('#analysis-results').textContent.includes('No se aplicaron automáticamente estos datos: '+label+'.'));
    input(capacity,'category','702');
    assert.equal(capacity.doc.querySelector('[data-field="capacity"]').value,'500 lbs / 227 kg');
    assert.equal(capacity.doc.querySelector('[data-preview-field="capacity"] dt').textContent,'Capacidad nominal');

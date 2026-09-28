@@ -37,13 +37,14 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
                        empty_research, equipment_category_label, explicit_manufacturing_origin, human_declared_data, merge_research,
                        research_machine, sanitize_visual_description)
 from .research_field_values import is_fuel_name
+from .model_reading import allows_model_prefix_hint, partial_model_label
 from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
-PROMPT_VERSION = "imc-excavators-2026-09-v44"
+PROMPT_VERSION = "imc-excavators-2026-09-v45"
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -193,8 +194,12 @@ son acercamientos de sus píxeles, no otras máquinas ni otras vistas. Examina
 rotulación pequeña de modelo en carrocería, contrapeso, brazo y cabina antes de
 dejar model vacío. Copia todos los caracteres legibles, incluidos sufijos; no
 completes letras por parecido con un catálogo. Un rótulo parcial queda pendiente.
-Antes de marcar un modelo como clear, revisa el extremo derecho completo del
-rótulo en los recortes: una letra más pequeña, a menor altura o de otro color
+Antes de marcar un modelo como clear, revisa el rótulo COMPLETO en la foto y
+sus recortes, desde su inicio hasta su final. Comprueba ambos extremos y sus
+oclusiones: una cabina, puerta, brazo u otra pieza puede ocultar el comienzo,
+el centro o el final aunque los caracteres restantes se lean perfectamente.
+Leer nítidamente un fragmento NO demuestra que sea el modelo completo.
+En el extremo derecho, una letra más pequeña, a menor altura o de otro color
 puede ser parte del modelo. Conserva ese sufijo si es legible; no reduzcas una
 variante al modelo base porque los caracteres grandes sean más evidentes.
 Si detectas caracteres finales pero no puedes leerlos, el modelo es parcial:
@@ -203,6 +208,14 @@ En ese caso conserva en value la parte que SÍ lees literalmente y describe en
 evidence qué extremo falta; no devuelvas null si hay un prefijo legible. La
 investigación necesita esa lectura parcial para buscar candidatos, sin asumir
 que sea el modelo completo ni certificar una variante.
+Si el inicio está oculto, falta una parte central o no puedes comprobar dónde
+empieza el rótulo, devuelve model con value null y review needs_review. Conserva
+el fragmento literal entre comillas en evidence y describe la limitación,
+por ejemplo «Inicio del rótulo oculto» o «Rótulo parcialmente oculto».
+Un fragmento final o intermedio no es un prefijo ni una familia de modelo:
+no lo uses como modelo en el título, descripción o model_family, y no reconstruyas
+los caracteres ausentes por apariencia, marca, memoria ni parecido de catálogo.
+Un modelo corto completo sí es válido; la longitud por sí sola no indica recorte.
 Analízala de manera independiente: no hay otras fotos en esta solicitud.
 Copia image_001 en fields, plates e image_observations. No uses
 UUIDs ni un identificador impreso dentro de la imagen como asset_id. Si es una
@@ -1016,16 +1029,26 @@ def _image_detail_inputs(full_image, purpose, alias="image_001"):
         return []
 
 
+def _serial_without_external_markers(value):
+    """Remove only a paired printed delimiter, never a missing inner character."""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    marked = re.fullmatch(r"\*([A-Za-z0-9][A-Za-z0-9 /-]{0,63})\*", value)
+    return marked[1] if marked else value
+
+
 def plate_serial_is_clear(field, plate):
     """Validate an existing clear serial independently of other plate lines.
 
     Never derives a value from transcription or promotes a needs_review field.
+    Paired outer asterisks are delimiters only on a labelled complete reading.
     A partial plate requires an explicitly labelled, complete machine serial;
     unrelated blank/ambiguous lines do not invalidate that labelled reading.
     """
     if not isinstance(field, dict) or not isinstance(plate, dict):
         return False
-    value = field.get("value")
+    value = _serial_without_external_markers(field.get("value"))
     if (field.get("key") != "serial" or field.get("source") != "plate"
             or field.get("review") != "clear" or field.get("component") != "machine"
             or not field.get("asset_id") or field.get("asset_id") != plate.get("asset_id")
@@ -1034,6 +1057,7 @@ def plate_serial_is_clear(field, plate):
             or re.search(r"[?\[\]*]|ilegible|unreadable|unknown", value, re.I)):
         return False
     value = value.strip()
+    marked_field = value != field["value"].strip()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 /-]{0,63}", value):
         return False
     characters = [char for char in value if not char.isspace() and char != "-"]
@@ -1041,7 +1065,7 @@ def plate_serial_is_clear(field, plate):
     transcription = plate.get("transcription")
     if not isinstance(transcription, str):
         return False
-    label = (r"\b(?:serial(?:\s+(?:number|no\.?|n[º°]))?|s\s*/\s*n|s\.?n\.?|vin|pin|"
+    label = (r"\b(?:serial(?:\s+(?:number|no\.?|n[º°]))?|product\s+identification\s+number|s\s*/\s*n|s\.?n\.?|vin|pin|"
              r"(?:n[uú]mero|n[uú]m\.?|no\.?|n[º°])\s*(?:de\s+)?s[eé]rie|s[eé]rie)"
              r"(?!\w)\s*[:=.-]?\s*")
     labels = list(re.finditer(label, transcription, re.I))
@@ -1051,10 +1075,21 @@ def plate_serial_is_clear(field, plate):
         if re.search(r"\b(?:motor|engine|transmisi[oó]n|transmission)\s*[:=-]?\s*$", prefix, re.I):
             continue
         line = transcription[match.end():]
+        marked_line = line.startswith("*")
+        if marked_field and not marked_line:
+            return False
+        if marked_line:
+            line = line[1:]
         serial_match = re.match(literal, line, re.I)
         if not serial_match:
             return False
         after = line[serial_match.end():]
+        if marked_line:
+            if not after.startswith("*"):
+                return False
+            after = after[1:]
+            if re.match(r"[A-Za-z0-9-]", after):
+                return False
         if (re.match(r"^[?\[\]*/]|^\.{2,}", after)
                 or re.match(r"^[ \t]+(?:\?+|\[|\*|/|\.{2,}|o\b|or\b|ilegible\b|unreadable\b|unknown\b)", after, re.I)):
             return False
@@ -1064,7 +1099,7 @@ def plate_serial_is_clear(field, plate):
     # Preserve legacy fully readable transcriptions without a serial heading,
     # but still require the complete literal identifier. Partial plates cannot
     # use this fallback or borrow a serial labelled as an engine/transmission.
-    return bool(not labels and plate.get("readability") == "clear"
+    return bool(not marked_field and not labels and plate.get("readability") == "clear"
                 and re.search(r"(?<![A-Za-z0-9])" + literal, transcription, re.I))
 
 
@@ -1391,15 +1426,22 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         if item["source"] == "visual_proposal":
             item["review"] = "needs_review"
         key = item["key"]
+        if key == "model" and item["source"] in {"image", "plate"} and partial_model_label(item["evidence"]):
+            item["review"] = "needs_review"
+            if not allows_model_prefix_hint(item["evidence"]):
+                item["value"] = None
         if key == "year" and item["source"] == "visual_proposal":
             item["value"], item["review"] = None, "needs_review"
         if key == "hours" and (item["source"] == "visual_proposal" or re.search(
                 r"estimad|aparien|desgaste|estimated|appearance|wear", item.get("evidence", ""), re.I)):
             item["value"], item["review"] = None, "needs_review"
         plate = plates.get(item["asset_id"])
-        if key == "serial" and not plate_serial_is_clear(item, plate):
-            item["value"] = None
-            item["review"] = "needs_review"
+        if key == "serial":
+            if plate_serial_is_clear(item, plate):
+                item["value"] = _serial_without_external_markers(item["value"])
+            else:
+                item["value"] = None
+                item["review"] = "needs_review"
         if key not in AI_KEYS or item["component"] != "machine":
             continue
         if key == "power" and item["source"] != "user" and is_fuel_name(item["value"]):

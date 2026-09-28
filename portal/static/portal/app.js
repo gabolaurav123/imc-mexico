@@ -925,7 +925,7 @@
       const brief = $('#research-brief');
       if (brief) { brief.hidden = false; brief.textContent = `Identificamos la familia ${state.data.model_family}. Los rangos usan referencias compatibles; puedes indicar el modelo, año o precio exactos si los conoces.`; }
     }
-    if (metadata.skipped_fields?.length) target.append(el('p','small','Se conservaron tus datos en: '+metadata.skipped_fields.map(fieldLabel).join(', ')+'.'));
+    if (metadata.skipped_fields?.length) target.append(el('p','small','No se aplicaron automáticamente estos datos: '+metadata.skipped_fields.map(fieldLabel).join(', ')+'.'));
     if (Array.isArray(metadata.proposals) && metadata.proposals.length) target.append(el('p','small','Las propuestas que contradicen tu ficha quedan aquí para revisarlas juntas; los datos no conflictivos se conservaron sin pedirte confirmar cada uno.'));
     renderConflictBatch(job,target,metadata);
     if (observations.length) { const list = el('ul'); observations.forEach(item => list.append(el('li','',typeof item === 'string' ? item : JSON.stringify(item)))); target.append(list); }

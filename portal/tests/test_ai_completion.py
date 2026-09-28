@@ -125,6 +125,10 @@ class AICompletionBoundaryTests(SimpleTestCase):
         cases = (
             ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
             ("weight", "8240 lb / 3740 kg", "Peso operativo declarado de 8240 lb para la configuración documentada."),
+            ("weight", "2742 lbs / 1244 kg", "Peso operativo declarado de 1244 kg para la configuración documentada."),
+            ("weight", "2742 lbs / 1244 kg", "Peso operativo declarado de 2742 lbs para la configuración documentada."),
+            ("capacity", "500 lbs / 227 kg", "Capacidad de plataforma declarada de 227 kg para la configuración documentada."),
+            ("capacity", "500 lbs / 227 kg", "Capacidad de plataforma declarada de 500 lbs para la configuración documentada."),
             ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
             ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 189 in en la configuración de placa."),
         )
@@ -144,6 +148,12 @@ class AICompletionBoundaryTests(SimpleTestCase):
             ("lift_height", "C: 189 in / 4800 mm", "Altura de elevación documentada de 4.8 m en la configuración de placa."),
             ("lift_height", "MAX 189 in / 4800 mm", "Altura de elevación documentada de 4800 mm en la configuración de placa."),
             ("weight", "3740 kg / 4200 kg", "Peso operativo declarado de 3740 kg para la configuración documentada."),
+            ("capacity", "500 lbs / 227 kg", "Capacidad de plataforma declarada de 0.227 t para la configuración documentada."),
+            ("capacity", "500 lbs / 227 kg", "Capacidad de plataforma declarada de 250 kg para la configuración documentada."),
+            ("capacity", "500 lbs / 227 kg", "Peso operativo declarado de 227 kg para la configuración documentada."),
+            ("capacity", "MAX 500 lbs / 227 kg", "Capacidad de plataforma declarada de 227 kg para la configuración documentada."),
+            ("capacity", "2250 kg / 1950 kg", "Capacidad de carga declarada de 2250 kg para la configuración documentada."),
+            ("capacity", "2250 kg a 3300 mm / 1950 kg a 4800 mm", "Capacidad de carga declarada de 2250 kg para la configuración documentada."),
         )
         for key, literal, line in cases:
             with self.subTest(key=key, literal=literal, line=line):

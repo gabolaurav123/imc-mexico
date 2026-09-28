@@ -268,7 +268,7 @@ def _technical_literals(key, literal):
     Keep qualifiers such as MAX and all other field formats as whole literals.
     """
     values = [literal]
-    expected_units = {"weight": {"lb", "kg"}, "lift_height": {"in", "mm"}}.get(key)
+    expected_units = {"weight": {"lb", "kg"}, "capacity": {"lb", "kg"}, "lift_height": {"in", "mm"}}.get(key)
     if expected_units is None:
         return values
     prefix = r"(?:[A-Z]:\s*)?" if key == "lift_height" else ""
