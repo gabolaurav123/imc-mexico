@@ -176,12 +176,21 @@ para desarrollo local con un worker.
   Se recuperan trabajos
   interrumpidos con el mismo tope de intentos. Un worker antiguo no puede sobrescribir
   el resultado de una lease posterior.
-- Valores por defecto del código: 20 trabajos por usuario/día, 100 globales/día y 200000 tokens
+- Valores por defecto del código: 50 trabajos por usuario/día, 50 globales/día y 200000 tokens
   globales/día, ajustables en administración. Una fila de configuración bloqueada
   serializa admisiones y reservas.
-- La migración `0021` eleva el límite por usuario de 10 a 20 cuando la configuración
-  existente conserva ese valor. Preserva otros límites personalizados y presupuestos
-  globales. La comprobación automática de fotografías también consume un trabajo.
+- La migración `0022` establece los topes de trabajos por usuario y global en 50 y
+  registra una única fecha de reinicio en `ai_usage_reset_at`. Conserva el presupuesto
+  de tokens, los intentos y el historial de análisis, incluidos sus consumos reales.
+  No vuelve a reiniciar la cuota al arrancar ni al desplegar la misma versión.
+  La ventana comienza en la medianoche de la zona configurada o en la fecha de
+  reinicio, si es posterior. Los análisis finalizados antes del corte dejan de
+  contar para la cuota operativa; las reservas y el consumo de trabajos activos
+  siguen incluidos. Los trabajos anteriores que terminan después del corte se
+  contabilizan conservadoramente por todo su consumo. El contador histórico del
+  panel sigue mostrando los tokens registrados. La comprobación automática de
+  fotografías también consume un trabajo; 50 trabajos no equivalen necesariamente
+  a 50 fichas, y el presupuesto de tokens puede agotarse antes.
 - Reserva base conservadora por intento (modelos anteriores): 12200 tokens por imagen; descripción
   reserva 9000. La investigación añade 78000 por intento: hasta tres etapas de búsqueda
   de 14000 y dos normalizaciones de 18000. La segunda normalización sólo es necesaria

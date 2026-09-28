@@ -28,6 +28,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
+from .ai_quota import daily_budget_jobs, daily_quota_jobs
 from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner, CATALOGUE_TECHNICAL_LABELS)
@@ -593,10 +594,7 @@ def _ensure_execution_reservation(job, limits, now):
     if (job.result.get("reservation_per_attempt") == per_attempt
             and job.reserved_tokens == required):
         return True
-    today = timezone.localdate(now)
-    totals = AnalysisJob.objects.filter(
-        Q(created_at__date=today) | Q(finished_at__date=today)
-        | Q(status__in=["queued", "running"])).aggregate(
+    totals = daily_budget_jobs(limits, now).aggregate(
             used_in=Sum("input_tokens"), used_out=Sum("output_tokens"), reserved=Sum("reserved_tokens"))
     # The current job's existing reservation is available to replace, not add
     # again. Measured/estimated consumption remains charged across upgrades.
@@ -774,18 +772,17 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     apply_analysis_automatically(machine, user, existing, expected_revision)
                     existing.refresh_from_db()
             return existing
-        today = timezone.localdate()
-        jobs = AnalysisJob.objects.filter(created_at__date=today)
+        now = timezone.now()
+        jobs = daily_quota_jobs(limits, now)
         if jobs.filter(requested_by=user).count() >= limits.ai_user_daily_limit:
             raise ValidationError("Alcanzaste el límite diario de análisis. Puedes enviar la ficha con la información disponible.")
         if jobs.count() >= limits.ai_global_daily_limit:
             raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes enviar la ficha con la información disponible o intentarlo mañana.")
         per_attempt = _reservation(len(assets), mode, research,
                                    research_description_only=research_description_only, model=model)
-        # Include unfinished prior-day work and any work completed today, so a
-        # midnight rollover cannot bypass the reservation budget.
-        budget_jobs = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
-                                                | Q(status__in=["queued", "running"]))
+        # A reset frees the quota of finished work, while carried executions
+        # still hold their complete consumption and reservation budgets.
+        budget_jobs = daily_budget_jobs(limits, now)
         totals = budget_jobs.aggregate(used_in=Sum("input_tokens"), used_out=Sum("output_tokens"),
                                 reserved=Sum("reserved_tokens"))
         available = limits.ai_daily_token_limit - sum(v or 0 for v in totals.values())
@@ -1490,9 +1487,7 @@ def _can_spend_step(job, usage, cost):
         spent = usage.input_tokens + usage.output_tokens
         if spent + cost > _reserved_attempt_cost(locked, limits):
             return False
-        today = timezone.localdate()
-        totals = AnalysisJob.objects.filter(Q(created_at__date=today) | Q(finished_at__date=today)
-            | Q(status__in=["queued", "running"])).aggregate(
+        totals = daily_budget_jobs(limits).aggregate(
                 used_in=Sum("input_tokens"), used_out=Sum("output_tokens"), reserved=Sum("reserved_tokens"))
         available = limits.ai_daily_token_limit - sum(value or 0 for value in totals.values()) + locked.reserved_tokens
         return limits.ai_enabled and spent + cost <= available
