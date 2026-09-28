@@ -67,9 +67,9 @@ def recovered_technical_description(data, provenance=None, *, category=None):
         # Fixed wording carries provenance without exposing raw evidence or
         # promoting a catalog value to a specification of this particular unit.
         if source == "web":
-            line = f"Valor de {label.lower()} de referencia del modelo: {literal}"
+            line = f"{label} de referencia del modelo: {literal}"
         elif origin == "declarado en la ficha":
-            line = f"Valor de {label.lower()} declarado en la ficha: {literal}"
+            line = f"{label} según la ficha del anunciante: {literal}"
         else:
             line = f"{label} {origin}: {literal}"
         if not line.endswith((".", "!", "?", "…")):
