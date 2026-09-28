@@ -35,7 +35,7 @@ class DescriptionIdentifierPrivacyTests(SimpleTestCase):
                 provenance = {key: {"source": "plate", "review": "clear"} for key in data} | meta
                 description = compose_description(data, provenance, "Montacargas", private_identifiers=exclusions)
                 self.assertNotIn("PRIVATE-FORK1234", description)
-                self.assertEqual(description, "Montacargas. Fotografías disponibles para identificar sus características.")
+                self.assertEqual(description, "Montacargas.")
 
     def test_summary_keeps_identity_but_leaves_plate_details_in_structured_fields(self):
         data = {"serial": "PRIVATE-FORK1234", "brand": "Caterpillar", "model": "2EC25",

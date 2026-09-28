@@ -15,6 +15,22 @@ from portal.pdf import _price, build_pdf
 
 
 class PdfDesignTests(SimpleTestCase):
+    def test_previous_price_reference_caveat_is_visible_in_public_and_private_pdf(self):
+        from portal.ai_completion import PREVIOUS_PRICE_LABEL, PREVIOUS_PRICE_NOTE
+        values = {"brand": "Bobcat", "model": "S650", "year": 2015, "hours": 0,
+            "location_country": "México", "estimate_min": "15000", "estimate_max": "45000",
+            "estimate_currency": "USD", "estimate_market": "Estados Unidos", "estimate_date": "2026-09-27",
+            "estimate_basis": "PRIVATE VALUATION BASIS"}
+        provenance = {"estimate_min": {"source": "ai_reference", "label": PREVIOUS_PRICE_LABEL}}
+        for public in (False, True):
+            with self.subTest(public=public):
+                _, text = self.build(values, public=public, provenance=provenance)
+                text = " ".join(text.split())
+                for value in ("15,000–45,000 USD", "Estados Unidos", "2026-09-27", PREVIOUS_PRICE_NOTE):
+                    self.assertIn(value, text)
+                if public:
+                    self.assertNotIn("PRIVATE VALUATION BASIS", text)
+
     def test_serial_only_identity_precedes_estimates_and_optional_location_survives(self):
         _, text = self.build({'serial': 'SERIAL-ONLY-TEST', 'brand': 'PRUEBA', 'model': 'MODELO',
                              'estimate_min': '1000', 'estimate_max': '2000', 'estimate_currency': 'USD',

@@ -247,7 +247,7 @@ def valuations_for_provenance(provenance):
             for job in AnalysisJob.objects.filter(pk__in=ids).order_by("created_at")}
 
 
-def _valuation_identity_matches(data, valuation):
+def _valuation_identity_matches(data, valuation, *, allow_previous_context=False):
     identity = valuation.get("identity", {})
     # Insufficient identity is a valid result with a concrete missing-data note.
     if not isinstance(identity, dict) or not all(
@@ -258,10 +258,11 @@ def _valuation_identity_matches(data, valuation):
     if status not in {"estimated", "conditional_reference"}:
         return True
     from .valuation import _market_hint
-    if identity.get("market_hint") != _market_hint(data.get("location_country")):
+    if not allow_previous_context and identity.get("market_hint") != _market_hint(data.get("location_country")):
         return False
     if any(_reference_text(data.get(key)) != _reference_text(value)
-           for key, value in identity.get("compatibility", {}).items()):
+           for key, value in identity.get("compatibility", {}).items()
+           if not allow_previous_context or key not in {"hours", "year"}):
         return False
     condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
                  "Para reparación": "for_repair"}.get(data.get("condition"))
@@ -282,6 +283,7 @@ def _valuation_identity_matches(data, valuation):
 
 def public_valuation(snapshot):
     """Publish only signed, identity-compatible references, never raw AI output."""
+    from .ai_completion import ai_reference_price_context_changed
     from .valuation import is_validated_estimate
     data, provenance = snapshot.get("data", {}), snapshot.get("provenance", {})
     manifests = snapshot.get("valuations", {})
@@ -290,7 +292,9 @@ def public_valuation(snapshot):
            and isinstance(meta, dict) and meta.get("source") == "valuation"}
     serials = {_reference_text(data.get(key)) for key in ("serial", "vin")} - {""}
     for job_id, valuation in reversed(list(manifests.items())):
-        if job_id not in ids or not is_validated_estimate(valuation) or not _valuation_identity_matches(data, valuation):
+        if (job_id not in ids or not is_validated_estimate(valuation) or not _valuation_identity_matches(data, valuation)
+                or valuation.get("status") in {"estimated", "conditional_reference"}
+                and ai_reference_price_context_changed(data, valuation)):
             continue
         safe = {key: deepcopy(valuation[key]) for key in ("status", "fields", "suggested_price", "label") if key in valuation}
         safe["fields"] = {key: data[key] for key in ESTIMATE_LABELS if data.get(key) not in (None, "")
@@ -318,10 +322,22 @@ def _human_provenance_value(meta):
 
 def machine_valuation(machine):
     return public_valuation({"data": machine.data, "provenance": machine.provenance,
-                             "valuations": valuations_for_provenance(machine.provenance)})
+                              "valuations": valuations_for_provenance(machine.provenance)})
+
+
+def _mark_previous_estimate_context(machine, key, meta, fields, previous):
+    from .ai_completion import PREVIOUS_PRICE_LABEL, PREVIOUS_PRICE_NOTE
+    if previous:
+        machine.provenance[key] = {**meta, "label": PREVIOUS_PRICE_LABEL}
+    elif meta.get("label") == PREVIOUS_PRICE_LABEL:
+        machine.provenance[key] = {name: value for name, value in meta.items() if name != "label"}
+    if key == "estimate_basis":
+        basis = fields.get("estimate_basis", "")
+        machine.data[key] = f"{basis} {PREVIOUS_PRICE_NOTE}" if previous else basis
 
 
 def _remove_incompatible_valuation(machine):
+    from .ai_completion import ai_reference_price_context_changed
     from .valuation import is_validated_estimate
     manifests = valuations_for_provenance(machine.provenance)
     removed = []
@@ -329,10 +345,16 @@ def _remove_incompatible_valuation(machine):
         if key not in VALUATION_KEYS or not isinstance(meta, dict) or meta.get("source") != "valuation" or _human_provenance_value(meta):
             continue
         valuation = manifests.get(meta.get("analysis_id"), {})
-        if is_validated_estimate(valuation) and not _valuation_identity_matches(machine.data, valuation):
+        if not is_validated_estimate(valuation):
+            continue
+        previous = ai_reference_price_context_changed(machine.data, valuation)
+        if (not _valuation_identity_matches(machine.data, valuation, allow_previous_context=True)
+                or previous and key == "estimate_suggested_price"):
             machine.data.pop(key, None)
             machine.provenance.pop(key, None)
             removed.append(key)
+        elif valuation.get("status") in {"estimated", "conditional_reference"}:
+            _mark_previous_estimate_context(machine, key, meta, valuation.get("fields", {}), previous)
     return removed
 
 
@@ -425,9 +447,27 @@ def _remove_incompatible_age(machine):
     return removed
 
 
+def _ai_reference_field_matches(machine, job, key):
+    from .ai_completion import ai_reference_field_matches
+    from .research import human_declared_data, identifier_key
+    reference = job.result.get("ai_reference", {})
+    if not ai_reference_field_matches(machine.data, reference, key):
+        return False
+    # Older signed manifests did not include the accepted serial. Their saved
+    # input/clear plate reading still prevents reuse for a different unit.
+    if not reference.get("identity", {}).get("serial"):
+        serial = human_declared_data(job.result.get("input_snapshot", {})).get("serial")
+        meta = job.result.get("provenance", {}).get("serial", {})
+        if not serial and meta.get("source") in {"plate", "image"} and meta.get("review") == "clear" and meta.get("component") == "machine":
+            serial = job.result.get("data", {}).get("serial")
+        if serial and identifier_key(machine.data.get("serial")) != identifier_key(serial):
+            return False
+    return True
+
+
 def _remove_incompatible_ai_reference(machine):
-    """Retire unchanged AI model estimates after an owner changes their context."""
-    from .ai_completion import ai_reference_identity_matches
+    """Retire only proposals contradicted by the owner's updated facts."""
+    from .ai_completion import PRICE_KEYS, ai_reference_price_context_changed
     records = {key: meta for key, meta in machine.provenance.items()
                if isinstance(meta, dict) and meta.get("source") == "ai_reference"
                and not _human_provenance_value(meta)}
@@ -443,10 +483,15 @@ def _remove_incompatible_ai_reference(machine):
         job = jobs.get(meta.get("analysis_id"))
         if key in {"category", "title"}:
             continue
-        if not job or not ai_reference_identity_matches(machine.data, job.result.get("ai_reference", {})):
+        if not job or not _ai_reference_field_matches(machine, job, key):
             machine.data.pop(key, None)
             machine.provenance.pop(key, None)
             removed.append(key)
+            continue
+        if key in PRICE_KEYS:
+            reference = job.result["ai_reference"]
+            previous = ai_reference_price_context_changed(machine.data, reference)
+            _mark_previous_estimate_context(machine, key, meta, reference.get("fields", {}), previous)
     return removed
 
 
@@ -635,8 +680,8 @@ def _clear_automatic_field(machine, job, key, value, meta):
     if not isinstance(value, (str, int, float)) or isinstance(value, bool) or value is None or str(value).strip() == "":
         return False
     if meta.get("source") == "ai_reference":
-        from .ai_completion import ai_reference_identity_matches, is_validated_ai_field
-        return (ai_reference_identity_matches(machine.data, job.result.get("ai_reference", {}))
+        from .ai_completion import is_validated_ai_field
+        return (_ai_reference_field_matches(machine, job, key)
                 and _web_value_keeps_serial_private(machine, job, value)
                 and is_validated_ai_field(job.result, key, value, meta))
     if meta.get("source") == "family_reference":
@@ -930,8 +975,9 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
     age_protected = any(_human_provenance(machine, key) for key in AGE_LABELS)
     age_keys = list(AGE_LABELS)
     if any(key in candidates for key in age_keys):
-        model_reference = all(provenance.get(key, {}).get("source") == "ai_reference" for key in age_keys)
-        if age_protected or (machine.data.get("year") not in (None, "") and not model_reference):
+        from .structured_data import has_valid_year_or_range
+        known_year = has_valid_year_or_range({"year": machine.data.get("year")})
+        if age_protected or known_year:
             for key in age_keys:
                 if key in candidates:
                     skip(key, "human_correction" if age_protected else "known_year")
@@ -1241,15 +1287,22 @@ def save_draft(machine, user, payload, expected_revision):
     if not isinstance(expected_revision, int) or isinstance(expected_revision, bool) or expected_revision != machine.revision:
         raise DraftRevisionConflict("El borrador cambió en otra ventana. Actualiza la página para recuperar la versión actual.")
     _validate_payload(machine, payload)
+    previous_description = _automatic_description_record(machine)
     invalidated_web = _remove_incompatible_web_values(machine)
     _remove_incompatible_valuation(machine)
     invalidated_age = _remove_incompatible_age(machine)
     invalidated_family = _remove_incompatible_family_values(machine)
     invalidated_ai = _remove_incompatible_ai_reference(machine)
-    if (invalidated_web or invalidated_age or invalidated_family or invalidated_ai or AGE_LABELS.keys() & payload.get("data", {}).keys()) and _automatic_description_record(machine):
+    invalidated = invalidated_web + invalidated_age + invalidated_family + invalidated_ai
+    refresh_description = (previous_description and (
+        "description" in invalidated or previous_description["provenance"].get("source") != "ai_reference"
+        and (invalidated or AGE_LABELS.keys() & payload.get("data", {}).keys())))
+    if refresh_description:
         from .research import compose_description
         machine.data["description"] = compose_description(machine.data, machine.provenance,
             machine.category.name if machine.category_id else None, private_identifiers=[machine.data.get("serial")])
+        machine.provenance["description"] = {"source": "system", "review": "needs_review",
+            "analysis_id": previous_description["provenance"]["analysis_id"]}
     machine.revision += 1
     if machine.status in {WorkflowStatus.APPROVED, WorkflowStatus.REJECTED, WorkflowStatus.CANCELLED}:
         machine.status = WorkflowStatus.DRAFT

@@ -2135,8 +2135,6 @@ def compose_description(data, provenance, category=None, visual_description="", 
         if reference_essentials:
             details.append("Características de referencia del modelo: " + " · ".join(reference_essentials))
         lines.append("; ".join(details) + ".")
-    elif not identity:
-        lines.append("Fotografías disponibles para identificar sus características.")
     approximate = {}
     for key in ('estimated_year_from', 'estimated_year_to'):
         value, meta = str(data.get(key) or ''), provenance.get(key, {})
@@ -2174,6 +2172,4 @@ def compose_description(data, provenance, category=None, visual_description="", 
     # optional trailing lines until the concise public summary fits.
     while len("\n".join(lines)) > 650 and len(lines) > 1:
         lines.pop()
-    if len(lines) == 2 and lines[1] == "Fotografías disponibles para identificar sus características.":
-        return " ".join(lines)
     return "\n".join(lines).strip()

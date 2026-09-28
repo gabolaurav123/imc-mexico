@@ -6,6 +6,30 @@ from portal.public_data import public_json, public_projection
 
 
 class PublicDataProjectionTests(SimpleTestCase):
+    def test_previous_price_exports_fixed_caveat_and_original_context_without_private_basis(self):
+        from portal.ai_completion import PREVIOUS_PRICE_LABEL, PREVIOUS_PRICE_NOTE
+        snapshot = {"data": {"estimate_min": "15000", "estimate_max": "45000", "estimate_currency": "USD",
+            "estimate_market": "Estados Unidos", "estimate_date": "2026-09-27", "location_country": "México",
+            "estimate_basis": "PRIVATE BASIS AND SOURCE", "estimate_reference_note": "INJECTED NOTE"},
+            "provenance": {"estimate_min": {"source": "ai_reference", "label": PREVIOUS_PRICE_LABEL,
+                "evidence": "PRIVATE EVIDENCE"}}}
+        data = public_json(snapshot)["data"]
+        self.assertEqual(data["estimate_reference_note"], PREVIOUS_PRICE_NOTE)
+        self.assertEqual(data["estimate_market"], "Estados Unidos")
+        self.assertEqual(data["estimate_date"], "2026-09-27")
+        self.assertEqual(data["location_country"], "México")
+        self.assertNotIn("PRIVATE", json.dumps(data))
+        self.assertNotIn("INJECTED", json.dumps(data))
+        snapshot["data"].pop("estimate_max")
+        data = public_projection(snapshot)
+        for key in ("estimate_reference_note", "estimate_market", "estimate_date"):
+            self.assertNotIn(key, data)
+
+    def test_market_context_cannot_expose_private_serial(self):
+        snapshot = {"data": {"serial": "SECRET-SERIAL", "estimate_min": "100", "estimate_max": "200",
+            "estimate_currency": "USD", "estimate_market": "SECRET-SERIAL mercado"}}
+        self.assertNotIn("estimate_market", public_projection(snapshot))
+
     def test_projection_is_allowlisted_and_drops_internal_values(self):
         snapshot = {"data": {"brand": "CAT", "hours": 1200, "serial": "PRIVATE",
                               "estimate_missing_info": "sube horas", "price": "0",

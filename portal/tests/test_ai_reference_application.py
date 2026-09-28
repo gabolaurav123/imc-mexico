@@ -78,13 +78,14 @@ class AIReferenceApplicationTests(TestCase):
         self.assertEqual(page.context['data']['estimate_min'], 45000)
         self.assertEqual(page.context['data']['estimated_year_to'], 2015)
 
-    def test_known_unit_year_and_asking_price_do_not_suppress_model_ranges(self):
+    def test_known_unit_year_satisfies_year_data_without_suppressing_price_reference(self):
         self.edit(year=2010, price='65000', currency='USD')
         self.apply(self.job())
         self.assertEqual(self.machine.data['year'], 2010)
         self.assertEqual(self.machine.data['price'], 65000)
-        self.assertEqual(self.machine.data['estimated_year_from'], 2006)
+        self.assertNotIn('estimated_year_from', self.machine.data)
         self.assertEqual(self.machine.data['estimate_max'], 90000)
+        self.assertEqual(preparation_completeness(self.machine)['missing_fields'], [])
 
     def test_concurrent_owner_range_and_description_edits_win(self):
         job = self.job()

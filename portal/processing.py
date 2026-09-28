@@ -1974,7 +1974,8 @@ def process_analysis(job):
             result["description"] = result["data"]["description"]
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         result["completion"] = {"missing_fields": missing_fields({**result["data"], **declared},
-            result.get("category") or snapshot.get("category"))}
+            result.get("category") or snapshot.get("category"),
+            {**result["provenance"], **declared_snapshot["provenance"]})}
         result["usage"] = usage.as_dict()
         result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
         return result, usage
@@ -2117,14 +2118,14 @@ def process_next_job():
             retry = not deleted and transient and locked.attempts < _attempt_limit(locked, platform_settings())
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
-                            "No pudimos analizar las fotografías. Tus archivos están guardados; puedes enviar la ficha con la información disponible.")
+                            "No pudimos completar el análisis. Tu borrador está guardado; puedes enviar la ficha con la información disponible.")
             configuration_failure = provider_configuration_failure(exc)
             if configuration_failure:
                 locked.result = {**locked.result, 'provider_error_code': configuration_failure}
                 locked.error = (f"El modelo {locked.model} no está disponible con la configuración actual del proyecto. "
-                                "Conservamos tus archivos y la edición manual; el equipo debe revisar el acceso al modelo."
+                                "Conservamos tu borrador y la edición manual; el equipo debe revisar el acceso al modelo."
                                 if configuration_failure == 'model_unavailable' else
-                                "No se pudo autenticar el servicio de IA. Conservamos tus archivos y la edición manual; el equipo debe revisar su configuración.")
+                                "No se pudo autenticar el servicio de IA. Conservamos tu borrador y la edición manual; el equipo debe revisar su configuración.")
             if deleted:
                 locked.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
             accounted = getattr(exc, "accounted_usage", None)

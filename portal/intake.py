@@ -73,15 +73,17 @@ def preparation_completeness(machine, job=None):
     if not job or not isinstance(job.result, dict) or "completion" not in job.result:
         return {}
     from .public_data import public_projection
+    from .description_quality import has_technical_description
+    from .structured_data import has_valid_year_or_range
     data = public_projection({"data": machine.data, "provenance": machine.provenance})
     missing = [key for key in ("brand", "model") if not data.get(key)]
     if not machine.category_id:
         missing.append("category")
-    if not all(data.get(key) is not None for key in ("estimated_year_from", "estimated_year_to")):
+    if not has_valid_year_or_range(data):
         missing.append("year_range")
     if not all(data.get(key) is not None for key in ("estimate_min", "estimate_max", "estimate_currency")):
         missing.append("price_range")
-    if not data.get("description"):
+    if not has_technical_description(data.get("description"), machine.provenance.get("description")):
         missing.append("description")
     labels = {"brand": "marca", "model": "modelo", "category": "tipo de máquina",
               "year_range": "rango de años", "price_range": "rango de precio", "description": "características técnicas"}

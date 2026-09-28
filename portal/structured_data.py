@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 import re
 
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 MAX_YEAR = 2200
 _DECIMAL = re.compile(r"^[+-]?\d+(?:[.,]\d+)?$")
@@ -74,6 +75,27 @@ def parse_decimal(value):
         return parsed if parsed.is_finite() else None
     except InvalidOperation:
         return None
+
+
+def has_valid_year_or_range(data):
+    """Accept a valid unit year or a complete model period without inventing one.
+
+    Match the editable-data limits: a unit may have next year's model year,
+    while an estimated production period cannot extend beyond this year.
+    """
+    current_year = timezone.now().year
+
+    def valid_year(value, maximum):
+        number = parse_decimal(value)
+        if number is None or not 1900 <= number <= maximum or number != number.to_integral_value():
+            return None
+        return number
+
+    if valid_year(data.get("year"), current_year + 1) is not None:
+        return True
+    low = valid_year(data.get("estimated_year_from"), current_year)
+    high = valid_year(data.get("estimated_year_to"), current_year)
+    return low is not None and high is not None and low <= high
 
 
 def _measure(value, units):

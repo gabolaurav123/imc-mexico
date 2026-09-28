@@ -51,6 +51,18 @@ def _identifier_key(value):
     return "".join(ch for ch in str(value or "").casefold() if ch.isalnum())
 
 
+def estimate_reference_note(provenance):
+    """Publish a fixed caveat, never the private valuation basis or evidence."""
+    from .ai_completion import PREVIOUS_PRICE_LABEL, PREVIOUS_PRICE_NOTE
+    if not isinstance(provenance, dict):
+        return ""
+    meta = provenance.get("estimate_min", {})
+    if (isinstance(meta, dict) and meta.get("source") in {"ai_reference", "valuation"}
+            and meta.get("label") == PREVIOUS_PRICE_LABEL):
+        return PREVIOUS_PRICE_NOTE
+    return ""
+
+
 def public_projection(snapshot):
     """Return only publishable, non-empty values from an approved snapshot."""
     root = snapshot if isinstance(snapshot, dict) else {}
@@ -100,6 +112,20 @@ def public_projection(snapshot):
         currency = raw.get('estimate_currency')
         if low.is_finite() and high.is_finite() and 0 < low <= high and currency in {'USD', 'MXN', 'EUR'}:
             result.update(estimate_min=raw['estimate_min'], estimate_max=raw['estimate_max'], estimate_currency=currency)
+            for key in ("estimate_market", "estimate_date"):
+                value = raw.get(key)
+                if (_present(value) and not any(identifier in _identifier_key(value) for identifier in identifiers)):
+                    result[key] = value
+            note = estimate_reference_note(provenance)
+            # Prepared shares have already crossed this boundary and omit
+            # provenance. Keep the exact server-authored caveat on projection
+            # again, without accepting arbitrary prose from snapshot data.
+            if not note:
+                from .ai_completion import PREVIOUS_PRICE_NOTE
+                if raw.get("estimate_reference_note") == PREVIOUS_PRICE_NOTE:
+                    note = PREVIOUS_PRICE_NOTE
+            if note:
+                result["estimate_reference_note"] = note
     except (InvalidOperation, ValueError, TypeError):
         pass
     return result
