@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import timedelta
 import json
+from unittest.mock import patch
 from uuid import uuid4
 
 from django.test import Client, TestCase, override_settings
@@ -54,6 +55,20 @@ class HistoricalModelCorrectionTests(TestCase):
         self.job.result = result
         self.job.save(update_fields=["result"])
 
+    def legacy_model_reference(self, evidence):
+        url = "https://www.indonetwork.co.id/product/alat-berat-komatsu-hitachi-excavator-4029163?utm_source=openai"
+        field = ResearchField(key="model", value="1D-40", scope="model", source_url=url,
+            evidence=evidence, matched_serial=None, matched_brand="BOMAG", matched_model="1D-40")
+        # The former validator signed this exact citation. Keep its original
+        # manifest intact and exercise today's offline revalidation at sharing.
+        with patch("portal.research._ambiguous_model_occurrence_reason", return_value=""):
+            research = normalize_research(ResearchExtraction(fields=[field]),
+                {"serial": None, "brand": "BOMAG", "model": "1D-40"}, "model",
+                [{"url": url, "title": "BOMAG COMPECTOR"}], evidence, citations={url: [evidence]})
+        self.assertEqual([item["key"] for item in research["fields"]], ["model"])
+        self.assertTrue(research["proof"])
+        return research
+
     def test_corrected_full_model_can_share_without_rewriting_history_or_using_ai(self):
         before = deepcopy(self.job.result)
         revision = self.machine.revision
@@ -82,6 +97,47 @@ class HistoricalModelCorrectionTests(TestCase):
         check_equipment_consistency(result, snapshot, model_fragments=fragments)
         self.assertEqual(result["consistency"]["status"], "insufficient_evidence")
         self.assertFalse(any(item["outcome"] == "match" for item in result["consistency"]["comparisons"]))
+
+    def test_old_signed_citation_with_exact_then_longer_model_does_not_block_corrected_share(self):
+        evidence = ('**Modelo:** 1D-40; el anuncio lo presenta dentro de la denominación '
+                    '“BOMAG COMPECTOR BW2 1D-40”.')
+        self.result["research"] = self.legacy_model_reference(evidence)
+        self.save_result(self.result)
+        historical = deepcopy(self.job.result)
+        saved = deepcopy(self.machine.data)
+        provenance = deepcopy(self.machine.provenance)
+        revision = self.machine.revision
+        response = self.share()
+        self.assertEqual(response.status_code, 200, response.content)
+        public = Client().get(response.json()["url"].removeprefix("https://example.invalid"))
+        self.assertEqual(public.status_code, 200)
+        for key in ("brand", "model", "estimated_year_from", "estimated_year_to", "estimate_min",
+                    "estimate_max", "estimate_currency", "description"):
+            with self.subTest(key=key):
+                self.assertEqual(public.context["data"][key], saved[key])
+        self.assertNotContains(public, "PRIVATE123")
+        self.assertNotContains(public, "1D-40")
+        self.assertNotContains(public, "indonetwork")
+        self.job.refresh_from_db()
+        self.machine.refresh_from_db()
+        self.assertEqual(self.job.result, historical)
+        self.assertEqual(self.machine.data, saved)
+        self.assertEqual(self.machine.provenance, provenance)
+        self.assertEqual(self.machine.revision, revision)
+        self.assertEqual(AnalysisJob.objects.count(), 1)
+
+    def test_old_signed_literal_model_citation_still_blocks_a_different_owner_model(self):
+        evidence = "BOMAG. Modelo: 1D-40. Compactador de suelo con tambor liso."
+        self.result["research"] = self.legacy_model_reference(evidence)
+        self.save_result(self.result)
+        historical = deepcopy(self.job.result)
+        response = self.share()
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("referencia documentada", response.json()["error"])
+        self.assertIn(evidence, response.json()["error"])
+        self.assertFalse(PreparedShare.objects.exists())
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.result, historical)
 
     def test_explicit_visibility_plate_and_different_models_still_block_sharing(self):
         for changes in ({"model_label_visibility": "complete"}, {"model_label_visibility": None},
