@@ -74,8 +74,14 @@ def preparation_completeness(machine, job=None):
         return {}
     from .public_data import public_projection
     from .description_quality import has_technical_description
+    from .technical_description import recovered_technical_description
     from .structured_data import has_valid_year_or_range
-    data = public_projection({"data": machine.data, "provenance": machine.provenance})
+    category = machine._state.fields_cache.get("category")
+    if category is None and machine.category_id and not machine._state.adding:
+        category = machine.category
+    category_name = category.name if category else None
+    data = public_projection({"data": machine.data, "provenance": machine.provenance,
+                              "category_name": category_name})
     missing = [key for key in ("brand", "model") if not data.get(key)]
     if not machine.category_id:
         missing.append("category")
@@ -83,7 +89,9 @@ def preparation_completeness(machine, job=None):
         missing.append("year_range")
     if not all(data.get(key) is not None for key in ("estimate_min", "estimate_max", "estimate_currency")):
         missing.append("price_range")
-    if not has_technical_description(data.get("description"), machine.provenance.get("description")):
+    recovered = recovered_technical_description(machine.data, machine.provenance, category=category_name)
+    if not (has_technical_description(data.get("description"), machine.provenance.get("description"))
+            or recovered and data.get("description") == recovered):
         missing.append("description")
     labels = {"brand": "marca", "model": "modelo", "category": "tipo de máquina",
               "year_range": "rango de años", "price_range": "rango de precio", "description": "características técnicas"}

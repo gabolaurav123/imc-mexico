@@ -245,7 +245,8 @@ def machine_wizard(request,pk):
     shared=PreparedShare.objects.filter(machine=machine,authorized_by_id=machine.owner_id).first()
     share_context={'share_include_serial':bool(shared and shared.include_serial),
         'share_include_contact':bool(shared and shared.snapshot.get('contact_authorized'))}
-    return render(request,'portal/wizard.html',{**share_context,'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':machine.data,'provenance':machine.provenance,'machine_json':machine_state(machine)})
+    state=machine_state(machine)
+    return render(request,'portal/wizard.html',{**share_context,'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':state['data'],'provenance':machine.provenance,'machine_json':state})
 
 @login_required
 def requests_list(request):
@@ -308,8 +309,9 @@ def asset_info(asset):
 
 def machine_state(machine):
     from .analysis_specialization import private_completion_actions
+    from .technical_description import description_projection
     return {'id':str(machine.pk),'revision':machine.revision,'title':machine.title,'category':machine.category_id,
-            'data':machine.data,'provenance':machine.provenance,'editable':machine.editable,'status':machine.status,
+            'data':description_projection(machine.data,machine.provenance,category=machine.category.name if machine.category_id else None),'provenance':machine.provenance,'editable':machine.editable,'status':machine.status,
             'valuation':services.machine_valuation(machine), 'completion_actions':private_completion_actions(machine.data,machine.category)}
 
 
@@ -497,6 +499,8 @@ def sheet_context(machine,version=None,public=False,token=None):
     data=finished_sheet_data(data)
     category_name=version.data.get('category_name','') if version else (machine.category.name if machine.category_id else '')
     field_provenance=version.data.get('provenance',{}) if version else machine.provenance
+    from .technical_description import description_projection
+    data=description_projection(data,field_provenance,category=category_name)
     def origin_label(key):
         meta=field_provenance.get(key,{})
         if not isinstance(meta,dict):return 'Dato de la ficha'

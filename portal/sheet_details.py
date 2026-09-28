@@ -18,7 +18,7 @@ _EMPTY_COPY = {
     "por revisar", "pendiente de confirmar", "sin estimar", "consultar precio", "-", "—",
 }
 _WORKFLOW_COPY = re.compile(
-    r"\b(?:pendientes?(?:\s+de\s+(?:confirmaci[oó]n|confirmar|revisi[oó]n|revisar|validaci[oó]n))?"
+    r"\b(?:pendientes?(?!\w)(?!\s+superables?\b)(?:\s+de\s+(?:confirmaci[oó]n|confirmar|revisi[oó]n|revisar|validaci[oó]n))?"
     r"|por\s+(?:confirmar|revisar|definir)|sin\s+estimar)\b", re.I,
 )
 _SUMMARY_FIELDS = (
@@ -73,6 +73,8 @@ def build_technical_summary(data, provenance=None, *, category=None):
     """
     if not isinstance(data, dict):
         return []
+    from .technical_description import description_projection
+    data = description_projection(data, provenance, category=category)
     identifiers = [_identifier_key(data.get(key)) for key in ("serial", "vin")]
 
     def safe_text(value):
@@ -82,7 +84,10 @@ def build_technical_summary(data, provenance=None, *, category=None):
         return text
 
     description = safe_text(data.get("description"))
-    paragraphs = [part.strip() for part in re.split(r"(?<=[.!?;])\s+|[\r\n]+", description) if part.strip()]
+    # Prepared technical lines may contain paired units or conditional values
+    # separated by semicolons. Preserve each explicit line as a complete fact.
+    separator = r"[\r\n]+" if "\n" in description else r"(?<=[.!?;])\s+|[\r\n]+"
+    paragraphs = [part.strip() for part in re.split(separator, description) if part.strip()]
     paragraphs.extend(f"{capacity_label(category) if key == 'capacity' else label}: {value}" for key, label in _SUMMARY_FIELDS
                       if (value := safe_text(data.get(key))) and value.casefold() not in description.casefold())
     lines = []

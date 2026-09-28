@@ -148,7 +148,8 @@ def manage(request, pk):
             raise ValidationError("Genera la ficha con las nuevas fotografías antes de compartirlas; todavía no se ha comprobado que correspondan a maquinaria.")
         if not completed_preparation and (mode == "analysis" or not machine.approved_version_id):
             raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
-        raw = {"data": machine.data, "provenance": machine.provenance, "title": machine.title}
+        raw = {"data": machine.data, "provenance": machine.provenance, "title": machine.title,
+               "category_name": machine.category.name}
         projected = public_json(raw, title=machine.title)
         include_serial = body.get("include_serial", share.include_serial if share else False)
         safe_data = projected["data"]

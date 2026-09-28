@@ -4,14 +4,15 @@
     <button type="button" class="share-modal__close" data-close-share-modal aria-label="Cerrar">×</button>
   </div>
   <p id="share-modal-description">Elige dónde compartir el enlace de esta ficha.</p>
-  <label for="share-modal-url">Enlace corto</label>
-  <input id="share-modal-url" type="url" readonly aria-describedby="share-modal-feedback">
+  <label for="share-modal-url" hidden>Enlace corto</label>
+  <input id="share-modal-url" type="url" readonly hidden aria-describedby="share-modal-feedback">
   <div class="button-row" aria-label="Opciones para compartir">
-    <button type="button" class="button button-navy" data-copy-share-link>Copiar enlace</button>
-    <a class="button button-outline" data-share-whatsapp target="_blank" rel="noopener noreferrer">WhatsApp</a>
-    <a class="button button-outline" data-share-facebook target="_blank" rel="noopener noreferrer">Facebook</a>
-    <button type="button" class="button button-outline" data-share-native>Instagram y otras apps</button>
+    <button type="button" class="button button-navy" data-copy-share-link disabled>Copiar enlace</button>
+    <a class="button button-outline" data-share-whatsapp target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">WhatsApp</a>
+    <a class="button button-outline" data-share-facebook target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">Facebook</a>
+    <button type="button" class="button button-outline" data-share-native disabled>Instagram y otras apps</button>
   </div>
   <button type="button" id="revoke-sheet-link" class="link-button" hidden>Desactivar enlace</button>
   <p id="share-modal-feedback" role="status" aria-live="polite"></p>
+  <div class="button-row"><a class="button button-navy" data-return-share-editor hidden>Volver a editar ficha</a></div>
 </dialog>
