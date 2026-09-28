@@ -77,7 +77,10 @@ def _same_image_numeric_conflict(machine, key, value, meta):
         return False
     def literal(text):
         return "".join(unicodedata.normalize("NFKC", str(text)).casefold().split())
-    return previous.get("review_reason") == "conflicting_reading" or literal(machine.data[key]) != literal(value)
+    from .dual_measurements import equivalent_dual_measurements
+    return (previous.get("review_reason") == "conflicting_reading"
+            or (literal(machine.data[key]) != literal(value)
+                and not equivalent_dual_measurements(key, machine.data[key], value)))
 
 
 def _reference_text(value):
@@ -920,6 +923,19 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
                     machine.data.pop(key, None)
                     machine.provenance.pop(key, None)
                     cleared_valuation.append(key)
+    cleared_power = []
+    old_power = base.get("refresh_fields", {}).get("power") if not legacy else None
+    if (job.mode == "analysis" and isinstance(old_power, dict)
+            and old_power.get("provenance", {}).get("source") in {"web", "plate", "image"}
+            and old_power == _automatic_field_record(machine, "power")):
+        from .research_field_values import is_fuel_name
+        if is_fuel_name(old_power.get("value")):
+            # Retire the unchanged mislabeled fuel before checking the new
+            # reference's technical context, which correctly omits power.
+            # Owner edits, newer readings and the historical analysis survive.
+            machine.data.pop("power", None)
+            machine.provenance.pop("power", None)
+            cleared_power.append("power")
     # Apply clear readings before model references so a corrected AI identity
     # can receive its own research, while human identity changes still reject it.
     candidate_items = sorted(candidates.items(), key=lambda item: (item[0] == "description",
@@ -1058,19 +1074,6 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
             machine.data.pop("model", None)
             machine.provenance.pop("model", None)
             cleared_model.append("model")
-    cleared_power = []
-    old_power = base.get("refresh_fields", {}).get("power") if not legacy else None
-    if (job.mode == "analysis" and isinstance(old_power, dict)
-            and old_power.get("provenance", {}).get("source") in {"web", "plate", "image"}
-            and old_power == _automatic_field_record(machine, "power")):
-        from .research_field_values import is_fuel_name
-        if is_fuel_name(old_power.get("value")):
-            # An absent new rating must not retain the old mislabeled fuel.
-            # Only retire the unchanged automatic value captured at admission;
-            # confirmations, edits and the historical analysis remain intact.
-            machine.data.pop("power", None)
-            machine.provenance.pop("power", None)
-            cleared_power.append("power")
     invalidated = cleared_valuation + cleared_model + cleared_power + _remove_incompatible_web_values(machine) + _remove_incompatible_valuation(machine) + _remove_incompatible_age(machine) + _remove_incompatible_family_values(machine) + _remove_incompatible_ai_reference(machine)
     if invalidated:
         result["invalidated_fields"] = invalidated

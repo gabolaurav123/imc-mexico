@@ -267,16 +267,9 @@ def _technical_literals(key, literal):
     Repeated units may be different load conditions, not equivalent measures.
     Keep qualifiers such as MAX and all other field formats as whole literals.
     """
-    values = [literal]
-    expected_units = {"weight": {"lb", "kg"}, "capacity": {"lb", "kg"}, "lift_height": {"in", "mm"}}.get(key)
-    if expected_units is None:
-        return values
-    prefix = r"(?:[A-Z]:\s*)?" if key == "lift_height" else ""
-    match = re.fullmatch(prefix + r"(?P<first>\d+(?:\.\d+)?\s+(?P<unit_a>lb|lbs|kg|in|mm))\s*/\s*"
-                         r"(?P<second>\d+(?:\.\d+)?\s+(?P<unit_b>lb|lbs|kg|in|mm))", literal, re.I)
-    if match and {match[name].casefold().removesuffix("s") for name in ("unit_a", "unit_b")} == expected_units:
-        values.extend((match["first"], match["second"]))
-    return values
+    from .dual_measurements import parse_dual_measurement
+    parsed = parse_dual_measurement(key, literal)
+    return [literal, *parsed.parts] if parsed else [literal]
 
 
 def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=(), provenance=None):
@@ -318,21 +311,45 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
                       estimate_market=market, estimate_basis=f"{LABEL}; no es una tasación de la unidad ni un precio de venta verificado. {basis}")
     # A model number cannot license an invented power/capacity. Every numeric
     # phrase must retain its accepted literal value and technical meaning.
-    lines = []
+    lines, description_rejections = [], {}
+    def reject_description(reason):
+        description_rejections[reason] = description_rejections.get(reason, 0) + 1
+
     for line in parsed.technical_lines[:4]:
+        normalized_line = " ".join(line.split()) if isinstance(line, str) else ""
+        if not normalized_line:
+            reject_description("empty_or_invalid")
+            continue
+        if len(normalized_line) > 150:
+            reject_description("overlong")
+            continue
         clean = _safe_text(line, private, 150)
+        if not clean:
+            reject_description("unsafe_or_private")
+            continue
+        if is_generic_variation_notice(clean):
+            reject_description("generic")
+            continue
         remaining = clean
         for key, term in TECHNICAL_TERMS.items():
             literal = str(data.get(key) or "").strip()
             if literal and re.search(term, clean, re.I):
                 for accepted_literal in _technical_literals(key, literal):
                     remaining = re.sub(re.escape(accepted_literal), "", remaining, flags=re.I)
-        if clean and not is_generic_variation_notice(clean) and not re.search(r"\d", remaining) and clean not in lines:
+        if re.search(r"\d", remaining):
+            reject_description("numeric_unverified")
+        elif clean in lines:
+            reject_description("duplicate")
+        else:
             lines.append(clean)
     if len(lines) >= 3:
         description = "Características de referencia del modelo:\n" + "\n".join(lines[:3])
         if has_technical_description(description):
             fields["description"] = description
+        else:
+            reject_description("structure")
+    else:
+        reject_description("too_few_lines")
     combined = {**data, **fields}
     combined_provenance = {**(provenance or {})}
     if "description" in fields:
@@ -341,7 +358,11 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
                  "sources": [deepcopy(source) for source in sources if isinstance(source, dict) and safe_public_url(source.get("url"))][:6],
                  "missing_fields": missing_fields(combined, category or fields.get("category"), combined_provenance),
                  "diagnostics": {"price": {"status": "accepted" if "estimate_min" in fields else "omitted",
-                                            "reasons": price_rejections}}}
+                                            "reasons": price_rejections},
+                                 "description": {"status": "accepted" if "description" in fields else "omitted",
+                                     "received_lines": min(len(parsed.technical_lines), 100),
+                                     "considered_lines": min(len(parsed.technical_lines), 4),
+                                     "accepted_lines": len(lines), "rejection_counts": description_rejections}}}
     reference["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(reference), compress=True)
     return reference
 
@@ -455,6 +476,26 @@ def merge_machine_reference(result, reference, snapshot=None):
         return result
     result["ai_reference"] = reference
     declared = human_declared_data(snapshot)
+    description_diagnostics = reference.get("diagnostics", {}).get("description", {})
+    if ("description" in reference.get("missing_fields", []) and "description" not in declared
+            and isinstance(description_diagnostics, dict) and description_diagnostics.get("status") == "omitted"):
+        # Private preparation feedback contains only bounded counts and fixed
+        # labels, never discarded model prose or private identifiers.
+        labels = {"empty_or_invalid": "líneas vacías", "overlong": "líneas demasiado extensas",
+                  "unsafe_or_private": "contenido no apto para la ficha o datos privados",
+                  "numeric_unverified": "cifras sin respaldo en los datos aceptados",
+                  "generic": "avisos genéricos sin características técnicas", "duplicate": "líneas repetidas",
+                  "too_few_lines": "menos de tres características útiles", "structure": "estructura técnica insuficiente"}
+        counts = description_diagnostics.get("rejection_counts", {})
+        reasons = [label for code, label in labels.items() if isinstance(counts, dict) and counts.get(code)]
+        def count(key):
+            value = description_diagnostics.get(key)
+            return value if type(value) is int and 0 <= value <= 100 else 0
+        warning = (f"Descripción técnica incompleta: {count('received_lines')} líneas recibidas y "
+                   f"{count('accepted_lines')} conservadas. " + "; ".join(reasons) + ".")
+        warnings = result.setdefault("warnings", [])
+        if warning not in warnings:
+            warnings.append(warning)
     protected = set()
     if any(key in declared for key in YEAR_KEYS):
         protected.update(YEAR_KEYS)
