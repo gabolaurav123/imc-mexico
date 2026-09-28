@@ -6,12 +6,13 @@ from portal.models import PlatformSettings
 
 
 class AILimitDefaultTests(SimpleTestCase):
-    def test_new_configuration_allows_twenty_jobs_without_changing_global_budgets(self):
+    def test_new_configuration_allows_fifty_jobs_without_changing_token_budget(self):
         configuration = PlatformSettings()
-        self.assertEqual(configuration.ai_user_daily_limit, 20)
-        self.assertEqual(configuration.ai_global_daily_limit, 100)
+        self.assertEqual(configuration.ai_user_daily_limit, 50)
+        self.assertEqual(configuration.ai_global_daily_limit, 50)
         self.assertEqual(configuration.ai_daily_token_limit, 200000)
         self.assertEqual(configuration.ai_max_attempts, 2)
+        self.assertIsNone(configuration.ai_usage_reset_at)
 
 
 class AILimitMigrationTests(TransactionTestCase):
