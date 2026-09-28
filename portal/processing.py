@@ -1974,7 +1974,8 @@ def process_analysis(job):
             result["description"] = result["data"]["description"]
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         result["completion"] = {"missing_fields": missing_fields({**result["data"], **declared},
-            result.get("category") or snapshot.get("category"))}
+            result.get("category") or snapshot.get("category"),
+            {**result["provenance"], **declared_snapshot["provenance"]})}
         result["usage"] = usage.as_dict()
         result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
         return result, usage

@@ -16,6 +16,7 @@ from django.utils import timezone
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from .ai_model import model_options, output_limit, request_timeout, token_reservation
+from .description_quality import has_technical_description
 from .research import (UsageTotals, _get, human_declared_data, identifier_key,
                        is_validated_web_field, safe_public_url)
 from .valuation import COMPATIBILITY_KEYS, _identity, _fold
@@ -201,7 +202,7 @@ def is_validated_ai_field(result, key, value, meta):
     return expected not in (None, "") and str(expected) == str(value)
 
 
-def missing_fields(data, category=None):
+def missing_fields(data, category=None, provenance=None):
     from .structured_data import has_valid_year_or_range
     missing = [key for key in ("brand", "model") if not str(data.get(key) or "").strip()]
     if not category:
@@ -210,7 +211,7 @@ def missing_fields(data, category=None):
         missing.append("year_range")
     if not all(data.get(key) not in (None, "") for key in ("estimate_min", "estimate_max", "estimate_currency")):
         missing.append("price_range")
-    if len(str(data.get("description") or "").strip()) < 100:
+    if not has_technical_description(data.get("description"), (provenance or {}).get("description")):
         missing.append("description")
     return missing
 
@@ -252,7 +253,7 @@ def _amount(value):
         return None
 
 
-def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=()):
+def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=(), provenance=None):
     identity = deepcopy(identity)
     if data.get("serial"):
         identity["serial"] = data["serial"]
@@ -260,7 +261,7 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
     identity["completion_context"] = {key: data.get(key) for key in COMPATIBILITY_KEYS}
     identity["location_context"] = {key: data.get(key) for key in ("location_country", "location_region", "location_city")}
     private = [identifier_key(value) for value in private_identifiers if value]
-    missing = missing_fields(data, category)
+    missing = missing_fields(data, category, provenance)
     fields = {}
     if "category" in missing and parsed.category in allowed_categories:
         fields["category"] = parsed.category
@@ -302,11 +303,16 @@ def normalize_reference(parsed, identity, data, category, allowed_categories, pr
         if clean and not re.search(r"\d", remaining) and clean not in lines:
             lines.append(clean)
     if len(lines) >= 3:
-        fields["description"] = "Características de referencia del modelo:\n" + "\n".join(lines[:3])
+        description = "Características de referencia del modelo:\n" + "\n".join(lines[:3])
+        if has_technical_description(description):
+            fields["description"] = description
     combined = {**data, **fields}
+    combined_provenance = {**(provenance or {})}
+    if "description" in fields:
+        combined_provenance["description"] = {"source": "ai_reference"}
     reference = {"version": VERSION, "identity": deepcopy(identity), "fields": fields,
                  "sources": [deepcopy(source) for source in sources if isinstance(source, dict) and safe_public_url(source.get("url"))][:6],
-                 "missing_fields": missing_fields(combined, category or fields.get("category")),
+                 "missing_fields": missing_fields(combined, category or fields.get("category"), combined_provenance),
                  "diagnostics": {"price": {"status": "accepted" if "estimate_min" in fields else "omitted",
                                             "reasons": price_rejections}}}
     reference["proof"] = signing.Signer(salt=SIGNING_SALT).sign_object(_manifest(reference), compress=True)
@@ -357,10 +363,9 @@ def complete_machine_reference(client, model, result, snapshot=None, allowed=Non
         return None, usage
     data.update(brand=identity["brand"], model=identity["model"])
     category = result.get("category") or snapshot.get("category")
-    missing = missing_fields(data, category)
-    # Also replace a generic one-line description with useful model prose.
-    if "description" not in missing and len(str(data.get("description", "")).splitlines()) < 3:
-        missing.append("description")
+    provenance = {**result.get("provenance", {}),
+                  **{key: snapshot.get("provenance", {}).get(key, {}) for key in declared}}
+    missing = missing_fields(data, category, provenance)
     if any(key in declared for key in YEAR_KEYS):
         missing = [key for key in missing if key != "year_range"]
     if any(key in declared for key in PRICE_KEYS):
@@ -410,7 +415,8 @@ def complete_machine_reference(client, model, result, snapshot=None, allowed=Non
             usage.add(response.usage)
         if _get(response, "status") != "completed" or _get(response, "output_parsed") is None or allowed is not None and not allowed():
             return None, usage
-        return normalize_reference(response.output_parsed, identity, data, category, allowed_categories, private, payload["references"]), usage
+        return normalize_reference(response.output_parsed, identity, data, category, allowed_categories, private,
+                                   payload["references"], provenance=provenance), usage
     except Exception:
         if not received:
             usage.estimate(completion_reservation(model))
