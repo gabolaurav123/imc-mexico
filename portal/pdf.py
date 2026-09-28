@@ -431,7 +431,7 @@ def build_pdf(machine, data, assets, public=False, version=None, *, destination_
     description = _description_text(values.get("description"), provenance.get("description"))
     # Bound the cover copy so a long owner description cannot move the visual
     # condition block beyond page 2. The complete text remains below when needed.
-    summary = build_technical_summary({**values, "description": description}, provenance)
+    summary = build_technical_summary({**values, "description": description}, provenance, category=category_name)
     short_description = "\n".join(summary)
     section("Características técnicas", [para(short_description)] if short_description else [])
     # Keep the photo, estimates and short description on the actual first page.

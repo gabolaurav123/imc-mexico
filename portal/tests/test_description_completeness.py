@@ -97,6 +97,9 @@ class DescriptionCompletenessTests(SimpleTestCase):
                 with self.subTest(notice=notice, separator=separator):
                     lines = [*IMG08_LINES[:2], notice]
                     result = self.result(separator.join(lines))
+                    # Two accepted magnitudes cannot independently recover a
+                    # third useful line when the model only adds a disclaimer.
+                    result["data"].pop("capacity")
                     result["provenance"]["description"] = {"source": "ai_reference"}
                     client, reference = self.complete(result, proposal(technical_lines=lines))
                     client.responses.parse.assert_called_once()

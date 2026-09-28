@@ -37,7 +37,7 @@ def has_technical_description(value, provenance=None):
         clause = " ".join(clause.split()).strip(" -•")
         if (not clause or re.match(r"^(?:datos principales|año aproximado|rango de años?)\s*:", clause, re.I)
                 or re.match(r"^Características de referencia del modelo\s*[:.]", clause, re.I)
-                or re.search(r"\b(?:pendiente\w*|por confirmar|sin datos|no disponible)\b", clause, re.I)
+                or re.search(r"\b(?:pendiente\w*(?!\w)(?!\s+superables?\b)|por confirmar|sin datos|no disponible)\b", clause, re.I)
                 or is_generic_variation_notice(clause)
                 or re.match(r"^(?:Maquinaria presentada|Fotografías disponibles)\b", clause, re.I)):
             continue

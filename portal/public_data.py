@@ -69,6 +69,8 @@ def public_projection(snapshot):
     raw = root.get("data", root)
     if not isinstance(raw, dict):
         return {}
+    from .technical_description import description_projection
+    raw = description_projection(raw, root.get("provenance"), category=root.get("category_name"))
     from .sheet_details import finished_sheet_data
     raw = finished_sheet_data(raw)
     identifiers = {_identifier_key(raw.get(key)) for key in ("serial", "vin") if _identifier_key(raw.get(key))}

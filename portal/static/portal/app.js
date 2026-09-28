@@ -265,19 +265,21 @@
   $('#step-prev').addEventListener('click',() => displayStep(1));
   $$('[data-submit-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#submit-machine').click()));
   $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
-  let sharedUrl='';
+  let sharedUrl='',sharing=false;
   $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
     if(guest){keepGuestResult();return;}
+    if(sharing)return;
     if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
-    button.disabled=true; clearProblem();window.imcShareModal?.close();
+    sharing=true;$$('[data-share-machine]',wizard).forEach(item=>{item.disabled=true;});clearProblem();
     try{
+      window.imcShareModal?.loading?.(collect().title,'#wizard-errors');
       await uploadsReady();await save();
       const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:Boolean($('#contact-consent')?.checked)});
-      updateRevision(result);sharedUrl=new URL(result.url,location.origin).href;
+      updateRevision(result);
       if(!window.imcShareModal?.open) throw new Error('No se pudo abrir las opciones para compartir. Recarga la página e inténtalo de nuevo.');
+      sharedUrl=window.imcShareModal.open(result.url,collect().title);
       $('#revoke-sheet-link').hidden=false;
-      window.imcShareModal.open(sharedUrl,collect().title);
-    }catch(error){problem(error.message);}finally{button.disabled=false;}
+    }catch(error){sharedUrl='';problem(error.message);window.imcShareModal?.fail?.(error.message);}finally{sharing=false;$$('[data-share-machine]',wizard).forEach(item=>{item.disabled=false;});}
   }));
   $('#revoke-sheet-link')?.addEventListener('click',async()=>{
     try{await uploadsReady();await save();const result=await api(`${base}compartir/`,{revision:state.revision,action:'disable'});updateRevision(result);sharedUrl='';$('#revoke-sheet-link').hidden=true;window.imcShareModal?.close();toast('Enlace desactivado. Las personas que lo recibieron ya no pueden abrir la ficha.');}

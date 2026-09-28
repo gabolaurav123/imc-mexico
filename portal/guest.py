@@ -194,13 +194,15 @@ def _initial_values(body):
 
 def guest_state(draft):
     machine = draft.machine
+    from .technical_description import description_projection
     return {
         "id": str(draft.pk),
         "machine_id": str(machine.pk),
         "revision": machine.revision,
         "title": machine.title,
         "category": machine.category_id,
-        "data": machine.data,
+        "data": description_projection(machine.data, machine.provenance,
+                                       category=machine.category.name if machine.category_id else None),
         "provenance": machine.provenance,
         "expires_at": draft.expires_at.isoformat(),
         "limits": {"max_images": MAX_GUEST_IMAGES, "max_analysis_jobs": MAX_GUEST_JOBS},
@@ -252,13 +254,14 @@ def wizard(request, pk):
                   .select_related("brand"))
         catalog_models = [{"name": item.name, "brand": item.brand.name, "category": item.category_id} for item in models]
         job = AnalysisJob.objects.filter(machine=machine).order_by("-created_at").first()
+        state = machine_state(machine)
         return render(request, "portal/wizard.html", {
             "machine": machine, "can_delete_draft": False, "assets": machine.assets.all(),
             "categories": Category.objects.filter(active=True),
             "categories_json": category_catalog(Category.objects.filter(active=True)),
             "catalog_brands": Brand.objects.filter(active=True),
-            "catalog_models_json": catalog_models, "step": 1, "job": job, "data": machine.data,
-            "provenance": machine.provenance, "machine_json": machine_state(machine),
+            "catalog_models_json": catalog_models, "step": 1, "job": job, "data": state["data"],
+            "provenance": machine.provenance, "machine_json": state,
             "guest_draft": guest_state(draft), "guest_api_base": f"/api/invitados/{draft.pk}/",
             # The shared wizard reads this context for its client-side upload
             # guard.  Keep the visitor display limit aligned with the server,
