@@ -151,11 +151,12 @@ def manage(request, pk):
         raw = {"data": machine.data, "provenance": machine.provenance, "title": machine.title,
                "category_name": machine.category.name}
         projected = public_json(raw, title=machine.title)
-        include_serial = body.get("include_serial", share.include_serial if share else False)
+        owner_share = share if share and share.authorized_by_id == machine.owner_id else None
+        include_serial = body.get("include_serial", owner_share.include_serial if owner_share else False)
         safe_data = projected["data"]
         if include_serial and machine.data.get("serial"):
             safe_data["serial"] = str(machine.data["serial"])[:150]
-        include_contact = body.get("include_contact", bool(share and share.snapshot.get("contact_authorized")))
+        include_contact = body.get("include_contact", bool(owner_share and owner_share.snapshot.get("contact_authorized")))
         if include_contact:
             declared = machine.data.get("contact_public")
             if isinstance(declared, str) and declared.strip():

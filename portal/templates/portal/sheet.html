@@ -9,7 +9,7 @@
 <header class="finished-header"><img src="{% static 'portal/imc-logo.png' %}" alt="IMC México" width="62" height="62"><div><p class="eyebrow">{{ category_name|default:'MAQUINARIA' }}</p><h1 id="sheet-title"{% if public %} tabindex="-1"{% endif %}>{{ machine.title }}</h1></div></header>
 {% if main_assets %}<section class="finished-gallery"><div class="virtual-gallery" data-sheet-carousel>{% for asset in main_assets %}<figure class="virtual-photo"><a href="{{ asset_base_url }}{{ asset.id }}/" target="_blank" rel="noopener"><img src="{{ asset_base_url }}{{ asset.id }}/" alt="{{ machine.title }}, fotografía {{ forloop.counter }}" {% if not forloop.first %}loading="lazy"{% endif %}></a></figure>{% endfor %}</div></section>{% elif not public %}<section class="finished-empty-photo"><h2>Añade las fotografías de tu máquina</h2><a class="button button-outline" href="/panel/maquinarias/{{ machine.id }}/?paso=2">Agregar fotografías →</a></section>{% endif %}
 {% if has_identification %}<section class="finished-section" id="sheet-identification"><h2>Datos del equipo</h2>
-{% if data.serial and not public or data.serial and public_serial_authorized %}<dl class="finished-serial"><div><dt>Número de serie{% if not public %} · privado{% endif %}</dt><dd>{{ data.serial }}</dd></div></dl>{% endif %}
+{% if data.serial and not public or data.serial and public_serial_authorized %}<dl class="finished-serial"><div><dt>Número de serie{% if not public and not include_serial %} · privado{% endif %}</dt><dd>{{ data.serial }}</dd></div></dl>{% endif %}
 <dl class="finished-specs">
 {% if category_name %}<div><dt>Tipo de máquina</dt><dd>{{ category_name }}</dd></div>{% endif %}
 {% if data.brand %}<div><dt>Marca</dt><dd>{{ data.brand }}</dd></div>{% endif %}

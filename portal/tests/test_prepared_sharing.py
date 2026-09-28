@@ -79,6 +79,9 @@ class PreparedSharingTests(TestCase):
         page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/ficha/")
         self.assertEqual(page.status_code, 200)
         self.assertContains(page, f'data-share-machine-id="{self.machine.pk}"', count=2)
+        self.assertContains(page, 'data-share-include-serial="false"', count=2)
+        self.assertContains(page, 'data-share-include-contact="false"', count=2)
+        self.assertContains(page, 'Número de serie · privado')
         self.assertContains(page, 'id="share-modal"')
         self.assertContains(page, 'WhatsApp')
         self.assertContains(page, 'Facebook')
@@ -122,6 +125,71 @@ class PreparedSharingTests(TestCase):
         self.assertEqual(first.json()["url"], second.json()["url"])
         self.assertNotIn("serial", Client().get(self.path(second)).context["data"])
         self.assertNotContains(Client().get(self.path(second)), 'PRIVATE-SN-123')
+
+    def test_preview_preserves_saved_privacy_choices_after_editing_and_resharing(self):
+        from portal.services import save_draft
+
+        self.photo()
+        first = self.enable(include_serial=True, include_contact=True)
+        self.assertEqual(first.status_code, 200, first.content)
+        self.machine = save_draft(self.machine, self.user,
+            {"data": {"location_city": "Hermosillo"}}, self.machine.revision)
+        page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/ficha/")
+        self.assertEqual(page.context['share_url'], '', 'the outdated snapshot is not offered as an active link')
+        self.assertContains(page, 'data-share-include-serial="true"', count=2)
+        self.assertContains(page, 'data-share-include-contact="true"', count=2)
+        self.assertContains(page, '<dt>Número de serie</dt>')
+        self.assertNotContains(page, 'Número de serie · privado')
+
+        refreshed = self.enable(include_serial=page.context['include_serial'],
+                                include_contact=page.context['include_contact'])
+        self.assertEqual(refreshed.status_code, 200, refreshed.content)
+        self.assertEqual(first.json()['url'], refreshed.json()['url'])
+        public = Client().get(self.path(refreshed))
+        self.assertEqual(public.context['data']['serial'], 'PRIVATE-SN-123')
+        self.assertEqual(public.context['data']['contact_public'], f'Correo: {self.user.email}')
+        self.assertEqual(public.context['data']['location_city'], 'Hermosillo')
+
+    def test_preview_keeps_withdrawn_privacy_choices_off_after_a_new_revision(self):
+        from portal.services import save_draft
+
+        self.photo()
+        self.assertEqual(self.enable(include_serial=True, include_contact=True).status_code, 200)
+        self.assertEqual(self.enable(include_serial=False, include_contact=False).status_code, 200)
+        self.machine = save_draft(self.machine, self.user,
+            {"data": {"location_city": "Hermosillo"}}, self.machine.revision)
+        page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/ficha/")
+        self.assertContains(page, 'data-share-include-serial="false"', count=2)
+        self.assertContains(page, 'data-share-include-contact="false"', count=2)
+        self.assertContains(page, 'Número de serie · privado')
+        refreshed = self.enable(include_serial=page.context['include_serial'],
+                                include_contact=page.context['include_contact'])
+        self.assertEqual(refreshed.status_code, 200, refreshed.content)
+        public = Client().get(self.path(refreshed))
+        self.assertNotIn('serial', public.context['data'])
+        self.assertNotIn('contact_public', public.context['data'])
+
+    def test_preview_and_reshare_do_not_inherit_another_owners_share_choices(self):
+        self.photo()
+        first = self.enable(include_serial=True, include_contact=True)
+        self.assertEqual(first.status_code, 200)
+        previous_owner = User.objects.create_user(email='previous-share-owner@example.invalid')
+        PreparedShare.objects.filter(machine=self.machine).update(authorized_by=previous_owner)
+        page = self.client.get(f"/panel/maquinarias/{self.machine.pk}/ficha/")
+        self.assertEqual(page.context['share_url'], '')
+        self.assertContains(page, 'data-share-include-serial="false"', count=2)
+        self.assertContains(page, 'data-share-include-contact="false"', count=2)
+        refreshed = self.enable()
+        self.assertEqual(refreshed.status_code, 200, refreshed.content)
+        share = PreparedShare.objects.get(machine=self.machine)
+        self.assertEqual(share.authorized_by_id, self.user.pk)
+        self.assertFalse(share.include_serial)
+        self.assertFalse(share.snapshot['contact_authorized'])
+        self.assertNotEqual(first.json()['url'], refreshed.json()['url'])
+        self.assertEqual(Client().get(self.path(first)).status_code, 404)
+        public = Client().get(self.path(refreshed))
+        self.assertNotIn('serial', public.context['data'])
+        self.assertNotIn('contact_public', public.context['data'])
 
     def test_contact_opt_in_shares_only_chosen_channel_and_is_revocable(self):
         self.photo()

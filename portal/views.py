@@ -551,8 +551,10 @@ def machine_sheet(request,pk):
     from .sharing import current_share, share_url
     share=current_share(machine)
     context['share_url'] = share_url(share) if share else ''
-    context['include_serial'] = bool(share and share.include_serial)
-    context['include_contact'] = bool(share and share.snapshot.get('contact_authorized'))
+    # An edit expires the old public snapshot, not the owner's saved choices.
+    preferences=share or PreparedShare.objects.filter(machine=machine,authorized_by_id=machine.owner_id).first()
+    context['include_serial'] = bool(preferences and preferences.include_serial)
+    context['include_contact'] = bool(preferences and preferences.snapshot.get('contact_authorized'))
     return render(request,'portal/sheet.html',context)
 
 def public_sheet(request,token):
