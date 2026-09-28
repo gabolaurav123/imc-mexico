@@ -73,7 +73,7 @@ def _manual_snapshot_readings(snapshot):
     return manual
 
 
-def historical_model_fragments(result, snapshot, general_asset_ids):
+def historical_model_fragments(result, snapshot, general_asset_ids, *, diagnostics=None):
     """Old general-photo fragments cannot disprove a fuller owner correction.
 
     The former OCR contract did not record whether both ends of a label were
@@ -91,32 +91,93 @@ def historical_model_fragments(result, snapshot, general_asset_ids):
     research = research if isinstance(research, dict) else {}
     identity = research.get('identity', {})
     identity = identity if isinstance(identity, dict) else {}
-    documented_readings = {(str(item.get('asset_id')), _identity_value('model', item.get('value')))
+    documented_readings = {(str(item.get('asset_id')), _identity_value('model', item.get('value'))): item
                            for item in result.get('fields', [])
                            if item.get('key') == 'model' and item.get('review') == 'clear'
                            and item.get('component') == 'machine'
                            and (item.get('source') == 'plate' or 'model_label_visibility' in item)}
+
+    def explain(pair, reason, document=None):
+        if diagnostics is not None:
+            diagnostics[pair] = {'reason': reason}
+            if document:
+                diagnostics[pair].update(evidence=document.get('evidence'), source_url=document.get('source_url'))
+
     fragments = set()
     for field in result.get('fields', []):
         if (field.get('key') != 'model' or field.get('source') != 'image'
-                or field.get('component') != 'machine' or field.get('review') != 'clear'
-                or 'model_label_visibility' in field):
+                or field.get('component') != 'machine' or field.get('review') != 'clear'):
             continue
         asset_id = str(field.get('asset_id'))
         literal = _identity_value('model', field.get('value'))
-        if ((asset_id, literal) in documented_readings
-                or asset_id not in general or asset_id not in machine_photos or len(literal) < 3
-                or len(literal) >= len(declared['normalized']) or literal not in declared['normalized']):
+        pair = (asset_id, literal)
+        if pair in documented_readings:
+            document = documented_readings[pair]
+            if document.get('source') == 'plate':
+                reason = 'El mismo identificador también aparece en una lectura de placa.'
+            elif document.get('model_label_visibility') == 'complete':
+                reason = 'El análisis registra una etiqueta completa.'
+            else:
+                reason = 'El análisis ya registra una revisión de la visibilidad de la etiqueta.'
+            explain(pair, reason)
+            continue
+        if asset_id not in general:
+            explain(pair, 'La lectura no procede de una fotografía clasificada como vista general.')
+            continue
+        if asset_id not in machine_photos:
+            explain(pair, 'El análisis no clasifica esta imagen como una vista de la máquina completa.')
+            continue
+        if (len(literal) < 3 or len(literal) >= len(declared['normalized'])
+                or literal not in declared['normalized']):
+            explain(pair, 'La lectura no coincide con un fragmento suficiente del modelo corregido.')
             continue
         if _identity_value('model', identity.get('model')) == literal:
             from .research import is_validated_web_field
-            if any(isinstance(item, dict) and item.get('key') != 'brand'
-                   and is_validated_web_field(result, item.get('key'), item.get('value'),
-                       {**item, 'source': 'web', 'review': 'needs_review'})
-                   for item in research.get('fields', [])):
+            document = next((item for item in research.get('fields', [])
+                             if isinstance(item, dict) and item.get('key') != 'brand'
+                             and is_validated_web_field(result, item.get('key'), item.get('value'),
+                                 {**item, 'source': 'web', 'review': 'needs_review'})), None)
+            if document:
+                explain(pair, 'Existe una referencia documentada para el modelo leído; no confirma esta unidad.', document)
                 continue
-        fragments.add((asset_id, literal))
+        fragments.add(pair)
     return fragments
+
+
+def private_consistency_error(result, model_diagnostics=None):
+    """Explain a blocked owner action without exposing the analysis or its proof."""
+    def bounded(value, limit=96):
+        text = ' '.join(str(value or '').split())
+        return text if len(text) <= limit else text[:limit - 1] + '…'
+
+    labels = {'brand': 'Marca', 'model': 'Modelo', 'serial': 'Número de serie'}
+    sources = {'manual_snapshot': 'guardado', 'image': 'lectura de foto', 'plate': 'lectura de placa'}
+    details = []
+    for item in result.get('consistency', {}).get('comparisons', []):
+        if item.get('outcome') != 'contradiction' or item.get('field') not in labels:
+            continue
+        left, right = item.get('left', {}), item.get('right', {})
+        detail = (f"{labels[item['field']]}: {sources.get(left.get('source'), 'dato')} «{bounded(left.get('value'))}»; "
+                  f"{sources.get(right.get('source'), 'dato')} «{bounded(right.get('value'))}».")
+        if item['field'] == 'model':
+            diagnostic = (model_diagnostics or {}).get((right.get('asset_id'), right.get('normalized')), {})
+            if diagnostic.get('reason'):
+                detail += ' ' + bounded(diagnostic['reason'], 180)
+            if diagnostic.get('evidence'):
+                detail += f" Evidencia: «{bounded(diagnostic['evidence'], 350)}»."
+            if diagnostic.get('source_url'):
+                detail += f" Fuente: {bounded(diagnostic['source_url'], 300)}."
+        details.append(detail)
+        if len(details) == 2:
+            break
+    category = result.get('category_conflict', {})
+    if category:
+        details.append(f"Tipo de máquina: guardado «{bounded(category.get('selected'))}»; "
+                       f"fotografía «{bounded(category.get('detected'))}».")
+    if result.get('multiple_machines', {}).get('detected'):
+        details.append('Las fotografías útiles contienen lecturas incompatibles o muestran más de una máquina.')
+    base = 'Los datos de identificación no coinciden con las fotografías.'
+    return ' '.join([base, *details, 'Revisa el dato o la fotografía señalados antes de compartir o enviar la ficha.'])
 
 
 def _consistency_cutoff(snapshot):
