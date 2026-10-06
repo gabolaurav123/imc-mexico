@@ -41,7 +41,8 @@ class CatalogueEnrichmentSafetyTests(TestCase):
         self.assertEqual(machine.data["model"], "320")
         self.assertNotIn("Injected", machine.data["description"])
         self.assertIn("entrada=catalogue", response.url)
-        self.assertIn("completar=1", response.url)
+        self.assertIn("paso=1", response.url)
+        self.assertNotIn("completar=1", response.url)
 
     def test_start_form_rejects_a_hidden_invalid_model_without_creating_a_draft(self):
         response = self.client.post("/panel/maquinarias/nueva/", {

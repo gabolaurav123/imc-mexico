@@ -40,6 +40,25 @@
     {% if not is_management_user %}<div class="sidebar-help"><span class="eyebrow">AQUÍ PARA AYUDARTE</span><p>¿Te falta un dato o tienes una duda?</p><a href="/contacto/">Contactar al equipo ↗</a></div>{% endif %}
     <form action="/cerrar-sesion/" method="post">{% csrf_token %}<button class="link-button muted" type="submit">Cerrar sesión</button></form>
   </aside>
+  <details class="panel-mobile-nav">
+    <summary>{% if is_management_user and not is_advertiser_mode %}Navegación administrativa{% else %}Mi espacio · navegar{% endif %}</summary>
+    <nav aria-label="Navegación del panel en dispositivos móviles">
+      {% if is_management_user %}<a href="{{ management_url }}">Panel administrativo</a>{% endif %}
+      {% if is_management_user and not is_advertiser_mode %}
+        {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/">Base técnica</a>{% endif %}
+        {% if perms.portal.view_lead or perms.portal.change_lead %}<a href="/admin/portal/lead/">Leads y seguimiento</a>{% endif %}
+        {% if perms.portal.view_user or perms.portal.change_user %}<a href="/admin/portal/user/">Usuarios</a>{% endif %}
+        <a href="/panel/?modo=anunciante">Vista de anunciante</a>
+      {% else %}
+        <a href="/panel/{% if is_management_user %}?modo=anunciante{% endif %}">Resumen</a>
+        <a href="/panel/maquinarias/">Mis maquinarias</a>
+        <a href="/panel/solicitudes/">Mis solicitudes</a>
+        <a href="/panel/mensajes/">Mensajes</a>
+      {% endif %}
+      <a href="/panel/notificaciones/">Notificaciones</a>
+      <a href="/panel/seguridad/">Seguridad</a>
+    </nav>
+  </details>
   {% endif %}
   <div class="panel-main">
     {% if is_management_user and is_advertiser_mode %}<div class="management-mode-notice"><div><b>Vista de anunciante</b><p>Aquí están tus propias maquinarias. Tu acceso administrativo sigue disponible.</p></div><a class="button button-navy button-small" href="{{ management_url }}">Volver a administración →</a></div>{% endif %}

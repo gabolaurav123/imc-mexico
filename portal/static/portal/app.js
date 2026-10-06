@@ -115,6 +115,10 @@
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
   let analysisOutcome = null, valuationFeedback = null;
+  let completionDetails = [];
+  try { completionDetails = JSON.parse($('#preparation-completion')?.textContent || '{}').missing_details || []; } catch { /* Older saved sheets have no completion details. */ }
+  let serialInputRules = {minimum_alphanumeric:3,placeholders:['na','noaplica','notiene','notengo','nosabe','nose','sinserie','sinnumero','nodisponible','desconocido','desconocida','ninguno','ninguna','unknown']};
+  try { const rules=JSON.parse($('#serial-input-rules')?.textContent || '{}'); if(Array.isArray(rules.placeholders))serialInputRules=rules; } catch { /* Compatible with historical wizard pages. */ }
   let valuationIdentity = valuationIdentityOf(state);
   let researchHypotheses = [], researchHypothesisIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
@@ -155,6 +159,7 @@
     if (['category','brand','model','model_family','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
     pending.set(key,{value:readInput(input),sequence:++sequence});
     renderPreview();
+    if (key === 'serial') prepareLabel();
     if (key === 'category' || photoCheckBlocked && ['brand','model','serial'].includes(key)) schedulePhotoCheck();
     if (conflict) return;
     markSave('Cambios pendientes','pending'); clearTimeout(saveTimer);
@@ -579,7 +584,20 @@
     if (!deleting) displayStep(1);
     return true;
   }
-  function prepareLabel() { $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; }); $('#analyze-button').disabled = !editable || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting; $('#analyze-button').textContent = preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →'; $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;}); $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting; const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting; pdfLabel(); }
+  function prepareLabel() {
+    const serial = ($('#serial')?.value || '').trim();
+    const compactSerial=serial.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+    const usefulSerial=compactSerial.length >= (serialInputRules.minimum_alphanumeric || 3) && !serialInputRules.placeholders.includes(compactSerial);
+    const hasInput = usefulSerial || uploadCount > 0 || $$('.asset-card[data-kind="image"]',wizard).some(card=>card.dataset.purpose !== 'document');
+    const requirement = $('#evidence-requirement'); if(requirement) requirement.hidden = hasInput;
+    $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; });
+    $('#analyze-button').disabled = !editable || !hasInput || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
+    $('#analyze-button').textContent = preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →';
+    $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;});
+    $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting;
+    const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting;
+    pdfLabel();
+  }
   async function syncSnapshot(job) {
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
@@ -615,6 +633,8 @@
       catch (error) { analysisStatus(`${error.message} Conservamos tu ficha con la información disponible.`,'failed'); renderResults(job); return; }
     }
     setAnalysisLoading(false);
+    completionDetails = Array.isArray(job.completion?.missing_details) ? job.completion.missing_details : [];
+    renderEstimateGuidance(collect().data);
     if (Array.isArray(job.completion?.missing_fields) && job.completion.missing_fields.length) {
       analysisOutcome = 'needs_information';
       renderResults(job);
@@ -1013,6 +1033,7 @@
     $('#preview-age-range').hidden = !hasAgeRange;
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';
     $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
+    renderEstimateGuidance(data);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
     for (const key of ['weight','power','capacity','digging_depth','lift_height','working_height','drum_width','engine','fuel','dimensions'].filter(key=>!missing(data[key])).slice(0,6)) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
@@ -1137,6 +1158,29 @@
     target.replaceChildren();
     for (const [label,section,field] of actions.slice(0,4)) { const button = el('button','link-button',`${label} →`); button.type = 'button'; button.addEventListener('click',() => openInformation(section,field)); target.append(button); }
     target.closest('.completion-actions').hidden = !actions.length;
+  }
+  function renderEstimateGuidance(data) {
+    const number = value => !missing(value) && Number.isFinite(Number(value)) && Number(value) >= 0;
+    const priceReady = number(data.estimate_min) && Number(data.estimate_min) > 0 && number(data.estimate_max) && Number(data.estimate_min) <= Number(data.estimate_max) && ['USD','MXN','EUR'].includes(data.estimate_currency);
+    const year = value => number(value) && Number.isInteger(Number(value)) && Number(value) >= 1900 && Number(value) <= new Date().getFullYear() + 1;
+    const yearReady = year(data.year) || year(data.estimated_year_from) && year(data.estimated_year_to) && Number(data.estimated_year_from) <= Number(data.estimated_year_to);
+    for (const [id, field, ready, fallback] of [
+      ['estimate-price-help','price_range',priceReady,'Buscaremos anuncios comparables del equipo para proponer un rango de precio.'],
+      ['estimate-year-help','year_range',yearReady,'Buscaremos el periodo de fabricación del modelo para proponer un rango de años.'],
+    ]) {
+      const target = $(`#${id}`); if (!target) continue;
+      target.replaceChildren(); target.hidden = ready;
+      if (ready) continue;
+      const detail = completionDetails.find(item => item && item.field === field && typeof item.action === 'string');
+      target.append(el('strong','', detail ? 'Necesitamos una referencia más' : 'Se completa al generar la ficha'),el('p','',detail?.action || fallback));
+      if (!editable || preparing || jobPending || polling) continue;
+      const actions = el('div','estimate-help-actions');
+      const photo = el('button','link-button','Añadir foto o serie →'); photo.type = 'button';
+      photo.addEventListener('click',()=>{ displayStep(1); $('#entry-serial-slot').hidden=false; $('#drop-zone').scrollIntoView({behavior:'smooth',block:'center'}); });
+      actions.append(photo);
+      if (detail) { const retry = el('button','link-button','Volver a investigar →'); retry.type='button'; retry.addEventListener('click',()=>{if(!$('#analyze-button').disabled) $('#analyze-button').click();}); actions.append(retry); }
+      target.append(actions);
+    }
   }
   function lockEditing() { $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button,#submit-machine',wizard).forEach(control => { control.disabled = true; }); }
   $('#add-plate-information')?.addEventListener('click',() => openInformation('photos','plate'));

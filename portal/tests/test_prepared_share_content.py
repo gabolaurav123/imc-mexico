@@ -64,8 +64,9 @@ class PreparedShareContentTests(TestCase):
 
     def test_home_and_catalogue_distinguish_sharing_from_main_catalogue(self):
         home = self.client.get('/')
-        self.assertContains(home, 'Tipo, marca y modelo')
-        self.assertContains(home, 'Compartir tu ficha y publicarla en el catálogo son acciones distintas')
+        self.assertContains(home, 'Tipo · marca · modelo')
+        self.assertContains(home, 'compártela con un enlace corto')
+        self.assertContains(home, 'IMC México revisa y autoriza la publicación en el catálogo')
         self.assertNotContains(home, 'comparte la ficha virtual cuando esté aprobada')
         catalogue = self.client.get('/maquinaria/')
         self.assertContains(catalogue, 'como referencia')

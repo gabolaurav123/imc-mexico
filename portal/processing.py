@@ -744,6 +744,11 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         raise ValidationError("Autoriza el análisis asistido de estas fotografías antes de continuar.")
     if mode not in {"analysis", "description"}:
         raise ValidationError("El tipo de análisis no es válido.")
+    # Fail early for normal requests, then repeat after the row lock below to
+    # close the delete/edit race between this check and queue creation.
+    from .intake import has_unit_evidence
+    if not has_unit_evidence(machine):
+        raise ValidationError("Agrega una fotografía de la máquina o escribe un número de serie válido antes de generar su ficha.")
     if not option("OPENAI_API_KEY", ""):
         raise ValidationError("El análisis asistido aún no está configurado. Puedes enviar la ficha con la información disponible.")
     with transaction.atomic():
@@ -751,6 +756,26 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         limits = PlatformSettings.objects.select_for_update().get(pk=1)
         machine = Machine.objects.select_for_update().get(pk=machine.pk)
         _check_editor(machine, user)
+        # Recheck the saved state while holding the machine lock. A photo or
+        # serial could have been removed after the request reached this view.
+        if not has_unit_evidence(machine):
+            raise ValidationError("Agrega una fotografía de la máquina o escribe un número de serie válido antes de generar su ficha.")
+        if mode == "description":
+            from .intake import has_written_serial
+            # A description-only call cannot quietly use an unselected photo.
+            # It needs a written serial, unless a current photo was already
+            # accepted in a completed full analysis for this same fiche.
+            current_photo_ids = {str(pk) for pk in machine.assets.filter(
+                kind="image", processing_status="ready").exclude(purpose="document").values_list("pk", flat=True)}
+            analysed_photo = any(
+                current_photo_ids.intersection(map(str, job.asset_ids or []))
+                and not (isinstance(job.result, dict) and job.result.get("preflight") is True)
+                and not (isinstance(job.result, dict) and isinstance(job.result.get("relevance"), dict)
+                         and job.result["relevance"].get("status") in {"unrelated", "uncertain"})
+                for job in machine.analysis_jobs.filter(status="completed", mode="analysis")
+            )
+            if not has_written_serial((machine.data or {}).get("serial")) and not analysed_photo:
+                raise ValidationError("Para generar sin analizar fotografías seleccionadas, escribe un número de serie válido.")
         if catalogue_enrichment:
             from .catalogue_intake import catalogue_reference_ready
             if not catalogue_reference_ready(machine):
@@ -770,7 +795,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if not limits.ai_enabled:
             raise ValidationError("El análisis asistido está pausado. Puedes enviar la ficha con la información disponible.")
         selected = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
-        if asset_ids:
+        if asset_ids is not None:
             if not isinstance(asset_ids, list) or len(asset_ids) > limits.max_images:
                 raise ValidationError("Selecciona fotografías válidas para el análisis.")
             requested = {str(i) for i in asset_ids}

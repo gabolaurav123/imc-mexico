@@ -39,6 +39,12 @@ LABEL = 'Estimación orientativa, editable y sujeta a confirmación'
 CONDITION_MISSING = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
 SIGNING_SALT = 'portal.valuation.manifest.v1'
 MAX_DOCUMENTS = 6
+# Search ranking is not a reliability signal: the first result can be a
+# blocked page, an expired listing, or an index.  Keep the evidence cap at six
+# readable individual listings, but permit a bounded number of replacement
+# attempts so one bad result does not make an otherwise researched model lose
+# its price range.
+MAX_DOCUMENT_ATTEMPTS = 12
 MAX_INDEX_DOCUMENTS = 2
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
@@ -886,7 +892,12 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                     indexes.append(source)
                 except CatalogFetchError:
                     continue
-        for source in candidates[:MAX_DOCUMENTS]:
+        direct_attempts = 0
+        direct_reads = 0
+        for source in candidates:
+            if direct_attempts >= MAX_DOCUMENT_ATTEMPTS or direct_reads >= MAX_DOCUMENTS:
+                break
+            direct_attempts += 1
             if allowed is not None and not allowed():
                 return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
             if time.monotonic() >= deadline:
@@ -896,12 +907,20 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                 current = _document_passages(html, final_url, identity, private)
                 passages.extend(current[:MAX_PASSAGES - len(passages)])
                 fetches.append({'status': 'read', 'passages': len(current)})
+                # A syntactically readable page without an individual listing
+                # passage cannot help the parser; keep looking for a real
+                # replacement within the fixed attempt budget.
+                direct_reads += int(bool(current))
             except Exception as exc:
                 fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__})
         # CEG result pages are only a bounded link-discovery source. Their
         # card prices are never sent to the parser or treated as comparables.
         # Direct individual search results take all six listing slots first.
-        if len(candidates) < MAX_DOCUMENTS:
+        # Fall back to CEG discovery when direct URLs did not yield enough
+        # readable listings, not merely when the search result contained fewer
+        # than six URLs.  Index cards remain discovery-only and never become
+        # price evidence themselves.
+        if direct_reads < MAX_DOCUMENTS:
             discovered, discovered_urls = [], set()
             for source in indexes[:MAX_INDEX_DOCUMENTS]:
                 if allowed is not None and not allowed():
@@ -918,7 +937,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                             discovered_urls.add(url)
                 except Exception as exc:
                     fetches.append({'status': 'index_unavailable', 'error_type': type(exc).__name__})
-            for url, index_url, observed in discovered[:MAX_DOCUMENTS - len(candidates)]:
+            for url, index_url, observed in discovered[:MAX_DOCUMENTS - direct_reads]:
                 if allowed is not None and not allowed():
                     return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
                 if time.monotonic() >= deadline:
@@ -930,6 +949,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                     current = _document_passages(html, final_url, identity, private)
                     passages.extend(current[:MAX_PASSAGES - len(passages)])
                     fetches.append({'status': 'read', 'passages': len(current), 'discovered': True})
+                    direct_reads += int(bool(current))
                 except Exception as exc:
                     fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__, 'discovered': True})
         if not passages:

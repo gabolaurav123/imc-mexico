@@ -72,6 +72,17 @@ def provider(urls=None, parsed=None, search_usage=True):
 
 
 class ValuationGroundingTests(SimpleTestCase):
+    def test_unreadable_ranked_results_are_replaced_before_price_research_gives_up(self):
+        urls = [f"https://dealer-{index}.example.com/equipment/unit-{index}" for index in range(8)]
+        client = provider(urls=urls)
+        client.responses.parse.return_value = SimpleNamespace(status='completed',
+            usage=SimpleNamespace(input_tokens=10, output_tokens=10), output_parsed=ComparableCandidates(fields=[]))
+        failures = [CatalogFetchError('blocked') for _ in range(6)]
+        with patch('portal.valuation._fetch_listing', side_effect=[*failures, (html(), urls[6]), (html(), urls[7])]) as fetch:
+            value, _ = estimate_machine(client, 'gpt-5.6-luna', vision())
+        self.assertEqual(fetch.call_count, 8)
+        self.assertEqual([item['status'] for item in value['diagnostics']['document_attempts']].count('read'), 2)
+
     def test_two_literal_independent_used_asking_listings_produce_signed_range_and_median(self):
         value = normalize([candidate(), candidate(1, price='USD 16,000')],
                           [passage(), passage(quote('USD 16,000'), 1)])

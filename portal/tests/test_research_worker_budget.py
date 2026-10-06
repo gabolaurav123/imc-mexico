@@ -25,7 +25,7 @@ PIPELINE_RESERVATION = RESEARCH_RESERVATION + VALUATION_RESERVATION + COMPLETION
 class ResearchWorkerBudgetTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(email="worker-budget@example.invalid")
-        self.machine = Machine.objects.create(owner=self.user, data={"brand": "Caterpillar", "model": "420F2"})
+        self.machine = Machine.objects.create(owner=self.user, data={"brand": "Caterpillar", "model": "420F2", "serial": "RESEARCH-001"})
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True,
             ai_daily_token_limit=PIPELINE_RESERVATION * 5, ai_max_attempts=2)
 

@@ -44,7 +44,7 @@ class QuotaResetAccountingTests(TestCase):
         self.clock.start()
         self.addCleanup(self.clock.stop)
         self.owner = User.objects.create_user(email="quota-reset@example.invalid")
-        self.machine = Machine.objects.create(owner=self.owner, data={"brand": "Bobcat", "model": "S650"})
+        self.machine = Machine.objects.create(owner=self.owner, data={"brand": "Bobcat", "model": "S650", "serial": "QUOTA-001"})
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_usage_reset_at=RESET)
 
     def job(self, name, *, created=None, finished=None, status="completed", owner=None, **values):
@@ -58,7 +58,7 @@ class QuotaResetAccountingTests(TestCase):
     def enqueue(self, *, fresh_machine=False):
         machine = self.machine
         if fresh_machine:
-            machine = Machine.objects.create(owner=self.owner, data={"brand": "Bobcat", "model": "S650"})
+            machine = Machine.objects.create(owner=self.owner, data={"brand": "Bobcat", "model": "S650", "serial": "QUOTA-002"})
         return enqueue_analysis(machine, self.owner, mode="description", authorize_ai=True)
 
     def budget(self, limit):

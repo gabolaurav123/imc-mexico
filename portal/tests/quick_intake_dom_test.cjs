@@ -36,11 +36,10 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
    state:{provenance:{brand:{source:'web_model',scope:'model',basis:'catalogue_intake'}}},
    before(w){w.document.querySelectorAll('.asset-card').forEach(n=>n.remove());}});
  await pause(40);
- assert.equal(catalogueCalls.length,1);assert.equal(catalogueCalls[0].body.enrich_catalogue,true);
- assert.deepEqual(catalogueCalls[0].body.asset_ids,[]);assert.equal(catalogueCalls[0].body.auto_apply,true);
+ assert.equal(catalogueCalls.length,0,'a catalogue model alone is not unit evidence and must not start a job');
  assert.equal(new URL(catalogue.w.location.href).searchParams.has('completar'),false);
- assert.equal(catalogue.doc.querySelector('[data-step-panel="2"]').hidden,false);
- catalogue.close();pass('catalogue request enriches once and consumes its redirect marker');
+ assert.equal(catalogue.doc.querySelector('#analyze-button').disabled,true);
+ catalogue.close();pass('catalogue redirect consumes its marker but requires a photo or serial before starting work');
 
  let resumedCalls=[];
  const resumedCatalogue=setup(async(url)=>{resumedCalls.push(url);return response(200,{id:'catalogue-pending',status:'running'});},
@@ -394,6 +393,36 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.equal(priceProposal.doc.querySelector('#valuation-details').open,false);
  assert.match(priceProposal.doc.querySelector('#ready-estimate').textContent,/1,000.25–1,500.75 USD/);
  priceProposal.close();pass('price and documented range remain editable without exposing research details in the intake');
+ const guidanceCalls=[];
+ const guidance=setup(async(url,o)=>{guidanceCalls.push({url,o});throw Error('Showing estimate guidance must not start work');},{before(w){
+   w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_fields:['price_range','year_range'],missing_details:[
+     {field:'price_range',code:'second_comparable_missing',action:'Añade un comparable <img src=x onerror=alert(1)> con moneda explícita.'},
+     {field:'year_range',code:'documented_model_period_missing',action:'Sube la placa legible para documentar el periodo del modelo.'},
+   ]});
+ }});
+ await pause(25);
+ const priceHelp=guidance.doc.querySelector('#estimate-price-help'),yearHelp=guidance.doc.querySelector('#estimate-year-help');
+ assert.equal(priceHelp.hidden,false);assert.equal(yearHelp.hidden,false);
+ assert.match(priceHelp.textContent,/Añade un comparable <img src=x onerror=alert\(1\)> con moneda explícita\./);
+ assert.equal(priceHelp.querySelector('img'),null,'guidance is inserted through textContent, never HTML');
+ assert.match(yearHelp.textContent,/Sube la placa legible/);
+ assert.equal(guidanceCalls.length,0,'initial completion guidance never triggers analysis or a save');
+ guidance.close();pass('initial missing_details hydrates field-specific estimate guidance as safe text without automatic work');
+ const manualEstimateCalls=[];
+ const manualEstimate=setup(async(url,o)=>{manualEstimateCalls.push(url);if(url.endsWith('guardar/'))return response(200,{revision:2});throw Error('Manual range edits must not trigger research automatically');},{before(w){
+   w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_fields:['price_range','year_range'],missing_details:[
+     {field:'price_range',code:'verified_comparables_missing',action:'Indica país y estado antes de volver a investigar.'},
+     {field:'year_range',code:'documented_model_period_missing',action:'Añade una placa legible.'},
+   ]});
+ }});
+ input(manualEstimate,'estimate_min','10000');input(manualEstimate,'estimate_max','15000');input(manualEstimate,'estimate_currency','USD');
+ input(manualEstimate,'estimated_year_from','2010');input(manualEstimate,'estimated_year_to','2015');
+ assert.equal(manualEstimate.doc.querySelector('#estimate_min').value,'10000');assert.equal(manualEstimate.doc.querySelector('#estimated_year_to').value,'2015');
+ assert.equal(manualEstimate.doc.querySelector('#estimate-price-help').hidden,true);assert.equal(manualEstimate.doc.querySelector('#estimate-year-help').hidden,true);
+ await pause(920);
+ assert.equal(manualEstimateCalls.filter(item=>item.endsWith('analizar/')).length,0);
+ assert.equal(manualEstimateCalls.filter(item=>item.includes('/api/analisis/')).length,0);
+ manualEstimate.close();pass('valid manual ranges hide estimate guidance, retain edits and never launch research automatically');
  const age = setup(async()=>{throw Error('No request expected');},{data:{year:2007,estimated_year_from:2004,estimated_year_to:2009}});
  for(const key of ['estimated_year_from','estimated_year_to']){const field=age.doc.getElementById(key);assert.equal(field.min,'1900');assert.equal(field.max,'2100');assert.equal(field.required,false);assert.equal(age.doc.querySelectorAll(`[data-field="${key}"]`).length,1);}
  assert.equal(age.doc.querySelector('#age-details').open,false);assert.equal(age.doc.querySelector('#year').value,'2007');assert.equal(age.doc.querySelector('#preview-age-range').hidden,false);assert.equal(age.doc.querySelector('#preview-age-range').textContent,'2004–2009');

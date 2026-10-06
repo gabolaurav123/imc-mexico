@@ -36,9 +36,9 @@
   function chooseModel(item,button) {
     selectedModel=item; model.value=String(item.id); $('known-model').value=item.label; $('path-model').textContent=item.label;
     $('catalogue-selected-name').textContent=`${selectedBrand.label} ${item.label}`;
-    $('catalogue-selection-help').textContent=item.has_specs?'Incorporaremos las características documentadas de este modelo y buscaremos las referencias que falten.':'Ya identificamos el modelo. Consultaremos sus características y referencias de año y valor para preparar la ficha.';
+    $('catalogue-selection-help').textContent='El catálogo sólo orienta la identidad del modelo. Continúa para añadir una foto de la máquina, una foto de la placa o el número de serie.';
     $('catalogue-selection').hidden=false; $('catalogue-generate').disabled=false;
-    $('selection-summary').textContent=`${selectedCategory.name} · ${selectedBrand.label} · ${item.label}`;
+    $('selection-summary').textContent=`${selectedCategory.name} · ${selectedBrand.label} · ${item.label}. Falta añadir una foto o serie para generar la ficha.`;
     $('catalogue-model-results').querySelectorAll('button[data-model-id]').forEach(node=>node.setAttribute('aria-pressed',String(node===button)));
     error('');
   }
@@ -116,8 +116,8 @@
     if(route==='serial'&&serial.replace(/[^a-z0-9]/gi,'').length<3){event.preventDefault();error('Escribe el número de serie o continúa con fotografías.');$('typed-serial').focus();return;}
     $('start-entry-mode').value=route;$('start-serial').value=serial;
     if(route!=='catalogue')model.value='';
-    submitting=true;form.setAttribute('aria-busy','true');event.submitter.textContent=route==='catalogue'?'Preparando tu ficha…':'Abriendo tu ficha…';
+    submitting=true;form.setAttribute('aria-busy','true');event.submitter.textContent=route==='catalogue'?'Abriendo tu ficha…':'Abriendo tu ficha…';
   });
-  addEventListener('pageshow',event=>{if(event.persisted){submitting=false;form.removeAttribute('aria-busy');$('catalogue-generate').textContent='Generar ficha de maquinaria →';}});
+  addEventListener('pageshow',event=>{if(event.persisted){submitting=false;form.removeAttribute('aria-busy');$('catalogue-generate').textContent='Continuar con fotos o serie →';}});
   renderCategories();show('category');
 })();

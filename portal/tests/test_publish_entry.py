@@ -21,7 +21,7 @@ class PublishEntryTests(TestCase):
 
     def test_home_has_a_direct_non_javascript_entry_and_explains_review(self):
         response = self.client.get('/')
-        self.assertContains(response, 'Publica tu maquinaria')
+        self.assertContains(response, 'Publicar maquinaria')
         self.assertContains(response, 'href="/publicar/"')
         self.assertContains(response, 'IMC México revisa y autoriza la publicación en el catálogo')
         entry = self.client.get('/publicar/')

@@ -3,11 +3,13 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from portal.catalogue_intake import catalogue_proposal, catalogue_selection_research
+from portal.catalogue_intake import _period, catalogue_proposal, catalogue_selection_research
 from portal.intake import catalogue_enrichment_needed, has_completed_preparation, preparation_mode, require_prepared_serial
 from portal.models import AnalysisJob, Brand, Category, EquipmentModel, Machine, MarketReference, Submission, TechnicalReference, User
+from portal.processing import enqueue_analysis
 from portal.research import ResearchCandidates, research_machine
 from portal.services import save_draft
 
@@ -52,13 +54,27 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertEqual(proposal["provenance"]["power"]["source"], "web_model")
         self.assertEqual(proposal["provenance"]["model"]["basis"], "catalogue_intake")
 
-    def test_catalogue_mode_is_explicit_and_allows_no_media_share_submit_guard(self):
+    def test_conflicting_catalogue_periods_are_not_combined_into_an_unsupported_range(self):
+        other = TechnicalReference.objects.create(
+            category=self.category, equipment_model=self.model, brand="Caterpillar", model="320",
+            period_from=2021, period_to=2024, specs={}, source="https://manufacturer.example/320-next",
+            source_title="320 next generation", retrieved_at=date(2026, 9, 25),
+            review=TechnicalReference.Review.APPROVED, active=True,
+            provenance={"period_evidence": "Production years: 2021-2024."},
+        )
+        data, provenance = _period([self.reference, other])
+        self.assertEqual(data, {})
+        self.assertEqual(provenance, {})
+
+    def test_catalogue_choice_needs_unit_evidence_before_preparation(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
         machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
             provenance=proposal["provenance"])
-        self.assertEqual(preparation_mode(machine), "catalogue")
-        self.assertTrue(has_completed_preparation(machine))
-        self.assertEqual(require_prepared_serial(machine), "catalogue")
+        with self.assertRaises(ValidationError):
+            preparation_mode(machine)
+        self.assertFalse(has_completed_preparation(machine))  # Existing drafts remain viewable, but are not prepared.
+        with self.assertRaises(ValidationError):
+            require_prepared_serial(machine)
         self.assertFalse(catalogue_enrichment_needed(machine))
 
     def test_model_without_specs_still_describes_its_documented_period_and_market_range(self):
@@ -123,24 +139,37 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertNotIn("estimate_min", fields)
         self.assertTrue(local["proof"])
 
-    def test_catalogue_api_queues_only_an_explicit_incomplete_enrichment(self):
+    def test_catalogue_api_never_queues_enrichment_without_unit_evidence(self):
         self.reference.specs = {}
         self.reference.save(update_fields=["specs"])
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
         machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
             provenance=proposal["provenance"])
         self.client.force_login(self.owner)
-        queued = Mock()
-        with patch("portal.processing.enqueue_analysis", return_value=queued) as enqueue, \
-             patch("portal.views.analysis_state", return_value={"status": "queued", "id": "job-1"}):
+        with patch("portal.processing.enqueue_analysis") as enqueue:
             response = self.client.post(f"/api/maquinarias/{machine.pk}/analizar/", json.dumps({
                 "consent": True, "revision": machine.revision, "asset_ids": [], "mode": "description",
                 "research": True, "auto_apply": True, "enrich_catalogue": True}), content_type="application/json")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["status"], "queued")
-        self.assertEqual(enqueue.call_args.kwargs["catalogue_enrichment"], True)
-        self.assertEqual(enqueue.call_args.args[3], "description")
-        self.assertTrue(enqueue.call_args.kwargs["research"])
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("serie", response.json()["error"].lower())
+        enqueue.assert_not_called()
+
+    def test_queue_rejects_catalogue_only_and_blank_serial_bypass(self):
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        machine = Machine.objects.create(owner=self.owner, category=self.category,
+            data={**proposal["data"], "serial": "  --  "}, provenance=proposal["provenance"])
+        with self.assertRaisesRegex(ValidationError, "fotografía"):
+            enqueue_analysis(machine, self.owner, mode="description", authorize_ai=True, research=False)
+        self.assertFalse(AnalysisJob.objects.filter(machine=machine).exists())
+
+    def test_serial_placeholders_never_count_as_evidence(self):
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        for serial in ("no tengo", "desconocido", "sin serie", "sin número", "n/a", "unknown", "  --- "):
+            with self.subTest(serial=serial):
+                machine = Machine.objects.create(owner=self.owner, category=self.category,
+                    data={**proposal["data"], "serial": serial}, provenance=proposal["provenance"])
+                with self.assertRaises(ValidationError):
+                    preparation_mode(machine)
 
     def test_manual_edits_keep_owner_provenance_and_do_not_backfill_unit_fields(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
@@ -159,7 +188,8 @@ class CatalogueOnlyIntakeTests(TestCase):
         response = self.client.post("/api/maquinarias/catalogo/", json.dumps({"category": self.category.pk,
             "model_id": self.model.pk}), content_type="application/json")
         self.assertEqual(response.status_code, 201, response.content)
-        self.assertIn("entrada=catalogue&paso=2", response.json()["url"])
+        self.assertIn("entrada=catalogue&paso=1", response.json()["url"])
+        self.assertTrue(response.json()["requires_unit_evidence"])
         machine = Machine.objects.get(pk=response.json()["id"])
         self.assertEqual(machine.title, "Excavadora Caterpillar 320")
         self.assertEqual(machine.provenance["title"], {"source": "system", "review": "needs_review"})
@@ -176,10 +206,10 @@ class CatalogueOnlyIntakeTests(TestCase):
         })
         self.assertEqual(response.status_code, 302)
         machine = Machine.objects.get(owner=self.owner, title="Excavadora Caterpillar 320")
-        self.assertIn(f"/panel/maquinarias/{machine.pk}/?entrada=catalogue&paso=2", response.url)
+        self.assertIn(f"/panel/maquinarias/{machine.pk}/?entrada=catalogue&paso=1", response.url)
         self.assertEqual(machine.provenance["title"], {"source": "system", "review": "needs_review"})
 
-    def test_catalogue_mode_can_be_shared_and_submitted_without_assets(self):
+    def test_catalogue_mode_cannot_be_shared_or_submitted_without_evidence(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
         machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
             provenance=proposal["provenance"])
@@ -187,14 +217,14 @@ class CatalogueOnlyIntakeTests(TestCase):
         share = self.client.post(f"/api/maquinarias/{machine.pk}/compartir/", json.dumps({
             "revision": machine.revision, "action": "enable", "include_serial": False,
             "include_contact": False}), content_type="application/json")
-        self.assertEqual(share.status_code, 200, share.content)
-        self.assertTrue(share.json()["enabled"])
+        self.assertEqual(share.status_code, 400, share.content)
+        self.assertIn("serie", share.json()["error"].lower())
         submit = self.client.post(f"/api/maquinarias/{machine.pk}/enviar/", json.dumps({
             "advertise_consent": True, "contact_consent": False}), content_type="application/json")
-        self.assertEqual(submit.status_code, 200, submit.content)
-        self.assertEqual(Submission.objects.filter(machine=machine).count(), 1)
+        self.assertEqual(submit.status_code, 400, submit.content)
+        self.assertEqual(Submission.objects.filter(machine=machine).count(), 0)
 
-    def test_generate_again_refreshes_catalogue_fiche_without_creating_an_analysis_job(self):
+    def test_generate_again_rejects_catalogue_only_draft_without_creating_job(self):
         proposal = catalogue_proposal(self.category.pk, self.model.pk)
         machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
             provenance=proposal["provenance"])
@@ -202,10 +232,8 @@ class CatalogueOnlyIntakeTests(TestCase):
         response = self.client.post(f"/api/maquinarias/{machine.pk}/analizar/", json.dumps({
             "consent": True, "revision": machine.revision, "asset_ids": [], "mode": "description",
             "research": True, "auto_apply": True}), content_type="application/json")
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json()["mode"], "catalogue")
-        self.assertTrue(response.json()["refresh"])
-        self.assertEqual(response.json()["machine"]["data"]["model"], "320")
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("fotograf", response.json()["error"].lower())
         self.assertFalse(AnalysisJob.objects.filter(machine=machine).exists())
 
     def test_manual_identity_change_cannot_share_the_previous_model_references(self):

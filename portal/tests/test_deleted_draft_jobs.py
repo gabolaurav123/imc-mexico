@@ -17,7 +17,7 @@ from portal.services import apply_analysis_automatically, delete_draft, restore_
 class DeletedDraftJobTests(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(email="draft-jobs@example.invalid", password="test-only-9418")
-        self.machine = Machine.objects.create(owner=self.owner, title="Título humano", data={"brand": "Marca humana"})
+        self.machine = Machine.objects.create(owner=self.owner, title="Título humano", data={"brand": "Marca humana", "serial": "DELETE-001"})
         self.limits = PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=18000,
                                                       ai_max_attempts=2, analytics_enabled=True)
         self.result = {"data": {"description": "Propuesta tardía que no debe aplicarse."},
@@ -58,7 +58,7 @@ class DeletedDraftJobTests(TestCase):
         self.assert_cancelled(job)
         self.assertEqual((job.status, job.attempts, job.input_tokens, job.output_tokens), ("failed", 0, 0, 0))
         self.assertEqual(deleted.data, self.machine.data)
-        other = Machine.objects.create(owner=self.owner, title="Otro borrador", data={"brand": "Otra marca"})
+        other = Machine.objects.create(owner=self.owner, title="Otro borrador", data={"brand": "Otra marca", "serial": "DELETE-002"})
         self.assertEqual(self.enqueue(other).reserved_tokens, 18000)
 
     def test_restoring_queued_job_never_restarts_it_but_explicit_new_analysis_can_run(self):

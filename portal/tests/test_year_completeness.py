@@ -73,6 +73,23 @@ class YearCompletenessTests(SimpleTestCase):
         self.assertEqual(missing_fields(data, "Minicargadores"), ["price_range"])
         self.assertEqual(self.completion(data)["missing_fields"], ["price_range"])
 
+    def test_incomplete_sheet_exposes_safe_actionable_evidence_gaps(self):
+        data = {"brand": "Bobcat", "model": "S650", "description": COMPLETE_DATA["description"]}
+        saved = self.completion(data, {"completion": {}, "research": {"status": "completed"},
+            "valuation": {"status": "insufficient", "diagnostics": {"accepted_comparable_count": 1}}})
+        details = {item["field"]: item for item in saved["missing_details"]}
+        self.assertEqual(details["year_range"]["code"], "documented_model_period_missing")
+        self.assertEqual(details["price_range"]["code"], "second_comparable_missing")
+        self.assertNotIn("S650", str(details))
+        self.assertNotIn("estimado", " ".join(item["action"] for item in details.values()).casefold())
+
+    def test_manual_ranges_remain_complete_even_when_a_prior_market_job_failed(self):
+        data = {**COMPLETE_DATA, "estimated_year_from": 2010, "estimated_year_to": 2015,
+                "estimate_min": "10000", "estimate_max": "20000", "estimate_currency": "USD"}
+        saved = self.completion(data, {"completion": {}, "research": {"status": "degraded"},
+            "valuation": {"status": "not_run", "reason": "budget_unavailable"}})
+        self.assertEqual(saved, {"missing_fields": [], "message": ""})
+
     def test_historical_jobs_keep_their_existing_completion_contract(self):
         self.assertEqual(self.completion(COMPLETE_DATA, result={}), {})
 

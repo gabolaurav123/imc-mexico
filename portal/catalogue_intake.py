@@ -103,14 +103,28 @@ def _agreed_specs(references):
 
 
 def _period(references):
+    """Return one documented model period, never a range assembled from rows.
+
+    A catalogue may have separate references for a predecessor and successor.
+    Taking the earliest start and latest end would look useful, but no source
+    actually supports that combined interval.  The research normalizer rightly
+    refuses it later, which used to leave photo/serial intake without the
+    expected year range.  Preserve only a single, literally documented period;
+    conflicting catalogue records need review or further research.
+    """
+    from .research import documented_model_period
     rows = []
     for reference in references:
         evidence = (reference.provenance or {}).get("period_evidence")
-        if reference.period_from and reference.period_to and isinstance(evidence, str) and evidence.strip():
+        if (reference.period_from and reference.period_to and isinstance(evidence, str) and evidence.strip()
+                and documented_model_period(evidence.strip()) == (str(reference.period_from), str(reference.period_to))):
             rows.append((reference, evidence.strip()))
     if not rows:
         return {}, {}
-    start, end = min(row.period_from for row, _ in rows), max(row.period_to for row, _ in rows)
+    periods = {(row.period_from, row.period_to) for row, _ in rows}
+    if len(periods) != 1:
+        return {}, {}
+    start, end = next(iter(periods))
     reference, evidence = rows[0]
     data = {
         "estimated_year_from": start,
@@ -246,7 +260,11 @@ def catalogue_selection_research(machine):
 
 
 def catalogue_reference_ready(machine):
-    """A persisted exact-model selection is the only no-media preparation mode."""
+    """Whether a persisted exact-model selection has current local references.
+
+    This supports catalogue context after real unit evidence is supplied; it is
+    never, by itself, authorization to prepare or publish a unit fiche.
+    """
     if not machine.category_id or not isinstance(machine.data, dict) or not isinstance(machine.provenance, dict):
         return False
     brand, model = machine.data.get("brand"), machine.data.get("model")
@@ -270,7 +288,7 @@ def catalogue_reference_stale(machine):
     Editing a field through the normal draft endpoint turns its provenance into
     ``user``.  The remaining catalogue specifications keep their original
     citation, so compare every retained citation against the current identity
-    before another preparation, share, or no-media submission can rely on it.
+    before later catalogue context can be reused for that draft.
     """
     if not isinstance(machine.data, dict) or not isinstance(machine.provenance, dict):
         return False
