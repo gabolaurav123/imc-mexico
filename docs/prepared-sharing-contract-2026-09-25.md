@@ -2,7 +2,9 @@
 
 ## Entrada
 
-Las nuevas visitas a `/publicar/` pasan por registro o inicio de sesión. La cuenta debe tener correo, teléfono internacional válido y preferencia de contacto antes de crear otra ficha. Los datos completos se reutilizan; los incompletos se solicitan en el perfil y se vuelve al selector de maquinaria. Los borradores temporales existentes conservan sus archivos, capacidad de sesión y mecanismo de reclamación.
+Desde el 6 de octubre, `/publicar/` permite una ficha de prueba sin cuenta, limitada por IP y navegador. El resultado es privado, lleva marca de agua y pide registro al compartir o enviar a revisión. La misma ficha, archivos y resultados se conservan al crear la cuenta o iniciar sesión; no se crea una copia. El cupo se conserva en `GuestTrial` aunque caduque el borrador. Véase [borradores temporales](guest-drafts.md).
+
+Las cuentas deben tener correo, teléfono internacional válido y preferencia de contacto antes de crear nuevas fichas. Registro y perfil incluyen un selector de país/código. Los datos completos se reutilizan; los incompletos se solicitan en el perfil y se vuelve al selector de maquinaria.
 
 La generación requiere un tipo de máquina y al menos una fotografía utilizable o un número de serie. Una descripción o marca/modelo escritos sin serie ni fotografías ya no inician análisis. Si hay imágenes, el servidor siempre elige lectura visual aunque un cliente solicite sólo descripción. Este cambio no modifica trabajos históricos.
 

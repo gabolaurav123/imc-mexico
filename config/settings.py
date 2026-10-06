@@ -58,6 +58,10 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG and not TESTING
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO','https')
+# Forwarded client metadata is accepted only from these reverse proxies.  An
+# empty value is the safe default: REMOTE_ADDR is used and spoofable headers
+# are ignored.  Add the provider's documented CIDRs in production.
+TRUSTED_PROXY_CIDRS = tuple(x.strip() for x in os.getenv('TRUSTED_PROXY_CIDRS', '').split(',') if x.strip())
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_HSTS_PRELOAD = True

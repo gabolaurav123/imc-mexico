@@ -1,0 +1,12 @@
+{% extends 'portal/panel_base.html' %}
+{% block title %}Continúa con tu cuenta · IMC México{% endblock %}
+{% block panel_content %}
+<section class="guest-limit-card">
+  <p class="eyebrow">TU SIGUIENTE PASO</p>
+  <h1>Continúa con tu cuenta.</h1>
+  <p>La prueba sin cuenta ya se utilizó desde esta conexión o navegador. Crea tu cuenta para preparar más fichas y compartirlas.</p>
+  <p class="field-help">Si estás en una oficina o una red compartida, otra persona puede haber utilizado esta prueba. Puedes continuar registrándote o iniciando sesión.</p>
+  <div class="button-row"><a class="button button-navy" href="/registro/?next=/panel/maquinarias/nueva/">Crear mi cuenta</a><a class="button button-outline" href="/iniciar-sesion/?next=/panel/maquinarias/nueva/">Ya tengo cuenta</a></div>
+  <a class="text-link" href="/">Volver al inicio →</a>
+</section>
+{% endblock %}

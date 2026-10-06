@@ -41,10 +41,12 @@ w.eval(script);
   const wizard=doc.querySelector('#wizard');
   assert.equal(wizard.dataset.guest,'guest-draft-fixture');
   assert.equal(wizard.dataset.apiBase,'/api/invitados/guest-draft-fixture/');
-  assert.equal(wizard.dataset.maxImages,'3');
+  assert.equal(wizard.dataset.maxImages,'4');
   assert.equal(doc.querySelector('#download-draft-pdf'),null,'temporary draft cannot export a PDF');
   assert.equal(doc.querySelector('[data-open-sheet]'),null,'temporary draft cannot open a normal internal sheet');
   assert.ok(doc.querySelector('#guest-save-result'),'claim CTA is present');
+  assert.ok(doc.querySelector('.guest-watermark'),'trial result has a visible watermark');
+  assert.ok(doc.querySelector('#guest-account-modal'),'registration gate has its own accessible dialog');
 
   doc.querySelector('#analyze-button').click();
   await wait(35);
@@ -56,6 +58,18 @@ w.eval(script);
   assert.equal(calls.filter(call=>call.url.includes('/aplicar/')).length,0,'guest never uses the normal apply API');
   assert.equal(doc.querySelector('#model').value,'320D','poll hydrates the guest machine result');
   assert.equal(doc.querySelector('[data-step-panel="2"]').hidden,false,'completed polling displays the result');
+  doc.querySelector('[data-share-machine]').click();
+  await wait(25);
+  assert.ok(doc.querySelector('#guest-account-modal').open,'sharing opens account dialog without navigating to another editor');
+  assert.equal(calls.filter(call=>call.url.includes('/compartir/')).length,0,'guest never creates a public share link');
+  doc.querySelector('[data-close-guest-account]').click();
+  assert.equal(doc.querySelector('#guest-account-modal').open,false,'account gate can be dismissed');
+  const jobsBefore=calls.filter(call=>call.url.endsWith('/analizar/')).length;
+  doc.querySelector('#analyze-button').click();
+  await wait(10);
+  assert.equal(calls.filter(call=>call.url.endsWith('/analizar/')).length,jobsBefore,'another preparation asks for account without using the API');
+  assert.ok(doc.querySelector('#guest-account-modal').open);
+  doc.querySelector('[data-close-guest-account]').click();
 
   // A claim CTA must not jump to registration while a file remains in the
   // upload chain.  Make a dirty edit only after the upload started, so the

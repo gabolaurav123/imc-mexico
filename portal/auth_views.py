@@ -9,7 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import SetPasswordForm, PasswordChangeForm
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.sessions.models import Session
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, PermissionDenied
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import render, redirect
@@ -38,8 +38,13 @@ def publication_destination(request):
 
 def auth_render(request,form,title,submit_label,**extra):
     destination=publication_destination(request)
+    from .guest import _draft_for_request
+    try:
+        guest_claim = _draft_for_request(request)
+    except (ValidationError, PermissionDenied):
+        guest_claim = None
     return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,
-        'publication_flow':bool(destination),'publication_next':destination,**extra})
+        'publication_flow':bool(destination),'publication_next':destination,'guest_claim':guest_claim,**extra})
 
 def activation_email(user,kind='activation'):
     uid=urlsafe_base64_encode(force_bytes(user.pk))

@@ -11,7 +11,8 @@ from PIL import Image
 from unittest.mock import patch
 
 from portal.guest import purge_expired_guest_drafts
-from portal.models import AnalysisJob, Asset, Category, Consent, GuestDraft, Machine, PlatformSettings, User
+from portal.models import AnalysisJob, Asset, Category, Consent, GuestDraft, GuestTrial, Machine, PlatformSettings, User
+from portal.processing import _check_image_execution
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, STORAGES={
@@ -30,10 +31,11 @@ class GuestDraftTests(TestCase):
         self.image_index = 0
         self.real_user = User.objects.create_user(email="owner@example.invalid", password="Guest-claim-password-123!", phone="+525512345678")
 
-    def start(self, client=None, **values):
+    def start(self, client=None, remote_addr="127.0.0.1", **values):
         client = client or self.client
         body = {"category": self.category.pk, "brand": "CAT", "model": "320", "description": "Excavadora con datos declarados.", **values}
-        response = client.post("/api/invitados/", data=json.dumps(body), content_type="application/json")
+        response = client.post("/api/invitados/", data=json.dumps(body), content_type="application/json",
+                               REMOTE_ADDR=remote_addr)
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()
 
@@ -43,10 +45,10 @@ class GuestDraftTests(TestCase):
         Image.new("RGB", (48, 48), (self.image_index * 50, 0, 180)).save(raw, format="JPEG")
         return SimpleUploadedFile("machine.jpg", raw.getvalue(), content_type="image/jpeg")
 
-    def test_guest_upload_rechecks_the_locked_three_photo_limit(self):
+    def test_guest_upload_rechecks_the_locked_four_photo_limit(self):
         payload = self.start()
         draft = GuestDraft.objects.get(pk=payload["id"])
-        for _ in range(3):
+        for _ in range(4):
             response = self.client.post(
                 f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "general"}
             )
@@ -58,7 +60,7 @@ class GuestDraftTests(TestCase):
             f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "general"}
         )
         self.assertEqual(blocked.status_code, 400)
-        self.assertEqual(Asset.objects.filter(machine=draft.machine).count(), 3)
+        self.assertEqual(Asset.objects.filter(machine=draft.machine).count(), 4)
 
     def test_guest_editor_retains_incomplete_sheet_state_after_photo_check(self):
         payload = self.start()
@@ -111,7 +113,7 @@ class GuestDraftTests(TestCase):
         wizard = self.client.get(f"/invitados/{draft.pk}/")
         self.assertEqual(wizard.status_code, 200)
         self.assertEqual(wizard.context["guest_api_base"], f"/api/invitados/{draft.pk}/")
-        self.assertContains(wizard, 'data-max-images="3"')
+        self.assertContains(wizard, 'data-max-images="4"')
         self.assertContains(wizard, 'id="guest-save-result"')
         self.assertNotContains(wizard, 'data-open-sheet')
         self.assertNotContains(wizard, 'id="download-draft-pdf"')
@@ -144,6 +146,27 @@ class GuestDraftTests(TestCase):
         machine.refresh_from_db()
         self.assertEqual(machine.owner_id, self.real_user.pk)
 
+    def test_claim_does_not_cancel_the_already_authorized_guest_analysis(self):
+        payload = self.start()
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        job = AnalysisJob.objects.create(
+            machine=draft.machine, requested_by=draft.owner, revision=draft.machine.revision,
+            fingerprint="f" * 64, asset_ids=[], status="running",
+        )
+        Consent.objects.create(user=draft.owner, machine=draft.machine, kind="ai", granted=True)
+
+        # Register/login claims the draft while this one job is in flight.
+        # The worker keeps the original requester and consent, but must be
+        # allowed to complete so the new owner can review its retained result.
+        self.client.force_login(self.real_user)
+        response = self.client.get("/iniciar-sesion/")
+        self.assertRedirects(response, f"/panel/maquinarias/{draft.machine_id}/")
+        draft.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(draft.claimed_by_id, self.real_user.pk)
+        self.assertEqual(job.requested_by_id, draft.owner_id)
+        _check_image_execution(job)
+
     def test_expired_draft_cannot_be_read_or_claimed(self):
         payload = self.start()
         draft = GuestDraft.objects.get(pk=payload["id"])
@@ -156,10 +179,10 @@ class GuestDraftTests(TestCase):
         self.assertIsNone(draft.claimed_by_id)
         self.assertEqual(Machine.objects.get(pk=draft.machine_id).owner_id, draft.owner_id)
 
-    def test_guest_limits_reject_more_than_one_job_and_three_photos(self):
+    def test_guest_limits_reject_more_than_one_job_and_four_photos(self):
         payload = self.start()
         draft = GuestDraft.objects.get(pk=payload["id"])
-        for _ in range(3):
+        for _ in range(4):
             response = self.client.post(f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "general"})
             self.assertEqual(response.status_code, 201, response.content)
         fourth = self.client.post(f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "general"})
@@ -192,12 +215,105 @@ class GuestDraftTests(TestCase):
         self.assertEqual(AnalysisJob.objects.filter(machine=draft.machine).count(), 1)
         self.assertTrue(AnalysisJob.objects.filter(pk=existing.pk).exists())
 
-    def test_anonymous_start_is_rate_limited(self):
-        clients = [Client() for _ in range(4)]
-        for client in clients[:3]:
-            self.start(client)
-        response = clients[3].post("/api/invitados/", data=json.dumps({}), content_type="application/json")
+    def test_service_failure_allows_a_bounded_retry_without_spending_analysis(self):
+        payload = self.start(serial="SN-RETRY-123")
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        AnalysisJob.objects.create(machine=draft.machine, requested_by=draft.owner, revision=draft.machine.revision,
+                                   fingerprint="f" * 64, asset_ids=[], mode="description", status="failed",
+                                   result={"provider_error_code": "billing_unavailable"})
+        self.assertFalse(payload["analysis_used"])
+
+        def enqueue(machine, user, asset_ids, mode, **kwargs):
+            return AnalysisJob.objects.create(machine=machine, requested_by=user, revision=machine.revision,
+                                              fingerprint="g" * 64, asset_ids=[], mode=mode, status="queued")
+
+        with patch("portal.processing.enqueue_analysis", side_effect=enqueue):
+            retry = self.client.post(f"/api/invitados/{draft.pk}/analizar/", data=json.dumps({
+                "consent": True, "revision": draft.machine.revision, "asset_ids": [], "research": False,
+                "mode": "description", "auto_apply": True,
+            }), content_type="application/json")
+        self.assertEqual(retry.status_code, 200, retry.content)
+        self.assertTrue(retry.json()["guest_draft"]["analysis_used"])
+        job = AnalysisJob.objects.get(pk=retry.json()["id"])
+        job.status = "completed"
+        job.save(update_fields=["status"])
+        blocked = self.client.post(f"/api/invitados/{draft.pk}/analizar/", data=json.dumps({
+            "consent": True, "revision": draft.machine.revision, "asset_ids": [], "research": False,
+            "mode": "description", "auto_apply": True,
+        }), content_type="application/json")
+        self.assertEqual(blocked.status_code, 400)
+
+    def test_guest_trial_is_a_durable_one_use_quota_per_ip(self):
+        first = self.start(remote_addr="198.51.100.20")
+        self.assertEqual(GuestTrial.objects.count(), 1)
+        second_browser = Client()
+        response = second_browser.post("/api/invitados/", data=json.dumps({}), content_type="application/json",
+                                       REMOTE_ADDR="198.51.100.20")
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json()["code"], "guest_trial_used")
+        self.assertEqual(response.json()["signup_url"], "/registro/")
+        self.assertEqual(str(GuestTrial.objects.get().draft_id), first["id"])
+        self.assertEqual(GuestDraft.objects.count(), 1)
+        self.assertNotIn("hash", response.content.decode())
+        self.assertNotIn("198.51.100.20", response.content.decode())
+
+    def test_service_rejection_keeps_photo_editing_available(self):
+        payload = self.start()
+        draft = GuestDraft.objects.get(pk=payload['id'])
+        uploaded = self.client.post(f'/api/invitados/{draft.pk}/archivos/',
+                                    {'file':self.image(),'purpose':'general'})
+        self.assertEqual(uploaded.status_code, 201)
+        AnalysisJob.objects.create(machine=draft.machine, requested_by=draft.owner,
+            revision=draft.machine.revision, fingerprint='b'*64, asset_ids=[], mode='analysis',
+            status='failed', result={'provider_error_code':'billing_unavailable'})
+        response = self.client.post(f'/api/invitados/{draft.pk}/archivos/{uploaded.json()["id"]}/accion/',
+            data=json.dumps({'action':'delete'}), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(draft.machine.assets.exists())
+
+    def test_guest_trial_normalizes_ipv4_mapped_ipv6(self):
+        self.start(remote_addr="198.51.100.22")
+        response = Client().post("/api/invitados/", data=json.dumps({}), content_type="application/json",
+                                 REMOTE_ADDR="::ffff:198.51.100.22")
+        self.assertEqual(response.status_code, 429)
+
+    def test_browser_quota_survives_claim_logout_and_network_change(self):
+        self.start(remote_addr="198.51.100.23")
+        self.client.force_login(self.real_user)
+        self.client.get("/iniciar-sesion/")
+        self.client.post("/cerrar-sesion/")
+        response = self.client.post("/api/invitados/", data=json.dumps({}), content_type="application/json",
+                                    REMOTE_ADDR="203.0.113.23")
+        self.assertEqual(response.status_code, 429)
+
+    def test_invalid_request_does_not_consume_the_trial(self):
+        response = self.client.post("/api/invitados/", data=json.dumps({"category": "not-a-category"}),
+                                    content_type="application/json", REMOTE_ADDR="198.51.100.21")
         self.assertEqual(response.status_code, 400)
+        self.assertFalse(GuestTrial.objects.exists())
+        self.start(remote_addr="198.51.100.21")
+        self.assertEqual(GuestTrial.objects.count(), 1)
+
+    def test_missing_or_invalid_network_address_does_not_consume_a_trial(self):
+        response = self.client.post("/api/invitados/", data=json.dumps({}), content_type="application/json",
+                                    REMOTE_ADDR="not-an-ip")
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(GuestTrial.objects.exists())
+
+    @override_settings(TRUSTED_PROXY_CIDRS=("10.0.0.0/8",))
+    def test_guest_trial_uses_forwarded_ip_only_from_trusted_proxy(self):
+        response = self.client.post("/api/invitados/", data=json.dumps({"brand": "CAT", "model": "320"}),
+                                    content_type="application/json", REMOTE_ADDR="10.4.3.2",
+                                    HTTP_X_FORWARDED_FOR="198.51.100.25, 10.2.3.4")
+        self.assertEqual(response.status_code, 201, response.content)
+        trial = GuestTrial.objects.get()
+        # Spoofed headers from a direct client cannot select another IP, so
+        # this is a separate one-use network identity.
+        direct = Client().post("/api/invitados/", data=json.dumps({"brand": "CAT", "model": "320"}),
+                               content_type="application/json", REMOTE_ADDR="198.51.100.26",
+                               HTTP_X_FORWARDED_FOR="198.51.100.25")
+        self.assertEqual(direct.status_code, 201, direct.content)
+        self.assertTrue(GuestTrial.objects.exclude(pk=trial.pk).exists())
 
     def test_existing_guest_session_reuses_its_single_machine(self):
         first = self.start()
@@ -231,7 +347,7 @@ class GuestDraftTests(TestCase):
         page = self.client.get(f"/invitados/{draft.pk}/")
         self.assertEqual(page.status_code, 200)
         self.assertContains(page, f'data-api-base="/api/invitados/{draft.pk}/"')
-        self.assertContains(page, 'data-max-images="3"')
+        self.assertContains(page, 'data-max-images="4"')
 
         saved = self.client.post(f"/api/invitados/{draft.pk}/guardar/", data=json.dumps({
             "revision": draft.machine.revision, "title": "CAT 320 declarada", "category": self.category.pk,
@@ -334,7 +450,7 @@ class GuestDraftTests(TestCase):
         draft.owner.refresh_from_db()
         self.assertFalse(draft.owner.is_active)
 
-        claimed = self.start()
+        claimed = self.start(Client(), remote_addr="198.51.100.30")
         claimed_draft = GuestDraft.objects.get(pk=claimed["id"])
         claimed_draft.claimed_by = self.real_user
         claimed_draft.claimed_at = timezone.now()

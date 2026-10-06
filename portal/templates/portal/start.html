@@ -4,6 +4,7 @@
 {% block panel_content %}
 <div class="publication-start catalogue-first" data-intake-start data-catalogue-url="{% url 'catalogue_discovery_api' %}" data-icons-url="{% static 'portal/equipment-icons.svg' %}" data-initial-category="{{ initial_category_slug|default:'' }}">
   <header class="publication-intro"><div><p class="eyebrow">PUBLICAR MAQUINARIA / EMPECEMOS</p><h1>Todo empieza con tu equipo.</h1><p>Elige el tipo. Si conoces la marca y el modelo, selecciónalos; también puedes continuar directamente con una foto o serie.</p></div><span class="studio-step-tag">01 / IDENTIFICAR EL EQUIPO</span></header><div class="studio-layout">
+  {% if guest_mode %}<div class="guest-trial-banner"><strong>Prueba una ficha sin crear cuenta.</strong><span>Una preparación gratuita por conexión y navegador. Al compartirla te pediremos registrarte.</span><a href="/iniciar-sesion/?next=/panel/maquinarias/nueva/">Ya tengo cuenta →</a></div>{% endif %}
   <form method="post" id="start-machine-form" class="intake-card">{% csrf_token %}
     <input id="start-serial" name="serial" type="hidden" value=""><input id="start-entry-mode" name="entry_mode" type="hidden" value="photos"><input id="catalogue-model" name="catalogue_model" type="hidden" value=""><input id="known-brand" name="brand" type="hidden" value=""><input id="known-model" name="model" type="hidden" value="">
     <input name="catalogue_enrichment" type="hidden" value="1">

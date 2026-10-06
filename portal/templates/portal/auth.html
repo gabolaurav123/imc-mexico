@@ -5,6 +5,8 @@
   <div class="auth-aside">
     {% if admin_access %}
       <p class="eyebrow">ADMINISTRACIÓN IMC MÉXICO</p><h1>El control <br>de tu <br><em>plataforma.</em></h1><p>Acceso para el equipo autorizado de IMC México. Gestiona solicitudes, anunciantes y consultas según los permisos de tu cuenta.</p><div class="auth-points"><span>01 <b>Entra con tu correo y contraseña</b></span><span>02 <b>Verifica tu acceso para abrir la administración</b></span></div>
+    {% elif guest_claim %}
+      <p class="eyebrow">CONSERVA TU FICHA</p><h1>Tu equipo. <br>Tu ficha. <br><em>Tu cuenta.</em></h1><p>La ficha que preparaste sigue guardada. Al entrar conservaremos sus fotografías y los datos que ya completaste.</p><div class="auth-points"><span>01 <b>Conserva tu ficha y sus fotografías</b></span><span>02 <b>Compártela con un enlace corto, sin marca de prueba</b></span><span>03 <b>Prepara más publicaciones desde tu cuenta</b></span></div>
     {% elif 'registro' in request.path %}
       <p class="eyebrow">PUBLICAR MAQUINARIA</p><h1>Crea tu cuenta.<br>Prepara tu<br><em>publicación.</em></h1><p>Necesitamos tus datos de contacto para guardar tus fichas y dar seguimiento a tu solicitud.</p><div class="auth-points"><span>01 <b>Registra tus datos de contacto</b></span><span>02 <b>Sube fotos y obtén una ficha editable</b></span><span>03 <b>Envía a revisión y recibe observaciones</b></span></div>
     {% elif 'iniciar-sesion' in request.path %}
@@ -16,7 +18,7 @@
   <div class="auth-form">
     <p class="eyebrow">{% if admin_access %}ADMINISTRACIÓN IMC MÉXICO{% elif 'iniciar-sesion' in request.path %}ACCESO A IMC MÉXICO{% else %}PORTAL DE ANUNCIANTES{% endif %}</p><h2>{{ title }}</h2>
     {% if intro %}<p>{{ intro }}</p>{% endif %}
-    {% if form and 'registro' in request.path %}<p class="small muted">Los campos con * son obligatorios. Selecciona o escribe el prefijo de tu país antes del número. Puedes mostrar cada contraseña con el botón del ojo.</p>{% endif %}
+    {% if form and 'registro' in request.path %}<p class="small muted">Los campos con * son obligatorios. Selecciona el país de tu número. Puedes mostrar cada contraseña con el botón del ojo.</p>{% endif %}
     {% if form %}<form method="post" novalidate>{% csrf_token %}{% if publication_flow %}<input type="hidden" name="next" value="{{ publication_next }}">{% endif %}{% include 'portal/form_fields.html' %}<button class="button button-red full-width" type="submit">{{ submit_label|default:'Continuar' }} <span aria-hidden="true">→</span></button></form>{% endif %}
     <div class="auth-links">
       {% if admin_access %}

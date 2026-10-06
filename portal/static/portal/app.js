@@ -104,11 +104,22 @@
   catch { $('#wizard-errors').textContent = 'No pudimos cargar el borrador. Recarga antes de editar.'; $('#wizard-errors').hidden = false; return; }
   state.data ||= {}; state.provenance ||= {};
   const guest = Boolean(wizard.dataset.guest);
+  let guestAnalysisUsed=false;
+  try{guestAnalysisUsed=Boolean(JSON.parse($('#guest-state')?.textContent||'{}').analysis_used);}catch{/* Server still enforces the trial. */}
   const base = wizard.dataset.apiBase || `/api/maquinarias/${wizard.dataset.machine}/`;
   const jobUrl = id => guest ? `${base}analisis/${id}/` : `/api/analisis/${id}/`;
   const assetUrl = id => guest ? `${base}archivos/${encodeURIComponent(id)}/` : `/archivos/${encodeURIComponent(id)}/`;
   const assetActionUrl = id => guest ? `${base}archivos/${id}/accion/` : `/api/archivos/${id}/accion/`;
-  function keepGuestResult() { displayStep(2); $('#guest-save-result')?.scrollIntoView({behavior:'smooth',block:'center'}); }
+  function keepGuestResult() {
+    displayStep(2);
+    const modal=$('#guest-account-modal');
+    if(modal){if(!modal.open){if(typeof modal.showModal==='function')modal.showModal();else modal.setAttribute('open','');}}
+    else $('#guest-save-result')?.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+  $$('[data-close-guest-account]',wizard).forEach(button=>button.addEventListener('click',()=>{
+    const modal=$('#guest-account-modal');
+    if(typeof modal?.close==='function')modal.close();else modal?.removeAttribute('open');
+  }));
   $$('[data-guest-save]',wizard).forEach(link => link.addEventListener('click',event => { event.preventDefault(); keepGuestResult(); }));
   let editable = wizard.dataset.editable === 'true';
   const pending = new Map(), legacyAttempts = new Set(), uploadFailures = new Set(), assetTasks = new Set();
@@ -298,7 +309,11 @@
   $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
   let sharedUrl='',sharing=false;
   $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
-    if(guest){keepGuestResult();return;}
+    if(guest){
+      if(preparing||jobPending||polling||submitting||deleting)return problem('Espera a que termine la preparación antes de compartir.');
+      try{await uploadsReady();await save();keepGuestResult();}catch(error){problem(error.message);}
+      return;
+    }
     if(sharing)return;
     if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
     sharing=true;$$('[data-share-machine]',wizard).forEach(item=>{item.disabled=true;});clearProblem();
@@ -619,7 +634,7 @@
     const requirement = $('#evidence-requirement'); if(requirement) requirement.hidden = hasInput;
     $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; });
     $('#analyze-button').disabled = !editable || !hasInput || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
-    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →';
+    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : guest && guestAnalysisUsed ? 'Crear cuenta para volver a generar →' : 'Generar ficha de maquinaria →';
     $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;});
     $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting;
     const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting;
@@ -700,6 +715,7 @@
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(jobUrl(id));
+      if(guest)guestAnalysisUsed=typeof job.guest_draft?.analysis_used==='boolean'?job.guest_draft.analysis_used:job.status==='completed'||job.status==='failed'&&!['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code);
       if(job.status==='failed' && ['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code)){
         await syncSnapshot(job);pausePreparation();return;
       }
@@ -727,6 +743,7 @@
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
     if (!editable || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
+    if(guest && guestAnalysisUsed){keepGuestResult();return;}
     clearTimeout(preflightTimer);
     if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();

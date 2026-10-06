@@ -244,3 +244,15 @@ button:disabled{cursor:not-allowed}.text-link{font-size:14px}
   .footer-main{padding-block:27px}.footer-main p{font-size:12px}.footer-bottom{line-height:1.8}
 }
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}.equipment-tile{transition:none}}
+.guest-trial-banner{grid-column:1/-1;display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px;padding:17px 21px;margin-bottom:20px;background:#fff5df;border-left:4px solid #e59a24;color:#253d50;font-size:13px}
+.guest-trial-banner strong{font-size:15px}.guest-trial-banner span{flex:1;min-width:200px}.guest-trial-banner a{font-weight:700;text-decoration:underline}
+.studio-layout>.guest-trial-banner{margin-bottom:0}.guest-preview-sheet{position:relative;isolation:isolate;overflow:hidden}
+.guest-preview-label{position:relative;color:#775016;background:#fff2d9;border-left:3px solid #e59a24;padding:10px 14px;font-size:10px;font-weight:700;letter-spacing:.08em;margin-bottom:18px}
+.guest-watermark{position:absolute;inset:65px 0 0;z-index:3;pointer-events:none;display:flex;flex-direction:column;justify-content:space-around;overflow:hidden;color:#18354d;opacity:.14;text-align:center;font-size:clamp(17px,3.2vw,37px);font-weight:800;letter-spacing:.09em;user-select:none}
+.guest-watermark span{display:block;white-space:nowrap;transform:rotate(-18deg)}
+.guest-account-modal{max-width:590px}.guest-account-modal>p{line-height:1.7;margin-block:18px 25px}.guest-account-modal>.link-button{margin:20px 24px 24px}
+.guest-limit-card{max-width:720px;margin:35px auto;padding:38px;background:white;border-top:5px solid #e59a24;box-shadow:0 8px 28px #18354d0d}.guest-limit-card h1{font-size:34px}.guest-limit-card>p{line-height:1.7}.guest-limit-card .button-row{margin:25px 0}
+@media(max-width:640px){.guest-trial-banner{padding:14px;gap:8px;font-size:12px}.guest-trial-banner strong{font-size:14px}.guest-trial-banner span{flex-basis:100%}.guest-limit-card{padding:23px;margin:0}.guest-limit-card h1{font-size:28px}.guest-preview-label{font-size:8px}}
+@media print{.guest-preview-sheet .guest-watermark{opacity:.23;print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+.phone-fields{grid-template-columns:minmax(180px,1fr) minmax(150px,1fr)}
+@media(max-width:640px){.phone-fields{grid-template-columns:minmax(0,1fr);gap:0}}

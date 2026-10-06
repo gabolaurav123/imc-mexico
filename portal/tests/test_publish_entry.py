@@ -1,5 +1,5 @@
 """The service entry survives registration/login without starting paid work."""
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from portal.models import AnalysisJob, Category, GuestDraft, Machine, Notification, PlatformSettings, Publication, User
 
 
@@ -25,13 +25,21 @@ class PublishEntryTests(TestCase):
         self.assertContains(response, 'href="/publicar/"')
         self.assertContains(response, 'IMC México revisa y autoriza la publicación en el catálogo')
         entry = self.client.get('/publicar/')
-        self.assertRedirects(entry, '/registro/?next=/panel/maquinarias/nueva/')
+        self.assertEqual(entry.status_code, 200)
+        self.assertTrue(entry.context['guest_mode'])
+        self.assertContains(entry, 'Prueba una ficha sin crear cuenta')
         for model in (User, Machine, AnalysisJob, Notification, Publication):
             self.assertFalse(model.objects.exists())
         response = self.client.post('/publicar/', {'brand': 'CAT', 'model': '320'})
-        self.assertRedirects(response, '/registro/?next=/panel/maquinarias/nueva/')
-        self.assertFalse(GuestDraft.objects.exists())
-        self.assertFalse(Machine.objects.exists())
+        draft = GuestDraft.objects.get()
+        self.assertRedirects(response, f'/invitados/{draft.pk}/')
+        self.assertEqual(Machine.objects.count(), 1)
+
+        already_used = Client().get('/publicar/')
+        self.assertContains(already_used, 'Continúa con tu cuenta', status_code=429)
+        self.assertFalse(AnalysisJob.objects.exists())
+        self.assertFalse(Publication.objects.exists())
+        self.assertRedirects(self.client.get('/publicar/'), f'/invitados/{draft.pk}/')
 
     def test_registration_returns_to_photos_and_only_post_creates_private_draft(self):
         response = self.client.post('/registro/', self.registration())
@@ -64,12 +72,49 @@ class PublishEntryTests(TestCase):
         response = self.client.post('/registro/', self.registration(next='https://outside.example/'))
         self.assertRedirects(response, '/panel/')
 
+    def test_guest_claim_keeps_same_fiche_and_removes_trial_gate_after_registration(self):
+        self.client.post('/publicar/', {'category': self.category.pk, 'brand':'CAT', 'model':'320D',
+                                       'serial':'TEST-CAT-320D', 'entry_mode':'serial'})
+        draft = GuestDraft.objects.get()
+        preview = self.client.get(f'/invitados/{draft.pk}/')
+        self.assertContains(preview, 'guest-watermark')
+        self.assertContains(preview, 'id="guest-account-modal"')
+        self.assertEqual(preview['Cache-Control'], 'private, no-store')
+        registration = self.client.post('/registro/', self.registration())
+        self.assertRedirects(registration, f'/panel/maquinarias/{draft.machine_id}/')
+        draft.refresh_from_db()
+        machine = Machine.objects.get(pk=draft.machine_id)
+        self.assertEqual(machine.owner_id, draft.claimed_by_id)
+        self.assertEqual(machine.data['serial'], 'TEST-CAT-320D')
+        self.assertEqual(Machine.objects.count(), 1)
+        editor = self.client.get(registration.url)
+        self.assertNotContains(editor, 'class="guest-watermark"')
+        self.assertNotContains(editor, 'id="guest-account-modal"')
+        self.assertFalse(AnalysisJob.objects.exists())
+        self.assertFalse(Publication.objects.exists())
+
+    def test_second_session_gets_human_quota_page_instead_of_json(self):
+        self.client.post('/publicar/', {'category':self.category.pk, 'entry_mode':'photos'})
+        response = Client().post('/publicar/', {'category':self.category.pk, 'entry_mode':'photos'})
+        self.assertContains(response, 'Continúa con tu cuenta', status_code=429)
+        self.assertContains(response, 'red compartida', status_code=429)
+        self.assertContains(response, '/registro/?next=/panel/maquinarias/nueva/', status_code=429)
+        self.assertEqual(Machine.objects.count(), 1)
+
+    def test_guest_entry_requires_csrf_to_create_and_ignores_unknown_category_hint(self):
+        client = Client(enforce_csrf_checks=True)
+        page = client.get('/publicar/', {'tipo':'https://outside.example/'})
+        self.assertEqual(page.context['initial_category_slug'], '')
+        self.assertEqual(client.post('/publicar/', {'entry_mode':'photos'}).status_code, 403)
+        self.assertFalse(GuestDraft.objects.exists())
+
     def test_category_entry_survives_registration_and_does_not_create_paid_work(self):
         from urllib.parse import parse_qs, urlsplit
         target = f'/panel/maquinarias/nueva/?tipo={self.category.slug}'
         entry = self.client.get('/publicar/', {'tipo': self.category.slug})
-        self.assertEqual(parse_qs(urlsplit(entry.url).query)['next'], [target])
-        page = self.client.get(entry.url)
+        self.assertEqual(entry.status_code, 200)
+        self.assertEqual(entry.context['initial_category_slug'], self.category.slug)
+        page = self.client.get('/registro/', {'next': target})
         self.assertEqual(page.context['publication_next'], target)
         self.assertContains(page, f'name="next" value="{target}"')
         sign_in = self.client.get('/iniciar-sesion/', {'next': target})

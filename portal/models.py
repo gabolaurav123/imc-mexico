@@ -242,6 +242,25 @@ class GuestDraft(models.Model):
         return self.claimed_by_id is None and not self.expired
 
 
+class GuestTrial(models.Model):
+    """One durable, pseudonymous guest allowance per network address.
+
+    This deliberately stores keyed digests, never the source address, browser
+    token, or an untrusted proxy header.  The row remains after the temporary
+    draft expires so deleting a draft cannot reset the allowance.
+    """
+    ip_hash = models.CharField(max_length=64, unique=True, editable=False)
+    browser_hash = models.CharField(max_length=64, unique=True, editable=False)
+    draft = models.OneToOneField(GuestDraft, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name="trial")
+    used_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "uso gratuito de visitante"
+        verbose_name_plural = "usos gratuitos de visitantes"
+
+
 class ImmutableQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise ValidationError("El registro histórico es inmutable.")

@@ -18,16 +18,17 @@ estilo para utilizar la lógica del portal.
 
 ## Punto de entrada y recorrido
 
-`GET /publicar/` conduce al registro o al inicio de una nueva ficha si ya existe
-sesión. Registro e inicio de sesión conservan el destino de publicación. Visitar
-un enlace nunca crea una ficha ni inicia una llamada de IA.
+`GET /publicar/` permite comenzar una ficha de prueba sin cuenta o retomar el
+borrador privado de la misma sesión. Si la prueba por IP/navegador ya se utilizó,
+ofrece crear cuenta. Visitar un enlace nunca crea una ficha ni inicia IA.
 
-1. Registro: nombre, apellidos, correo, celular con prefijo internacional,
-   preferencia de contacto, contraseña/confirmación y aceptación de términos.
-   Empresa es opcional. El teléfono se guarda completo en `User.phone`.
-2. Creación explícita del borrador y carga privada de fotografías. Placa opcional.
+1. Selección de tipo, marca/modelo opcionales y foto o número de serie.
+2. Creación explícita de un borrador privado; hasta cuatro fotos en la prueba.
 3. Análisis solicitado por el usuario, aplicación de datos disponibles y edición.
-4. Ficha virtual, descarga PDF y envío explícito a revisión.
+4. Al compartir, crear cuenta o iniciar sesión conserva la misma ficha. El registro
+   pide nombre, apellidos, correo, celular con selector de país, preferencia de
+   contacto y contraseña/confirmación. La ficha virtual obtiene un enlace corto
+   sólo tras autenticarse; la descarga PDF sigue reservada al personal autorizado.
 5. Revisión administrativa, observaciones/notificaciones y publicación autorizada.
 
 ## Lógica reutilizable y presentación sustituible

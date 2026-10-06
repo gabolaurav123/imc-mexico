@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from portal.forms import ProfileForm, RegisterForm
+from portal.forms import COUNTRY_PREFIXES, COUNTRY_PREFIX_LABELS, ProfileForm, RegisterForm, country_prefix_choices
 from portal.models import User
 
 
@@ -20,6 +20,24 @@ class RegistrationPhoneTests(TestCase):
             form = RegisterForm(self.payload(email=f"{prefix[1:]}@example.invalid", phone_prefix=prefix, phone_national=national))
             self.assertTrue(form.is_valid(), form.errors)
             self.assertEqual(form.cleaned_data["phone"], expected)
+
+    def test_country_selector_covers_every_allowed_code_with_a_country_label(self):
+        choices = country_prefix_choices()
+        self.assertEqual({code for code, _label in choices}, COUNTRY_PREFIXES)
+        self.assertEqual(set(COUNTRY_PREFIX_LABELS), COUNTRY_PREFIXES)
+        self.assertEqual(choices[:4], [
+            ("+52", "México (+52)"), ("+591", "Bolivia (+591)"),
+            ("+1", "Estados Unidos, Canadá y Caribe (+1)"), ("+34", "España (+34)"),
+        ])
+
+    def test_registration_and_profile_render_the_same_native_country_selector(self):
+        user = User.objects.create_user(email="select@example.invalid", phone="+59171234567")
+        for form in (RegisterForm(), ProfileForm(instance=user)):
+            rendered = str(form["phone_prefix"])
+            self.assertIn('<select name="phone_prefix"', rendered)
+            self.assertIn('México (+52)', rendered)
+            self.assertIn('Bolivia (+591)', rendered)
+        self.assertIn('<option value="+591" selected>', str(ProfileForm(instance=user)["phone_prefix"]))
 
     def test_pasted_international_number_matches_prefix_without_doubling(self):
         form = RegisterForm(self.payload(phone_prefix="+52", phone_national="+52 55 1234 5678"))

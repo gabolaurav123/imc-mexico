@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import logging
 import secrets
 import uuid
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import redirect, render
@@ -25,17 +26,101 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
 from . import services
-from .models import AnalysisJob, Asset, Brand, Category, EquipmentModel, GuestDraft, Machine, PlatformSettings, User
+from .models import AnalysisJob, Asset, Brand, Category, EquipmentModel, GuestDraft, GuestTrial, Machine, PlatformSettings, User
 from .security import throttle
 
 SESSION_KEY = "guest_draft_capability"
-MAX_GUEST_IMAGES = 3
+BROWSER_COOKIE = "guest_browser_id"
+BROWSER_COOKIE_AGE = 60 * 60 * 24 * 400
+MAX_GUEST_IMAGES = 4
 MAX_GUEST_JOBS = 1
+MAX_GUEST_SERVICE_RETRIES = 3
+RETRIABLE_SERVICE_FAILURE_CODES = frozenset({"billing_unavailable", "credentials_unavailable", "model_unavailable"})
 logger = logging.getLogger(__name__)
 
 
 class GuestExpired(ValidationError):
     pass
+
+
+class GuestQuotaExceeded(ValidationError):
+    pass
+
+
+def _trusted_proxy_networks():
+    """Return valid configured proxy ranges; a bad setting fails closed."""
+    networks = []
+    for value in getattr(settings, "TRUSTED_PROXY_CIDRS", ()):
+        try:
+            networks.append(ipaddress.ip_network(value, strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid TRUSTED_PROXY_CIDRS entry.")
+    return tuple(networks)
+
+
+def _client_ip(request):
+    """Resolve an address only when the immediate peer is a trusted proxy.
+
+    ``X-Forwarded-For`` is client-to-proxy ordered.  Starting at its right
+    edge prevents an attacker from choosing the left-most value when a chain
+    contains more than one trusted proxy.  If anything is malformed, use the
+    direct peer rather than an untrusted header.
+    """
+    peer_value = request.META.get("REMOTE_ADDR", "")
+    try:
+        peer = ipaddress.ip_address(peer_value)
+    except ValueError:
+        return None
+    networks = _trusted_proxy_networks()
+    if not networks or not any(peer in network for network in networks):
+        return _normalized_ip(peer)
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if not forwarded:
+        return _normalized_ip(peer)
+    try:
+        chain = [ipaddress.ip_address(value.strip()) for value in forwarded.split(",")]
+    except ValueError:
+        return _normalized_ip(peer)
+    if not chain:
+        return peer.compressed
+    for address in reversed(chain):
+        if not any(address in network for network in networks):
+            return _normalized_ip(address)
+    return _normalized_ip(chain[0])
+
+
+def _normalized_ip(address):
+    """Treat an IPv4 address and its IPv4-mapped IPv6 form as one address."""
+    return address.ipv4_mapped.compressed if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped else address.compressed
+
+
+def _guest_browser_token(request):
+    """Issue a random, HttpOnly browser marker independent of login sessions."""
+    value = request.COOKIES.get(BROWSER_COOKIE)
+    if not isinstance(value, str) or len(value) < 32:
+        value = secrets.token_urlsafe(32)
+        request._guest_browser_cookie = value
+    return value
+
+
+def _with_browser_cookie(request, response):
+    value = getattr(request, "_guest_browser_cookie", None)
+    if value:
+        response.set_cookie(BROWSER_COOKIE, value, max_age=BROWSER_COOKIE_AGE, httponly=True,
+                            secure=not settings.DEBUG, samesite="Lax")
+    return response
+
+
+def _guest_trial_identity(request):
+    client_ip = _client_ip(request)
+    if client_ip is None:
+        raise ValidationError("No pudimos verificar la conexión para iniciar la ficha temporal.")
+    # Separate purpose labels make a digest non-reusable across data domains.
+    key = settings.SECRET_KEY.encode()
+    ip_hash = hmac.new(key, f"guest-trial-ip:{client_ip}".encode(), hashlib.sha256).hexdigest()
+    browser_hash = hmac.new(key, f"guest-trial-browser:{_guest_browser_token(request)}".encode(),
+                            hashlib.sha256).hexdigest()
+    return ip_hash, browser_hash
 
 
 def purge_expired_guest_drafts(*, limit=100):
@@ -150,7 +235,7 @@ def _draft_for_request(request, pk=None, *, lock=False):
         raise PermissionDenied("El borrador ya fue conservado en una cuenta.")
     if draft.expired:
         _clear_capability(request)
-        raise GuestExpired("El borrador temporal venció. Puedes iniciar uno nuevo.")
+        raise GuestExpired("El borrador temporal venció. Crea una cuenta para continuar.")
     if not draft.owner.is_guest or draft.machine.owner_id != draft.owner_id:
         raise PermissionDenied("El borrador temporal no está disponible.")
     return draft
@@ -205,7 +290,9 @@ def guest_state(draft):
                                        category=machine.category.name if machine.category_id else None),
         "provenance": machine.provenance,
         "expires_at": draft.expires_at.isoformat(),
-        "limits": {"max_images": MAX_GUEST_IMAGES, "max_analysis_jobs": MAX_GUEST_JOBS},
+        "limits": {"max_images": MAX_GUEST_IMAGES, "max_analysis_jobs": MAX_GUEST_JOBS,
+                   "max_service_retries": MAX_GUEST_SERVICE_RETRIES},
+        "analysis_used": _guest_analysis_used(machine),
     }
 
 
@@ -225,7 +312,10 @@ def analysis_state(job, machine):
     result = job.result if job.status == "completed" else None
     if isinstance(result, dict):
         result = {key: value for key, value in result.items() if key != "photo_cache"}
-    return {"id": str(job.pk), "status": job.status, "result": result,
+    failure_code = job.result.get("provider_error_code", "") if job.status == "failed" and isinstance(job.result, dict) else ""
+    if failure_code not in RETRIABLE_SERVICE_FAILURE_CODES:
+        failure_code = ""
+    return {"id": str(job.pk), "status": job.status, "failure_code": failure_code, "result": result,
             "completion": preparation_completeness(machine, job) if job.status == "completed" else {},
             "processing_stage": job.result.get("progress", {}).get("stage", job.status),
             "processing_progress": job.result.get("progress", {"stage": job.status}),
@@ -235,7 +325,26 @@ def analysis_state(job, machine):
             "auto_apply": services.automatic_application_status(job)}
 
 
+def _job_is_retriable_service_failure(job):
+    return (job.status == "failed" and isinstance(job.result, dict)
+            and job.result.get("provider_error_code") in RETRIABLE_SERVICE_FAILURE_CODES)
+
+
+def _guest_analysis_used(machine):
+    """A provider availability failure does not spend the visitor analysis."""
+    return any(not _job_is_retriable_service_failure(job)
+               for job in machine.analysis_jobs.only("status", "result"))
+
+
 def _response_error(exc):
+    if isinstance(exc, GuestQuotaExceeded):
+        return JsonResponse({
+            "error": "Ya usaste el intento gratuito de esta conexión. Crea una cuenta para preparar y compartir más fichas.",
+            "code": "guest_trial_used",
+            "signup_url": "/registro/",
+            "registration_url": "/registro/",
+            "login_url": "/iniciar-sesion/",
+        }, status=429)
     status = 410 if isinstance(exc, GuestExpired) else 403 if isinstance(exc, PermissionDenied) else 400
     return JsonResponse({"error": " ".join(exc.messages) if hasattr(exc, "messages") else str(exc)}, status=status)
 
@@ -250,10 +359,9 @@ def wizard(request, pk):
         from .views import machine_state
         draft = _draft_for_request(request, pk)
         machine = draft.machine
-        models = (EquipmentModel.objects.filter(active=True, brand__active=True)
-                  .filter(Q(category__isnull=True) | Q(category__active=True))
-                  .select_related("brand"))
-        catalog_models = [{"name": item.name, "brand": item.brand.name, "category": item.category_id} for item in models]
+        # The start form already loads approved catalogue choices lazily.  Do
+        # not serialize the entire catalogue into every guest wizard response.
+        catalog_models = []
         job = AnalysisJob.objects.filter(machine=machine).order_by("-created_at").first()
         state = machine_state(machine)
         return render(request, "portal/wizard.html", {
@@ -279,10 +387,11 @@ def wizard(request, pk):
 
 @require_POST
 def start(request):
+    form_post = request.content_type not in {"application/json", "application/json; charset=utf-8"}
     try:
-        form_post = request.content_type not in {"application/json", "application/json; charset=utf-8"}
-        body = ({key: request.POST.get(key, "") for key in ("category", "serial", "brand", "model", "description")}
-                if form_post else _json(request, {"category", "serial", "brand", "model", "description"}))
+        allowed = {"category", "serial", "brand", "model", "description", "entry_mode", "catalogue_model",
+                   "catalogue_manual_brand", "catalogue_manual_model"}
+        body = ({key: request.POST.get(key, "") for key in allowed} if form_post else _json(request, allowed))
         if request.user.is_authenticated:
             return JsonResponse({"error": "Tu sesión ya puede conservar el borrador."}, status=409)
         existing_id, _ = _session_capability(request)
@@ -292,21 +401,70 @@ def start(request):
                 return redirect("guest_wizard", pk=existing.pk) if form_post else JsonResponse(guest_state(existing))
             except (PermissionDenied, GuestExpired):
                 pass
-        if not throttle(request, "guest-draft-start", 3, 86400):
-            raise ValidationError("Alcanzaste el límite de borradores temporales para hoy.")
         category, data, provenance = _initial_values(body)
+        entry_mode = body.get("entry_mode", "")
+        title = None
+        if entry_mode == "catalogue":
+            if not category:
+                raise ValidationError("Selecciona el tipo de máquina que quieres anunciar.")
+            from .catalogue_intake import catalogue_proposal
+            proposal = catalogue_proposal(category.pk, body.get("catalogue_model"))
+            data = proposal["data"]
+            provenance = {**proposal["provenance"], "title": proposal["title_provenance"],
+                          "category": {"source": "user", "review": "confirmed"}}
+            title = proposal["title"]
+        elif entry_mode == "manual_identity":
+            brand = str(body.get("catalogue_manual_brand", "")).strip()[:100]
+            model = str(body.get("catalogue_manual_model", "")).strip()[:100]
+            if not brand or not model:
+                raise ValidationError("Escribe la marca y el modelo, o selecciona un modelo del catálogo.")
+            data.update({"brand": brand, "model": model})
+            provenance.update({"brand": {"source": "user", "review": "confirmed"},
+                               "model": {"source": "user", "review": "confirmed"}})
         with transaction.atomic():
+            ip_hash, browser_hash = _guest_trial_identity(request)
+            # The database uniqueness constraint is the quota authority.  It
+            # works across workers and survives session clearing, while the
+            # transaction rolls it back when the actual draft cannot be made.
+            existing = GuestTrial.objects.select_for_update().filter(
+                Q(ip_hash=ip_hash) | Q(browser_hash=browser_hash)
+            ).first()
+            if existing:
+                raise GuestQuotaExceeded("guest trial already used")
+            try:
+                # The savepoint lets an overlapping process win either unique
+                # index without breaking the outer creation transaction.
+                with transaction.atomic():
+                    trial = GuestTrial.objects.create(ip_hash=ip_hash, browser_hash=browser_hash)
+            except IntegrityError:
+                raise GuestQuotaExceeded("guest trial already used")
             identifier = secrets.token_hex(20)
             owner = User.objects.create_user(email=f"guest-{identifier}@temporary.invalid", password=None,
                                               is_guest=True, is_test=True, is_active=True)
-            machine = Machine.objects.create(owner=owner, category=category, data=data, provenance=provenance)
+            machine = Machine.objects.create(owner=owner, category=category, data=data, provenance=provenance,
+                                             **({"title": title} if title else {}))
             secret = secrets.token_urlsafe(32)
             draft = GuestDraft.objects.create(owner=owner, machine=machine, secret_hash=_secret_hash(secret))
+            trial.draft = draft
+            trial.save(update_fields=["draft", "updated_at"])
         _grant_capability(request, draft, secret)
+        suffix = ("?entrada=catalogue&paso=1" if entry_mode == "catalogue" else
+                  "?entrada=" + entry_mode if entry_mode in {"plate", "serial", "photos", "manual_identity"} else "")
         if form_post:
-            return redirect("guest_wizard", pk=draft.pk)
-        return JsonResponse({**guest_state(draft), "url": f"/invitados/{draft.pk}/"}, status=201)
+            return _with_browser_cookie(request, redirect(f"/invitados/{draft.pk}/{suffix}"))
+        return _with_browser_cookie(request, JsonResponse({**guest_state(draft), "url": f"/invitados/{draft.pk}/{suffix}"}, status=201))
+    except GuestQuotaExceeded as exc:
+        if form_post:
+            return render(request, "portal/guest_limit.html", {"signup_url": "/registro/", "login_url": "/iniciar-sesion/"}, status=429)
+        return _response_error(exc)
     except (ValidationError, PermissionDenied) as exc:
+        if form_post and isinstance(exc, ValidationError):
+            from .category_profiles import category_catalog
+            categories = Category.objects.filter(active=True)
+            return render(request, "portal/start.html", {
+                "guest_mode": True, "categories_json": category_catalog(categories),
+                "error": " ".join(exc.messages),
+            }, status=400)
         return _response_error(exc)
 
 
@@ -359,7 +517,7 @@ def upload(request, pk):
             draft = _draft_for_request(request, pk, lock=True)
             machine = Machine.objects.select_for_update().get(pk=draft.machine_id)
             if machine.assets.count() >= MAX_GUEST_IMAGES:
-                raise ValidationError("El borrador temporal admite hasta tres fotografías. Regístrate para conservar y agregar más.")
+                raise ValidationError("El borrador temporal admite hasta cuatro fotografías. Regístrate para conservar y agregar más.")
             asset = ingest_asset(machine, draft.owner, uploaded, purpose)
             machine.refresh_from_db(fields=["revision"])
         return JsonResponse({**asset_state(asset), "revision": machine.revision}, status=201)
@@ -381,14 +539,16 @@ def analyze(request, pk):
         with transaction.atomic():
             draft = _draft_for_request(request, pk, lock=True)
             machine = Machine.objects.select_for_update().get(pk=draft.machine_id)
-            if AnalysisJob.objects.filter(machine=machine).count() >= MAX_GUEST_JOBS:
+            jobs = list(AnalysisJob.objects.filter(machine=machine).only("status", "result"))
+            if any(not _job_is_retriable_service_failure(job) for job in jobs):
                 raise ValidationError("Este borrador temporal ya usó su análisis. Regístrate para continuar con más revisiones.")
+            if sum(_job_is_retriable_service_failure(job) for job in jobs) >= MAX_GUEST_SERVICE_RETRIES:
+                raise ValidationError("El servicio no está disponible después de varios intentos. Regístrate para continuar más tarde.")
             selected = body.get("asset_ids")
             if selected is not None and (not isinstance(selected, list) or len(selected) > MAX_GUEST_IMAGES):
-                raise ValidationError("Selecciona hasta tres fotografías.")
+                raise ValidationError("Selecciona hasta cuatro fotografías.")
             from .intake import preparation_mode
             mode = preparation_mode(machine, selected)
-            has_images = mode == "analysis"
             requested_mode = body.get("mode") or mode
             if requested_mode not in {"analysis", "description"}:
                 raise ValidationError("Este borrador aún no puede usar ese tipo de análisis.")
@@ -448,7 +608,7 @@ def asset_action(request, pk, asset_pk):
             record = Asset.objects.select_for_update().get(pk=asset_pk, machine=machine)
             action = body.get("action")
             if action == "delete":
-                if machine.analysis_jobs.exists():
+                if _guest_analysis_used(machine):
                     raise ValidationError("No puedes retirar archivos después del análisis temporal. Regístrate para continuar con una nueva revisión.")
                 record.delete()
             elif action == "cover":
@@ -458,7 +618,7 @@ def asset_action(request, pk, asset_pk):
                 record.is_cover = True
                 record.save(update_fields=["is_cover"])
             elif action in {"up", "down"}:
-                if machine.analysis_jobs.exists():
+                if _guest_analysis_used(machine):
                     raise ValidationError("No puedes reordenar archivos después del análisis temporal. Regístrate para continuar con una nueva revisión.")
                 items = list(machine.assets.order_by("position", "created_at"))
                 index = next(index for index, item in enumerate(items) if item.pk == record.pk)

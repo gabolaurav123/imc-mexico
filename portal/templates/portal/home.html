@@ -8,7 +8,7 @@
     <h1 id="publish-heading">Tu maquinaria.<br>Su próxima<br><span>oportunidad.</span></h1>
     <p class="hero-purpose">Prepara una ficha para vender.<br>Nosotros te ayudamos con los datos.</p>
     <a class="button button-red hero-start" href="{% url 'publish_start' %}">Publicar maquinaria <span aria-hidden="true">↗</span></a>
-    <p class="hero-return">{% if user.is_authenticated %}<a href="/panel/maquinarias/">Continuar una ficha guardada →</a>{% else %}¿Ya comenzaste? <a href="/iniciar-sesion/?next=/panel/maquinarias/">Continúa tu ficha →</a>{% endif %}</p>
+    <p class="hero-return">{% if user.is_authenticated %}<a href="/panel/maquinarias/">Continuar una ficha guardada →</a>{% else %}Prueba una ficha sin cuenta. Regístrate al compartir.<br><a href="/publicar/">Continuar mi prueba →</a>{% endif %}</p>
     <div class="hero-requirement"><span aria-hidden="true">↥</span><p><b>Una foto o el número de serie.</b><br>Empieza con lo que tengas. No necesitas ambos.</p></div>
   </div>
   <figure class="industrial-hero-image"><img src="{% static 'portal/industrial-yard-20261006.webp' %}" alt="Excavadora amarilla en un entorno industrial, imagen ilustrativa" width="1672" height="941" fetchpriority="high"><figcaption>MAQUINARIA QUE SIGUE CONSTRUYENDO <small>Imagen ilustrativa</small></figcaption></figure>

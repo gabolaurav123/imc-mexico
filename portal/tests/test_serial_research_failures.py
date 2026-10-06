@@ -1,4 +1,5 @@
 """Serial research failures stay distinguishable from absent public evidence."""
+import json
 from unittest.mock import Mock, patch
 
 import httpx2 as httpx
@@ -183,6 +184,81 @@ class NoCreditWorkerFailureTests(TestCase):
         self.assertIsNone(state["result"])
         self.assertNotIn(PRIVATE_ERROR, response.content.decode())
 
+    def test_manual_service_retry_creates_one_fresh_job_and_preserves_the_failed_record(self):
+        self.provider.return_value.responses.parse.side_effect = no_credit_error()
+        failed = enqueue_analysis(self.machine, self.user, mode="description", auto_apply=True,
+                                  expected_revision=self.machine.revision, authorize_ai=True)
+        self.assertTrue(process_next_job())
+        failed.refresh_from_db()
+        before = {
+            "fingerprint": failed.fingerprint, "attempts": failed.attempts,
+            "input": failed.input_tokens, "output": failed.output_tokens,
+            "result": failed.result.copy(),
+        }
+
+        # This is the normal browser endpoint; enqueue itself is not mocked.
+        # Its matching fingerprint must replace only an allowlisted service
+        # failure, then repeated clicks must deduplicate the queued retry.
+        body = {"consent": True, "revision": self.machine.revision, "research": False,
+                "auto_apply": True}
+        endpoint = f"/api/maquinarias/{self.machine.pk}/analizar/"
+        first = self.client.post(endpoint, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(first.status_code, 200, first.content)
+        retry_id = first.json()["id"]
+        self.assertNotEqual(retry_id, str(failed.pk))
+        second = self.client.post(endpoint, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.json()["id"], retry_id)
+
+        failed.refresh_from_db()
+        retry = failed.machine.analysis_jobs.get(pk=retry_id)
+        self.assertEqual(failed.status, "failed")
+        self.assertEqual({"fingerprint": failed.fingerprint, "attempts": failed.attempts,
+                          "input": failed.input_tokens, "output": failed.output_tokens,
+                          "result": failed.result}, before)
+        self.assertEqual(retry.status, "queued")
+        self.assertNotEqual(retry.fingerprint, failed.fingerprint)
+        self.assertEqual(retry.result["retry_of"], str(failed.pk))
+        self.assertEqual(retry.result["retry_origin_fingerprint"], failed.fingerprint)
+        self.assertEqual(failed.machine.analysis_jobs.count(), 2)
+
+        # A replacement that later fails for an unrelated reason cannot inherit
+        # the original provider code and become another free retry.
+        with patch("portal.processing.process_analysis", side_effect=ValueError("local failure")):
+            self.assertTrue(process_next_job())
+        retry.refresh_from_db()
+        self.assertEqual(retry.status, "failed")
+        self.assertNotIn("provider_error_code", retry.result)
+        terminal = self.client.post(endpoint, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(terminal.status_code, 200, terminal.content)
+        self.assertEqual(terminal.json()["id"], retry_id)
+        self.assertEqual(failed.machine.analysis_jobs.count(), 2)
+
+    def test_completed_service_retry_is_reused_when_the_original_request_is_repeated(self):
+        self.provider.return_value.responses.parse.side_effect = no_credit_error()
+        failed = enqueue_analysis(self.machine, self.user, mode="description", authorize_ai=True)
+        self.assertTrue(process_next_job())
+        failed.refresh_from_db()
+        endpoint = f"/api/maquinarias/{self.machine.pk}/analizar/"
+        body = {"consent": True, "revision": self.machine.revision, "research": False}
+        created = self.client.post(endpoint, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(created.status_code, 200, created.content)
+        retry_id = created.json()["id"]
+
+        # Worker completion replaces `result`, so retry-chain identity must
+        # come from deterministic fingerprints rather than JSON metadata.
+        with patch("portal.processing.process_analysis", return_value=(
+                {}, Mock(input_tokens=0, output_tokens=0))):
+            self.assertTrue(process_next_job())
+        completed = failed.machine.analysis_jobs.get(pk=retry_id)
+        self.assertEqual(completed.status, "completed")
+        self.assertEqual(completed.result, {})
+
+        repeated = self.client.post(endpoint, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(repeated.status_code, 200, repeated.content)
+        self.assertEqual(repeated.json()["id"], retry_id)
+        self.assertEqual(failed.machine.analysis_jobs.count(), 2)
+
     def test_analysis_api_drops_unrecognized_provider_failure_codes(self):
         job = enqueue_analysis(self.machine, self.user, mode="description", authorize_ai=True)
         job.status = "failed"
@@ -194,6 +270,13 @@ class NoCreditWorkerFailureTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["failure_code"], "")
         self.assertNotIn(PRIVATE_ERROR, response.content.decode())
+
+        retry = self.client.post(f"/api/maquinarias/{self.machine.pk}/analizar/", data=json.dumps({
+            "consent": True, "revision": self.machine.revision, "research": False,
+        }), content_type="application/json")
+        self.assertEqual(retry.status_code, 200, retry.content)
+        self.assertEqual(retry.json()["id"], str(job.pk))
+        self.assertEqual(self.machine.analysis_jobs.count(), 1)
 
     def test_insufficient_quota_stops_a_price_lookup_without_estimated_usage(self):
         from portal.valuation import estimate_machine

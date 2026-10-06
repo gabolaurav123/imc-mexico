@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_serializer
 
 from .ai_model import DEFAULT_MODEL, image_model, model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
 from .ai_quota import daily_budget_jobs, daily_quota_jobs
-from .models import AnalysisJob, Asset, Category, Consent, Machine, Notification, PlatformSettings
+from .models import AnalysisJob, Asset, Category, Consent, GuestDraft, Machine, Notification, PlatformSettings
 from .services import (DraftRevisionConflict, apply_analysis_automatically, audit, automatic_application_snapshot,
                        require_owner, CATALOGUE_TECHNICAL_LABELS)
 from .storage import option
@@ -46,6 +46,9 @@ from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 
 PROMPT_VERSION = "imc-excavators-2026-09-v47"
+RETRIABLE_SERVICE_FAILURE_CODES = frozenset({
+    "billing_unavailable", "credentials_unavailable", "model_unavailable",
+})
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -723,6 +726,40 @@ def _check_analysis_draft(job):
         raise DraftAnalysisCancelled()
 
 
+def _retriable_service_failure(job):
+    """Only provider rejections that did not complete the requested work retry.
+
+    This deliberately reads the persisted, bounded error code rather than an
+    exception string.  Validation, content, ownership and ordinary provider
+    failures keep their terminal job and never receive a fresh admission.
+    """
+    return (job.status == "failed" and isinstance(job.result, dict)
+            and job.result.get("provider_error_code") in RETRIABLE_SERVICE_FAILURE_CODES)
+
+
+def _service_retry_fingerprint(original_fingerprint, previous_job_id):
+    """Stable unique fingerprint for the next member of a retry chain."""
+    return hashlib.sha256(f"{original_fingerprint}:service-retry:{previous_job_id}".encode()).hexdigest()
+
+
+def _latest_retry_candidate(machine, original):
+    """Find the terminal/or active member of one manual service-retry chain.
+
+    The caller holds the Machine lock.  Each successor fingerprint derives
+    from the original request and immediate predecessor, so the chain remains
+    discoverable after worker completion replaces the JSON result.
+    """
+    current = original
+    while True:
+        successor = AnalysisJob.objects.select_for_update().filter(
+            machine=machine,
+            fingerprint=_service_retry_fingerprint(original.fingerprint, current.pk),
+        ).first()
+        if successor is None:
+            return current
+        current = successor
+
+
 def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
                      auto_apply=False, expected_revision=None, authorize_ai=False, research=False, preflight=False,
                      catalogue_enrichment=False):
@@ -829,18 +866,27 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
             material["research_description_only"] = True
         fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         existing = AnalysisJob.objects.select_for_update().filter(fingerprint=fingerprint).first()
+        retry_of = None
         if existing:
-            if auto_apply:
-                if existing.requested_by_id != user.pk:
-                    raise ValidationError("El análisis anterior fue solicitado por otro usuario.")
-                existing.auto_apply = True
-                # A legacy job keeps its absent snapshot and conservative exact-
-                # revision rules, whether it is still queued or already completed.
-                existing.save(update_fields=["auto_apply"])
-                if existing.status == "completed":
-                    apply_analysis_automatically(machine, user, existing, expected_revision)
-                    existing.refresh_from_db()
-            return existing
+            existing = _latest_retry_candidate(machine, existing)
+            if _retriable_service_failure(existing):
+                # Keep the failed job immutable as the audit and usage record.
+                # A replacement has a unique fingerprint, a fresh reservation,
+                # and its own worker lifecycle.  Active/recovered replacements
+                # are selected above and are returned normally below.
+                retry_of = existing
+            else:
+                if auto_apply:
+                    if existing.requested_by_id != user.pk:
+                        raise ValidationError("El análisis anterior fue solicitado por otro usuario.")
+                    existing.auto_apply = True
+                    # A legacy job keeps its absent snapshot and conservative exact-
+                    # revision rules, whether it is still queued or already completed.
+                    existing.save(update_fields=["auto_apply"])
+                    if existing.status == "completed":
+                        apply_analysis_automatically(machine, user, existing, expected_revision)
+                        existing.refresh_from_db()
+                return existing
         now = timezone.now()
         jobs = daily_quota_jobs(limits, now)
         if jobs.filter(requested_by=user).count() >= limits.ai_user_daily_limit:
@@ -859,14 +905,20 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if attempt_limit < 1:
             raise ValidationError("No hay capacidad de análisis disponible hoy. Puedes enviar la ficha con la información disponible.")
         reserve = per_attempt * attempt_limit
+        job_fingerprint = (_service_retry_fingerprint(fingerprint, retry_of.pk)
+                           if retry_of else fingerprint)
+        # Do not copy the old provider_error_code into the new job: a later
+        # unrelated failure must remain terminal, not inherit retry eligibility.
+        retry_metadata = ({"retry_origin_fingerprint": fingerprint, "retry_of": str(retry_of.pk)}
+                          if retry_of else {})
         job = AnalysisJob.objects.create(machine=machine, revision=machine.revision, requested_by=user,
-                                        asset_ids=[str(a.pk) for a in assets], mode=mode,
-                                        fingerprint=fingerprint, model=model, prompt_version=PROMPT_VERSION,
+                                         asset_ids=[str(a.pk) for a in assets], mode=mode,
+                                         fingerprint=job_fingerprint, model=model, prompt_version=PROMPT_VERSION,
                                         reserved_tokens=reserve,
                                         auto_apply=auto_apply,
                                         application_snapshot=automatic_application_snapshot(machine),
                                         analytics_context=analytics_context if isinstance(analytics_context, dict) else {},
-                                        result={"attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
+                                         result={**retry_metadata, "attempt_limit": attempt_limit, "reservation_per_attempt": per_attempt,
                                                 "preflight": preflight,
                                                 "input_category_id": machine.category_id,
                                                 "research_requested": research,
@@ -882,7 +934,8 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                                                if k in AI_KEYS | {"title", "description", "category", "condition", "attachments", "location_country"}},
                                                 "data": {k: v for k, v in machine.data.items()
                                                          if k in AI_KEYS | {"description", "condition", "attachments", "location_country"}}}})
-        audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode})
+        audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode,
+                                              **({"retry_of": str(retry_of.pk)} if retry_of else {})})
         return job
 
 
@@ -1564,6 +1617,27 @@ def _bind_image_aliases(parsed, bindings):
     return bound
 
 
+def _claimed_guest_job_continues(job):
+    """Allow only the already-authorized guest job to finish after its claim.
+
+    Claiming transfers the Machine to the account, but the queued job and its
+    AI consent remain attributable to the temporary principal that authorized
+    them.  This exception is deliberately narrower than ownership: it binds
+    the same job requester, GuestDraft and current owner.  It only lets the
+    worker finish and retain its result; automatic application still refuses
+    to write after the owner change.
+    """
+    machine, requester = job.machine, job.requested_by
+    if not requester.is_guest or not machine.owner_id:
+        return False
+    return GuestDraft.objects.filter(
+        machine_id=machine.pk,
+        owner_id=requester.pk,
+        claimed_by_id=machine.owner_id,
+        claimed_at__isnull=False,
+    ).exists()
+
+
 def _check_image_execution(job):
     current = AnalysisJob.objects.select_related("machine", "requested_by").get(pk=job.pk)
     if _deleted_analysis(current, current.machine):
@@ -1573,8 +1647,9 @@ def _check_image_execution(job):
     try:
         require_owner(current.machine, current.requested_by)
     except Exception as exc:
-        exc.accounted_usage = UsageTotals()
-        raise
+        if not _claimed_guest_job_continues(current):
+            exc.accounted_usage = UsageTotals()
+            raise
     consent = Consent.objects.filter(user=current.requested_by, machine=current.machine,
         kind="ai").order_by("-created_at", "-pk").first()
     if not current.requested_by.is_active or not consent or not consent.granted:
