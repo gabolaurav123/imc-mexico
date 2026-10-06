@@ -71,6 +71,23 @@ class DirectResearchMergeTests(SimpleTestCase):
                 self.assertEqual(normalize(direct_fields=[field])["fields"], [])
         self.assertEqual(normalize(direct_fields=[direct()], titles={URL: "Generic document"})["fields"], [])
 
+    def test_metric_header_unit_must_bind_the_immediately_following_same_field_reading(self):
+        text = "Operating weight (kg): 11 000."
+        result = normalize(direct_fields=[direct(text, key="weight", value="11 000 kg")], rows=[(URL, text)])
+        self.assertEqual(result["fields"][0]["value"], "11 000 kg")
+        self.assert_signed(result)
+
+        adversarial_rows = [
+            ("Weight (kg): 11 000; Maximum travel speed (kph): 70.", "power", "70 kW"),
+            ("Operating weight (lb): 11 000.", "weight", "11 000 kg"),
+            ("Operating weight (kg): 17 000; prior model weight: 11 000.", "weight", "11 000 kg"),
+        ]
+        for evidence, key, value in adversarial_rows:
+            with self.subTest(evidence=evidence, key=key, value=value):
+                result = normalize(direct_fields=[direct(evidence, key=key, value=value)], rows=[(URL, evidence)])
+                self.assertEqual(result["fields"], [])
+                self.assertEqual(result["diagnostics"]["rejection_counts"]["value_not_literal"], 1)
+
     def test_direct_scope_cannot_promote_model_data_to_an_exact_unit_or_year(self):
         result = normalize(direct_fields=[direct(scope="exact_serial", matched_serial="UNIT123")])
         self.assertEqual(result["fields"], [])

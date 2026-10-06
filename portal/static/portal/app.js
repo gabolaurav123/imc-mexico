@@ -685,11 +685,12 @@
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
       const mode = assetIds.length ? 'analysis' : 'description';
       if (!assetIds.length && !String(collect().data.serial || '').trim() && !Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake')) throw new Error('Agrega una fotografía, escribe la serie o selecciona un modelo de la base técnica para generar la ficha.');
-      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode});
+      const enrichCatalogue = !assetIds.length && !String(collect().data.serial || '').trim() && Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake');
+      const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode,...(enrichCatalogue?{enrich_catalogue:true}:{})});
       if(job.mode==='catalogue' && job.refresh){hydrate(job.machine);displayStep(2);$('#ready-heading').textContent='Ficha de referencia preparada.';return;}
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
-      displayStep(2); setAnalysisLoading(true,'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.'); analysisStatus('Preparando tu ficha con las fotos guardadas…','running'); await pollJob(job.id);
+      displayStep(2); setAnalysisLoading(true,assetIds.length?'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.':'La identificación está guardada. Completamos las características y referencias de año y valor que faltan.'); analysisStatus('Preparando tu ficha de maquinaria…','running'); await pollJob(job.id);
     } catch (error) { analysisOutcome = 'failed'; setAnalysisLoading(false); renderPreview(); problem(error.message); analysisStatus('Tus datos se conservan. Completa la información indicada y vuelve a generar la ficha.','failed'); }
     finally { preparing = false; prepareLabel(); }
   });
@@ -1157,4 +1158,11 @@
   displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
   if (initialJob) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
   prepareLabel(); renderPreview();
+  if(params.get('entrada')==='catalogue' && params.get('completar')==='1' && editable && !initialJob){
+    // The preceding "Generar ficha" form is the explicit request. Consume
+    // its marker before sending so reloading never starts another paid job.
+    const returnUrl=new URL(location.href); returnUrl.searchParams.delete('completar');
+    history.replaceState(history.state,'',returnUrl.pathname+returnUrl.search+returnUrl.hash);
+    $('#analyze-button').click();
+  }
 })();

@@ -4,6 +4,7 @@ The manifest is an explicit release allowlist. Arbitrary JSON imports remain
 pending; deploying does not activate them or overwrite an administrator's work.
 """
 from datetime import date
+from collections import defaultdict
 import hashlib
 import json
 from pathlib import Path
@@ -106,30 +107,82 @@ def link_catalogue(reference):
 
 @transaction.atomic
 def install_bundled_knowledge(root=None):
-    created = 0
-    for item in bundled_records(root):
-        try:
-            # The category row is the serialization point for a logical
-            # reference identity. There is no safe unique index that includes
-            # a 1000-character URL on every supported database backend.
-            category = Category.objects.select_for_update().get(slug=item["category_slug"])
-            lookup = {"category": category, **{key: str(item.get(key, "")).strip()
-                      for key in ("brand", "model", "variant", "generation", "market", "source")}}
-            existing = TechnicalReference.objects.filter(**lookup).first()
-            if existing:
-                if existing.equipment_model_id is None:
-                    link_catalogue(existing)
-                    existing.full_clean()
-                    existing.save(update_fields=["equipment_model", "updated_at"])
+    """Validate and install in batches; an unchanged restart performs no writes.
+
+    Keep the same category locks and never overwrite a reviewed staff record.
+    In-memory indexes replace repeated scans of every brand/model for every row.
+    """
+    from .research import _brand_key, identifier_key
+    records = bundled_records(root)
+    keys = ("brand", "model", "variant", "generation", "market", "source")
+    categories = {row.slug: row for row in Category.objects.select_for_update().filter(
+        slug__in={item["category_slug"] for item in records}).order_by("pk")}
+    if missing := {item["category_slug"] for item in records} - categories.keys():
+        raise CommandError("Categorías desconocidas: " + ", ".join(sorted(missing)))
+    brands = defaultdict(list)
+    for row in Brand.objects.all():
+        brands[_brand_key(row.name)].append(row)
+    new_brands = []
+    for item in records:
+        key = _brand_key(item["brand"])
+        if key not in brands:
+            row = Brand(name=item["brand"].strip())
+            row.full_clean(validate_unique=False, validate_constraints=False)
+            brands[key].append(row)
+            new_brands.append(row)
+    Brand.objects.bulk_create(new_brands, batch_size=500)
+    models = defaultdict(list)
+    for row in EquipmentModel.objects.select_related("brand"):
+        models[(row.brand_id, identifier_key(row.name))].append(row)
+    new_models = []
+    for item in records:
+        candidates = brands[_brand_key(item["brand"])]
+        if len(candidates) != 1:
+            continue
+        brand = candidates[0]
+        key = (brand.pk, identifier_key(item["model"]))
+        if key not in models:
+            row = EquipmentModel(brand=brand, name=item["model"].strip(), category=categories[item["category_slug"]])
+            row.full_clean(exclude=["brand", "category"], validate_unique=False, validate_constraints=False)
+            models[key].append(row)
+            new_models.append(row)
+    EquipmentModel.objects.bulk_create(new_models, batch_size=500)
+    existing = {}
+    for row in TechnicalReference.objects.filter(category_id__in=[row.pk for row in categories.values()]).order_by("pk"):
+        existing.setdefault((row.category_id, *(getattr(row, key) for key in keys)), row)
+    pending, repairs = [], []
+    try:
+        for item in records:
+            category = categories[item["category_slug"]]
+            values = {key: str(item.get(key, "")).strip() for key in keys}
+            key = (category.pk, *(values[name] for name in keys))
+            row = existing.get(key)
+            if row is not None and row.equipment_model_id is not None:
                 continue
-            reference = TechnicalReference(**lookup, **{key: item.get(key) for key in ("period_from", "period_to")},
-                specs=item["specs"], provenance=item["provenance"], source_title=item["source_title"].strip(),
-                source_version=item.get("source_version", "").strip(), retrieved_at=date.fromisoformat(item["retrieved_at"]),
-                review=TechnicalReference.Review.APPROVED, active=True, reviewed_at=timezone.now())
-            link_catalogue(reference)
-            reference.full_clean()
-            reference.save()
-            created += 1
-        except (KeyError, TypeError, ValueError, Category.DoesNotExist, ValidationError) as exc:
-            raise CommandError(f"Referencia de conocimiento inválida: {exc}") from exc
-    return created
+            is_new = row is None
+            if is_new:
+                row = TechnicalReference(category=category, **values,
+                    **{name: item.get(name) for name in ("period_from", "period_to")},
+                    specs=item["specs"], provenance=item["provenance"], source_title=item["source_title"].strip(),
+                    source_version=item.get("source_version", "").strip(), retrieved_at=date.fromisoformat(item["retrieved_at"]),
+                    review=TechnicalReference.Review.APPROVED, active=True, reviewed_at=timezone.now())
+            candidates = brands[_brand_key(row.brand)]
+            matches = models.get((candidates[0].pk, identifier_key(row.model)), []) if len(candidates) == 1 else []
+            if len(matches) == 1 and matches[0].category_id == row.category_id:
+                row.equipment_model = matches[0]
+            # FK objects came from locked categories and the validated indexes.
+            # Model.clean still checks identity, periods, approval and JSON types.
+            row.full_clean(exclude=["category", "equipment_model", "reviewed_by"],
+                           validate_unique=False, validate_constraints=False)
+            if is_new:
+                pending.append(row)
+                existing[key] = row
+            elif row.equipment_model_id is not None:
+                row.updated_at = timezone.now()
+                repairs.append(row)
+        TechnicalReference.objects.bulk_create(pending, batch_size=250)
+        if repairs:
+            TechnicalReference.objects.bulk_update(repairs, ["equipment_model", "updated_at"], batch_size=250)
+    except (KeyError, TypeError, ValueError, ValidationError) as exc:
+        raise CommandError(f"Referencia de conocimiento inválida: {exc}") from exc
+    return len(pending)

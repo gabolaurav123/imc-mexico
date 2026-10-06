@@ -63,7 +63,8 @@ class ExpandedArchiveRetrievalTests(TestCase):
         self.assertFalse(Machine.objects.exists())
 
     def test_brochure_snapshot_date_does_not_turn_into_a_production_period(self):
-        reference = TechnicalReference.objects.get(brand='Volvo', model='SD115')
+        reference = TechnicalReference.objects.get(brand='Volvo', model='SD115',
+                                                   source_version__contains='2016 specifications')
         self.assertIn('2016 specifications', reference.source_version)
         self.assertIsNone(reference.period_from)
         self.assertIsNone(reference.period_to)

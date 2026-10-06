@@ -250,7 +250,7 @@ class ExcavatorIntegrationTests(TestCase):
         self.owner.save(update_fields=['phone'])
         self.client.force_login(self.owner)
         response = self.client.get('/panel/maquinarias/nueva/')
-        self.assertContains(response, 'Busca el tipo de máquina')
+        self.assertContains(response, 'Busca o selecciona el tipo')
         self.assertContains(response, 'id="start-category-results"')
         self.assertNotContains(response, 'No estoy seguro')
         response = self.client.post('/api/maquinarias/', {'category': self.category.pk}, content_type='application/json')

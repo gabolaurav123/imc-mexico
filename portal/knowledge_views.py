@@ -59,6 +59,10 @@ def _library_filters(request):
         references = references.filter(period)
     elif availability == "without_period":
         references = references.exclude(period)
+    elif availability == "with_specs":
+        references = references.exclude(specs={})
+    elif availability == "identity_only":
+        references = references.filter(specs={}).exclude(period).filter(has_current_market=False)
     elif availability == "with_market":
         references = references.filter(has_current_market=True)
     elif availability == "without_market":
@@ -69,6 +73,7 @@ def _library_filters(request):
 
 AVAILABILITY_CHOICES = (
     ("with_period", "Con periodo documentado"), ("without_period", "Sin periodo documentado"),
+    ("with_specs", "Con especificaciones técnicas"), ("identity_only", "Sólo identidad indexada"),
     ("with_market", "Con anuncios vigentes"), ("without_market", "Sin anuncios vigentes"),
 )
 
@@ -167,16 +172,30 @@ def technical_library(request):
         "periods": references.filter(Q(period_from__isnull=False) | Q(period_to__isnull=False)).values("brand", "model").distinct().count(),
         "market_models": references.filter(has_current_market=True).values("brand", "model").distinct().count(),
     }
+    coverage_visibility = {
+        "specification_rows": references.exclude(specs={}).count(),
+        "period_rows": references.filter(Q(period_from__isnull=False) | Q(period_to__isnull=False)).count(),
+        "market_rows": references.filter(has_current_market=True).count(),
+        "identity_only_rows": references.filter(specs={}).exclude(
+            Q(period_from__isnull=False) | Q(period_to__isnull=False)).filter(has_current_market=False).count(),
+    }
     page = Paginator(references, 20).get_page(request.GET.get("page"))
     overview = _market_overview({ref.equipment_model_id for ref in page if ref.equipment_model_id})
     for reference in page:
         reference.specification_count = len(_display_specs(reference.specs))
         reference.market_overview = overview.get(reference.equipment_model_id, {})
+        reference.coverage = {
+            "period": bool(reference.period_from or reference.period_to),
+            "market": bool(reference.market_overview.get("listings")),
+            "identity_only": not reference.specification_count and not reference.period_from and not reference.period_to
+                             and not reference.market_overview.get("listings"),
+        }
     return render(request, "portal/knowledge_library.html", {
         "references": page,
         "page_obj": page,
         "coverage": coverage,
         "completeness": completeness,
+        "coverage_visibility": coverage_visibility,
         "availability_choices": AVAILABILITY_CHOICES,
         "market_reference_age_days": MAX_REFERENCE_AGE_DAYS,
         "categories": Category.objects.filter(technical_references__isnull=False).distinct().order_by("name"),
@@ -196,9 +215,15 @@ def technical_reference_detail(request, pk):
         category_id=reference.category_id, review=TechnicalReference.Review.APPROVED, active=True).exclude(pk=pk) if reference.equipment_model_id else []
     related = [{"reference": item, "specifications": _display_specs(item.specs), "source_href": _source_href(item.source)}
                for item in siblings]
+    specification_count = len(_display_specs(reference.specs))
     return render(request, "portal/knowledge_detail.html", {
         "reference": reference,
         "specifications": _display_specs(reference.specs),
+        "coverage": {"specifications": specification_count,
+                     "period": bool(reference.period_from or reference.period_to),
+                     "market": bool(overview.get("listings")),
+                     "identity_only": not specification_count and not reference.period_from and not reference.period_to
+                                      and not overview.get("listings")},
         "source_href": _source_href(reference.source),
         "scope": _display_scope(provenance.get("scope")),
         "market_scope": reference.market or ("Global" if provenance.get("market_scope") == "global" else "No especificado"),

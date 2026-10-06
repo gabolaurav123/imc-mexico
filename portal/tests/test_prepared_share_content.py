@@ -57,14 +57,14 @@ class PreparedShareContentTests(TestCase):
     def test_fallback_pages_follow_same_sharing_contract(self):
         self.assert_copy_matches_flow()
         how = self.client.get('/como-funciona/')
-        self.assertContains(how, 'serie o fotos')
-        self.assertContains(how, 'Necesitamos serie o imágenes')
+        self.assertContains(how, 'tipo, la marca y el modelo')
+        self.assertContains(how, 'Si no encuentras el modelo o no lo conoces')
         self.assertContains(how, 'enlace corto')
         self.assertContains(how, 'autoriza por separado')
 
     def test_home_and_catalogue_distinguish_sharing_from_main_catalogue(self):
         home = self.client.get('/')
-        self.assertContains(home, 'Tipo de máquina y serie o fotos')
+        self.assertContains(home, 'Tipo, marca y modelo')
         self.assertContains(home, 'Compartir tu ficha y publicarla en el catálogo son acciones distintas')
         self.assertNotContains(home, 'comparte la ficha virtual cuando esté aprobada')
         catalogue = self.client.get('/maquinaria/')

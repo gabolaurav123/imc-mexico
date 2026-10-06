@@ -724,12 +724,17 @@ def _check_analysis_draft(job):
 
 
 def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_context=None,
-                     auto_apply=False, expected_revision=None, authorize_ai=False, research=False, preflight=False):
+                     auto_apply=False, expected_revision=None, authorize_ai=False, research=False, preflight=False,
+                     catalogue_enrichment=False):
     _check_editor(machine, user)
     if type(auto_apply) is not bool:
         raise ValidationError("Indica si deseas completar el borrador automáticamente.")
     if type(research) is not bool:
         raise ValidationError("Indica si deseas consultar referencias públicas de la maquinaria.")
+    if type(catalogue_enrichment) is not bool:
+        raise ValidationError("Indica si deseas complementar una referencia de catálogo válida.")
+    if catalogue_enrichment and (mode != "description" or not research or preflight):
+        raise ValidationError("La complementación de catálogo sólo consulta referencias del modelo.")
     if type(preflight) is not bool or preflight and (mode != "analysis" or research or auto_apply):
         raise ValidationError("La comprobación de fotos no puede modificar ni investigar la ficha.")
     if auto_apply and machine.owner_id != user.pk:
@@ -746,6 +751,10 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         limits = PlatformSettings.objects.select_for_update().get(pk=1)
         machine = Machine.objects.select_for_update().get(pk=machine.pk)
         _check_editor(machine, user)
+        if catalogue_enrichment:
+            from .catalogue_intake import catalogue_reference_ready
+            if not catalogue_reference_ready(machine):
+                raise ValidationError("El modelo del catálogo ya no coincide con una referencia técnica aprobada.")
         if auto_apply and (type(expected_revision) is not int or machine.revision != expected_revision):
             raise DraftRevisionConflict("El borrador cambió. Actualiza la página antes de preparar la ficha.")
         consent = Consent.objects.filter(user=user, machine=machine, kind="ai").order_by("-created_at", "-pk").first()
@@ -786,7 +795,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     "data": machine.data, "title": machine.title, "model": model, "prompt": PROMPT_VERSION,
                     "category_names": category_names, "category": machine.category_id,
                     "category_profile": category_profile, "research": research,
-                    "preflight": preflight,
+                    "preflight": preflight, "catalogue_enrichment": catalogue_enrichment,
                     "vision_model": image_model(model) if mode == "analysis" else model}
         research_description_only = mode == "description" and research
         if research_description_only:
@@ -836,6 +845,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                                 "preflight": preflight,
                                                 "input_category_id": machine.category_id,
                                                 "research_requested": research,
+                                                "catalogue_enrichment": catalogue_enrichment,
                                                 "vision_model": material["vision_model"],
                                                 "category_profile": category_profile,
                                                 "progress": {"stage": "queued", "completed": 0, "total": len(assets)},
@@ -1755,6 +1765,11 @@ def process_analysis(job):
         raise
     from openai import OpenAI
     _check_analysis_draft(job)
+    catalogue_enrichment = job.result.get("catalogue_enrichment") is True
+    if catalogue_enrichment:
+        from .catalogue_intake import catalogue_reference_ready
+        if not catalogue_reference_ready(job.machine):
+            raise ValidationError("El modelo del catálogo cambió antes de completar sus referencias.")
     consent = Consent.objects.filter(user=job.requested_by, machine=job.machine, kind="ai").order_by("-created_at").first()
     if not job.requested_by.is_active or not consent or not consent.granted:
         raise ValidationError("La autorización para el análisis ya no está vigente.")
@@ -1844,6 +1859,19 @@ def process_analysis(job):
             # Web research already composes its final description from accepted
             # facts below. No preliminary description or new OCR is necessary.
             result = normalize_analysis(DescriptionAnalysis(description="", warnings=[], questions=[]), [], "description")
+            if catalogue_enrichment:
+                # Preserve the approved catalogue identity as model-scoped
+                # provenance.  It establishes the search subject without
+                # representing a serial, photo reading, or unit attribute.
+                for key in ("brand", "model"):
+                    value = snapshot.get("data", {}).get(key)
+                    meta = snapshot.get("provenance", {}).get(key)
+                    if isinstance(value, str) and value.strip() and isinstance(meta, dict):
+                        result["data"][key] = value
+                        result["provenance"][key] = deepcopy(meta)
+                category = snapshot.get("category")
+                if isinstance(category, str) and category:
+                    result["category"] = category
         elif job.mode == "description":
             response = client.responses.parse(
                 model=job.model, instructions=SYSTEM_PROMPT,
@@ -1944,6 +1972,7 @@ def process_analysis(job):
             result["relevance"]["message"] = message
             result["warnings"] = [message]
         result["research_requested"] = research_requested
+        result["catalogue_enrichment"] = catalogue_enrichment
         result["preflight"] = job.result.get("preflight") is True
         result["input_category_id"] = job.result.get("input_category_id")
         result["research_description_only"] = research_description_only
@@ -1997,9 +2026,15 @@ def process_analysis(job):
                     if encoded.startswith('data:image/') and ';base64,' in encoded:
                         photo_inputs.append({'asset_id': binding['asset_id'],
                                              'bytes': base64.b64decode(encoded.split(';base64,', 1)[1], validate=True)})
+            catalogue_reference = None
+            if catalogue_enrichment:
+                from .catalogue_intake import catalogue_selection_research
+                catalogue_reference = catalogue_selection_research(job.machine)
             research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
                                                        allowed_categories=job.result.get("category_names", []),
-                                                       photo_inputs=photo_inputs, knowledge_category=job.machine.category)
+                                                       photo_inputs=photo_inputs, knowledge_category=job.machine.category,
+                                                       catalogue_enrichment=catalogue_enrichment,
+                                                       catalogue_reference=catalogue_reference)
             usage.add(research_usage)
             usage.estimated_tokens += research_usage.estimated_tokens
             usage.web_search_calls += research_usage.web_search_calls

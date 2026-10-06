@@ -39,7 +39,7 @@ class CatalogReferenceTests(TestCase):
         self.assertEqual(Brand.objects.filter(name__iexact='Case').count(),1)
         self.assertEqual(EquipmentModel.objects.filter(brand=brand,name__iexact='845 B').count(),1)
 
-    def test_wizard_uses_active_suggestions_and_preserves_free_text(self):
+    def test_wizard_uses_bounded_current_identity_suggestions_and_preserves_free_text(self):
         self.seed()
         user=User.objects.create_user(email='catalog-test@example.invalid',password=None)
         machine=Machine.objects.create(owner=user,data={'brand':'Mi marca personalizada','model':'Modelo declarado / variante'})
@@ -51,11 +51,13 @@ class CatalogReferenceTests(TestCase):
         self.assertEqual(response.status_code,200)
         suggestions=response.context['catalog_models_json']
         self.assertFalse(any(item['name'] in {'GR150','320DL','E450AJ'} for item in suggestions))
-        self.assertTrue(any(item['name']=='PC200 L' for item in suggestions))
+        # A free-text identity has no current catalogue parent, so the wizard
+        # must not serialize unrelated models just to fill its datalist.
+        self.assertEqual(suggestions,[])
         self.assertNotContains(response,'value="Tadano"')
         self.assertContains(response,'value="Mi marca personalizada"')
         self.assertContains(response,'value="Modelo declarado / variante"')
-        self.assertTrue(all(set(item)=={'name','brand','category'} for item in suggestions))
+        self.assertTrue(all(set(item)=={'id','name','brand','category'} for item in suggestions))
         machine.refresh_from_db()
         self.assertEqual(machine.data,{'brand':'Mi marca personalizada','model':'Modelo declarado / variante'})
 

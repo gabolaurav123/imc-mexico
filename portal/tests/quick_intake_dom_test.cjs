@@ -27,6 +27,29 @@ function input(ctx,id,value){const node=ctx.doc.getElementById(id);assert.ok(nod
 function click(ctx,id){ctx.doc.getElementById(id).click();}
 function completed(state,extra={},metadata={}){return {id:'job',status:'completed',result:{data:extra,provenance:{},warnings:[],questions:[]},machine:{...state,revision:state.revision+1,data:{...state.data,...extra}},auto_apply:{requested:true,status:'applied',applied_fields:Object.keys(extra),skipped_fields:[],revision_before:state.revision,revision_after:state.revision+1,...metadata}};}
 (async()=>{
+ let catalogueCalls=[];
+ const catalogue=setup(async(url,o)=>{
+   catalogueCalls.push({url,body:JSON.parse(o.body)});
+   return response(200,{id:null,status:'completed',mode:'catalogue',refresh:true,machine:catalogue.state});
+ },{query:'?entrada=catalogue&paso=2&completar=1',
+   data:{brand:'Caterpillar',model:'320D L',serial:''},
+   state:{provenance:{brand:{source:'web_model',scope:'model',basis:'catalogue_intake'}}},
+   before(w){w.document.querySelectorAll('.asset-card').forEach(n=>n.remove());}});
+ await pause(40);
+ assert.equal(catalogueCalls.length,1);assert.equal(catalogueCalls[0].body.enrich_catalogue,true);
+ assert.deepEqual(catalogueCalls[0].body.asset_ids,[]);assert.equal(catalogueCalls[0].body.auto_apply,true);
+ assert.equal(new URL(catalogue.w.location.href).searchParams.has('completar'),false);
+ assert.equal(catalogue.doc.querySelector('[data-step-panel="2"]').hidden,false);
+ catalogue.close();pass('catalogue request enriches once and consumes its redirect marker');
+
+ let resumedCalls=[];
+ const resumedCatalogue=setup(async(url)=>{resumedCalls.push(url);return response(200,{id:'catalogue-pending',status:'running'});},
+   {query:'?entrada=catalogue&paso=2&completar=1',job:{id:'catalogue-pending',status:'running'},
+    before(w){w.document.querySelectorAll('.asset-card').forEach(n=>n.remove());}});
+ await pause(40);assert.equal(resumedCalls.filter(u=>u.endsWith('analizar/')).length,0);
+ assert.equal(resumedCalls.filter(u=>u.includes('/api/analisis/')).length,1);
+ resumedCatalogue.close();pass('persisted catalogue job resumes without requesting another analysis');
+
  for(const [name,profile,label] of [
    ['Plataformas elevadoras',{key:'aerial_platform',fields:[{key:'capacity',label:'Capacidad de plataforma'}]},'Capacidad de plataforma'],
    ['Minicargadores',{key:'compact_loader',fields:[{key:'capacity',label:'Capacidad operativa nominal'}]},'Capacidad operativa nominal'],

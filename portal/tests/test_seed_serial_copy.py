@@ -22,15 +22,15 @@ class SerialCopySeedTests(TestCase):
         for key,row in rows.items():
             row.refresh_from_db()
             self.assertNotEqual(row.body,OLD_INSTALLATION[key][1])
-            self.assertIn('sólo con fotos',row.body)
-            self.assertIn('tipo de equipo',row.body)
             expected[key]=(row.title,row.body,row.active)
+        self.assertIn('tipo de máquina, la marca y el modelo',rows['como-funciona'].body)
+        self.assertIn('número de serie o fotografías',rows['como-funciona'].body)
         self.seed()
         for key,row in rows.items():
             row.refresh_from_db()
             self.assertEqual((row.title,row.body,row.active),expected[key])
             self.assertEqual(SiteContent.objects.filter(key=key).count(),1)
-        self.assertContains(self.client.get('/como-funciona/'),'puedes escribirla sin una foto de la placa')
+        self.assertContains(self.client.get('/como-funciona/'),'Si no encuentras el modelo o no lo conoces')
         self.assertContains(self.client.get('/privacidad/'),'no incluyen tu contacto ni la ubicación')
 
     def test_custom_title_body_and_inactive_predecessors_remain_untouched(self):
@@ -46,10 +46,10 @@ class SerialCopySeedTests(TestCase):
     def test_new_installation_has_two_steps_and_explicit_search_privacy(self):
         self.seed()
         how=SiteContent.objects.get(key='como-funciona')
-        self.assertIn('01 · Elige el tipo de máquina y aporta serie o fotos',how.body)
+        self.assertIn('01 · Elige el tipo, la marca y el modelo',how.body)
         self.assertIn('02 · Edita, comparte o envía tu ficha',how.body)
         self.assertNotIn('03 ·',how.body)
-        self.assertIn('no identifican la unidad ni confirman sus especificaciones',how.body)
+        self.assertIn('no confirman las especificaciones de tu unidad',how.body)
         privacy=SiteContent.objects.get(key='privacidad')
         self.assertIn('Puedes escribir la serie sin fotografiar la placa',privacy.body)
         self.assertIn('tipo de equipo cuando no haya identificadores fiables',privacy.body)
@@ -59,16 +59,17 @@ class SerialCopySeedTests(TestCase):
 
     def test_fallback_pages_explain_photos_only_and_general_context(self):
         how=self.client.get('/como-funciona/')
-        self.assertContains(how,'escribir la serie sin una foto de la placa')
-        self.assertContains(how,'sólo con fotos')
-        self.assertContains(how,'contexto general')
+        self.assertContains(how,'tipo de máquina, la marca y el modelo')
+        self.assertContains(how,'número de serie o fotografías')
+        self.assertContains(how,'referencias del modelo sirven de contexto')
         privacy=self.client.get('/privacidad/')
         self.assertContains(privacy,'tipo de equipo cuando no haya identificadores fiables')
         self.assertContains(privacy,'no incluyen tus datos de contacto ni la ubicación')
 
     def test_public_templates_offer_written_serial_without_a_plate_photo(self):
         home=self.client.get('/')
-        self.assertContains(home,'escríbela sin necesidad de una foto de la placa')
+        self.assertContains(home,'tipo, la marca y el modelo')
+        self.assertContains(home,'Si no encuentras el tuyo')
         self.assertContains(home,'estimaciones orientativas del modelo')
         guide=self.client.get('/guia-de-fotos/')
         self.assertContains(guide,'puedes escribirla sin fotografiar la placa')

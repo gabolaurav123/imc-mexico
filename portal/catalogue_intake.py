@@ -8,8 +8,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 from django.core.exceptions import ValidationError
-from django.db.models import Prefetch
-from django.utils import timezone
+from django.db.models import Exists, F, OuterRef
 
 from .models import Category, EquipmentModel, TechnicalReference
 from .services import DATA_FIELDS
@@ -31,15 +30,30 @@ def _references_for_model(model):
     ).order_by("pk"))
 
 
+def approved_catalogue_models():
+    """Active models with an exact, reviewed technical reference.
+
+    ``EquipmentModel.category`` is part of the catalogue identity.  A
+    reference that happens to point at the same model row but belongs to a
+    different category must not make that row selectable.
+    """
+    references = TechnicalReference.objects.filter(
+        equipment_model_id=OuterRef("pk"), category_id=OuterRef("category_id"),
+        active=True, review=TechnicalReference.Review.APPROVED,
+    )
+    return (EquipmentModel.objects.filter(active=True, brand__active=True,
+                                          category__active=True)
+            .select_related("brand", "category")
+            .annotate(has_catalogue_reference=Exists(references))
+            .filter(has_catalogue_reference=True))
+
+
 def catalogue_choices(categories=None):
     """Serialize only exact, approved model references for the start form."""
     category_ids = None
     if categories is not None:
         category_ids = {category.pk for category in categories if category.active}
-    queryset = (EquipmentModel.objects.filter(active=True, brand__active=True,
-        category__active=True, technical_references__active=True,
-        technical_references__review=TechnicalReference.Review.APPROVED)
-        .select_related("brand", "category").distinct().order_by("category__name", "brand__name", "name"))
+    queryset = approved_catalogue_models().order_by("category__name", "brand__name", "name")
     if category_ids is not None:
         queryset = queryset.filter(category_id__in=category_ids)
     return [{"id": model.pk, "category": model.category_id, "brand": model.brand.name,
@@ -168,6 +182,69 @@ def catalogue_proposal(category_id, model_id):
             "reference_count": len(references), "mode": "catalogue"}
 
 
+def catalogue_selection_research(machine):
+    """Build signed model-scoped evidence for an existing catalogue selection.
+
+    This is deliberately a reconstruction from the current reviewed rows, not
+    a serialization of the draft's fields.  A user edit therefore cannot turn
+    into a signed technical claim.  It also omits price/market data: a local
+    market range is useful in the fiche but is not a technical model fact.
+    """
+    if not catalogue_reference_ready(machine):
+        return None
+    brand = machine.data.get("brand", "")
+    model_name = machine.data.get("model", "")
+    try:
+        model = EquipmentModel.objects.select_related("brand", "category").get(
+            category_id=machine.category_id, active=True, brand__active=True,
+            brand__name__iexact=brand.strip(), name__iexact=model_name.strip())
+    except (EquipmentModel.DoesNotExist, AttributeError):
+        return None
+    references = _references_for_model(model)
+    if not references:
+        return None
+
+    from .research import WEB_KEYS, ResearchField, normalize_direct_fields
+
+    identity = {"brand": model.brand.name, "model": model.name, "serial": None}
+    fields, sources, passages, titles = [], [], [], {}
+    source_urls, passage_keys = set(), set()
+
+    def append(key, value, meta):
+        if key not in WEB_KEYS or key == "estimated_year_basis":
+            return
+        url = meta.get("source_url")
+        title = meta.get("source_title")
+        evidence = meta.get("evidence")
+        if (not isinstance(url, str) or not url.startswith(("https://", "http://"))
+                or not isinstance(title, str) or not title.strip()
+                or not isinstance(evidence, str) or not evidence.strip() or len(evidence.strip()) > 800):
+            return
+        text = evidence.strip()
+        if url not in source_urls:
+            sources.append({"url": url, "title": title.strip()})
+            source_urls.add(url)
+            titles[url] = title.strip()
+        if (url, text) not in passage_keys:
+            passages.append({"source_url": url, "source_title": title.strip(), "text": text,
+                             "origin": "direct_document"})
+            passage_keys.add((url, text))
+        fields.append(ResearchField(key=key, value=str(value), scope="model", source_url=url,
+                                   evidence=text, matched_serial=None,
+                                   matched_brand=identity["brand"], matched_model=identity["model"]))
+
+    for key, (value, meta) in _agreed_specs(references).items():
+        append(key, value, meta)
+    period_data, period_meta = _period(references)
+    for key in ("estimated_year_from", "estimated_year_to"):
+        if key in period_data:
+            append(key, period_data[key], period_meta[key])
+
+    return normalize_direct_fields(identity, "model", sources,
+                                   "\n\n".join(item["text"] for item in passages), passages,
+                                   titles, direct_fields=fields)
+
+
 def catalogue_reference_ready(machine):
     """A persisted exact-model selection is the only no-media preparation mode."""
     if not machine.category_id or not isinstance(machine.data, dict) or not isinstance(machine.provenance, dict):
@@ -183,7 +260,8 @@ def catalogue_reference_ready(machine):
         return False
     return EquipmentModel.objects.filter(category_id=machine.category_id, active=True, brand__active=True,
         brand__name__iexact=brand.strip(), name__iexact=model.strip(), technical_references__active=True,
-        technical_references__review=TechnicalReference.Review.APPROVED).exists()
+        technical_references__review=TechnicalReference.Review.APPROVED,
+        technical_references__category_id=F("category_id")).exists()
 
 
 def catalogue_reference_stale(machine):

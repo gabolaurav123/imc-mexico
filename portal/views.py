@@ -71,9 +71,9 @@ def publish_start(request):
     return redirect('machine_create')
 
 PAGES={
- 'como-funciona': ('Tu máquina, una ficha compartible', 'Elige el tipo de máquina y aporta serie o fotos.', [('01 · Tipo de máquina, serie o fotos', 'Completa tu contacto y selecciona el tipo de máquina en el buscador. Te preguntamos si tienes serie: puedes escribir la serie sin una foto de la placa o continuar sólo con fotos. Necesitamos serie o imágenes para generar la ficha. Pulsa Generar ficha de maquinaria: se consultan referencias para proponer identificación, descripción y estimaciones de año y valor cuando haya evidencia suficiente. Las referencias sin identificadores fiables son contexto general; no confirman especificaciones de tu unidad.'), ('02 · Edita y comparte tu ficha', 'Corrige cualquier propuesta o indica año y precio exactos, horas o ubicación. Los datos sin valor no aparecen en la ficha compartida. Puedes habilitar un enlace corto y desactivarlo después. La serie y el contacto sólo se incluyen con autorización expresa. También puedes enviar la ficha a revisión; IMC México autoriza por separado su publicación en el catálogo.')]),
+ 'como-funciona': ('Tu máquina, una ficha compartible', 'Elige el tipo, la marca y el modelo del catálogo; si no lo encuentras, continúa con serie o fotos.', [('01 · Tipo, marca y modelo', 'Completa tu contacto y selecciona el tipo de máquina, la marca y el modelo en el catálogo. Pulsa Generar ficha de maquinaria para usar las referencias documentadas de ese modelo. Si no encuentras el modelo o no lo conoces, puedes continuar con el número de serie o fotografías; la foto de la placa es opcional. Las referencias del modelo sirven de contexto y no confirman especificaciones de tu unidad.'), ('02 · Edita y comparte tu ficha', 'Corrige cualquier propuesta o indica año y precio exactos, horas o ubicación. Los datos sin valor no aparecen en la ficha compartida. Puedes habilitar un enlace corto y desactivarlo después. La serie y el contacto sólo se incluyen con autorización expresa. También puedes enviar la ficha a revisión; IMC México autoriza por separado su publicación en el catálogo.')]),
  'guia-de-fotos': ('Una buena foto ayuda mucho', 'No necesitas equipo profesional: basta con tu celular y buena luz.', [('Vista general', 'Fotografía la máquina completa de costado. Evita personas y documentos ajenos en el encuadre.'), ('Detalles que importan', 'Incluye accesorios, puntos de desgaste y defectos visibles, sin ocultarlos ni alterar las imágenes.'), ('Placa, si la tienes', 'Acércate hasta que se lean los caracteres, evita reflejos y toma la imagen de frente. Indica si pertenece al motor, a la máquina o a otro componente.'), ('Sin placa también puedes empezar', 'Puedes escribir la serie sin fotografiar la placa o continuar sólo con una fotografía útil. No inventes series, año u horas si los desconoces.'), ('Video opcional', 'Un recorrido breve puede complementar las fotografías. El análisis de video mediante IA está desactivado.')]),
- 'preguntas-frecuentes': ('Resolvemos tus dudas', 'Lo esencial antes de anunciar tu maquinaria.', [('¿Necesito la placa?', 'No. Selecciona el tipo de máquina y escribe su número de serie o sube fotografías. La foto de la placa es opcional.'), ('¿La ficha se completa automáticamente?', 'Se identifican datos y se consultan referencias para proponer una ficha editable, incluidos rangos de año y precio cuando haya evidencia suficiente. Puedes sustituirlos por datos exactos. No se certifican características ni funcionamiento.'), ('¿Puedo compartir antes de la aprobación?', 'Sí. El propietario puede habilitar un enlace corto de su ficha preparada y desactivarlo después. Se comparte por WhatsApp, Facebook u otras aplicaciones. No equivale a publicar en el catálogo de IMC México.'), ('¿Qué se ve al compartir?', 'Los datos completados y las fotografías de maquinaria admitidas para compartir. Las imágenes de placas, documentos y notas internas permanecen privadas. La serie escrita y el contacto sólo aparecen con autorización expresa.'), ('¿Puedo descargar un PDF?', 'La ficha se consulta y comparte en la web. La descarga PDF está reservada al personal autorizado.'), ('¿Puedo continuar más tarde?', 'Sí. El borrador se guarda en tu cuenta. Si editas una ficha compartida, vuelve a compartirla para actualizar el enlace.'), ('¿Se publica al enviar?', 'No. IMC México revisa la solicitud y autoriza por separado su publicación en el catálogo.')]),
+ 'preguntas-frecuentes': ('Resolvemos tus dudas', 'Lo esencial antes de anunciar tu maquinaria.', [('¿Cómo empiezo?', 'Selecciona el tipo de máquina, la marca y el modelo del catálogo. Si no encuentras el modelo o no lo conoces, continúa con el número de serie o fotografías. La foto de la placa es opcional.'), ('¿La ficha se completa automáticamente?', 'El catálogo aporta referencias documentadas del modelo y el sistema puede consultar referencias para proponer una ficha editable. Puede sugerir rangos de año y precio cuando haya evidencia suficiente. Puedes sustituirlos por datos exactos. No se certifican características ni funcionamiento.'), ('¿Puedo compartir antes de la aprobación?', 'Sí. El propietario puede habilitar un enlace corto de su ficha preparada y desactivarlo después. Se comparte por WhatsApp, Facebook u otras aplicaciones. No equivale a publicar en el catálogo de IMC México.'), ('¿Qué se ve al compartir?', 'Los datos completados y las fotografías de maquinaria admitidas para compartir. Las imágenes de placas, documentos y notas internas permanecen privadas. La serie escrita y el contacto sólo aparecen con autorización expresa.'), ('¿Puedo descargar un PDF?', 'La ficha se consulta y comparte en la web. La descarga PDF está reservada al personal autorizado.'), ('¿Puedo continuar más tarde?', 'Sí. El borrador se guarda en tu cuenta. Si editas una ficha compartida, vuelve a compartirla para actualizar el enlace.'), ('¿Se publica al enviar?', 'No. IMC México revisa la solicitud y autoriza por separado su publicación en el catálogo.')]),
  'privacidad': ('Aviso de privacidad', 'Documento operativo pendiente de validación por el responsable de IMC México.', [('Finalidad', 'Tratamos los datos de cuenta, contacto, archivos y maquinaria para preparar fichas, revisar solicitudes y dar seguimiento. Las comunicaciones comerciales requieren consentimiento separado.'), ('Procesamiento con OpenAI', 'Al pulsar Generar ficha de maquinaria, autorizas enviar a OpenAI las imágenes necesarias y los identificadores disponibles para preparar la ficha. Puedes escribir la serie sin fotografiar la placa o continuar sólo con fotos. El número de serie, la marca y el modelo aportados o identificados, o el tipo de equipo cuando no haya identificadores fiables, se utilizan para búsquedas web de referencias técnicas. Las series se comparten con el buscador para esta finalidad y permanecen privadas en la ficha salvo autorización expresa al compartir. Las consultas de búsqueda no incluyen tus datos de contacto ni la ubicación del equipo. No enviamos intencionalmente tu correo ni teléfono. Evita documentos personales en las imágenes. store:false evita almacenar una respuesta como recurso recuperable, pero no garantiza ausencia absoluta de retención: aplican los controles y excepciones del proveedor.'), ('Acceso y publicación', 'Tus borradores y originales son privados. Como propietario puedes habilitar y desactivar un enlace de tu ficha preparada: será accesible a quienes tengan el enlace con los datos completados y las fotografías de maquinaria admitidas para compartir. La serie escrita y el contacto sólo se incluyen con autorización expresa e independiente. Las imágenes de placas, documentos y notas internas permanecen privadas. Compartir no autoriza la publicación en el catálogo de IMC México, que requiere revisión y permisos separados. La descarga PDF está reservada al personal autorizado.'), ('Conservación y derechos', 'Puedes solicitar acceso, corrección o eliminación en Panel → Seguridad. El responsable resolverá la solicitud y las obligaciones de conservación aplicables. La política inicial propone revisar datos inactivos tras 365 días; no elimina publicaciones activas automáticamente.'), ('Responsable y contacto', 'Los datos legales del responsable, domicilio, transferencias, plazos y procedimiento definitivo deben ser validados por IMC México antes de apertura comercial. No se declara cumplimiento legal automático.')]),
  'terminos': ('Términos de uso', 'Borrador pendiente de validación por el responsable de IMC México.', [('Objeto del portal', 'Esta plataforma recibe información de maquinaria, ayuda a organizarla y la somete a revisión. No es un sistema de pagos, subastas, financiamiento ni una garantía de venta.'), ('Tu información', 'Declara únicamente datos que conozcas y señala defectos o limitaciones. Debes contar con autorización para anunciar el equipo y compartir las imágenes suministradas.'), ('Revisión y permisos', 'La revisión administrativa no implica inspección ni certificación mecánica. El propietario puede habilitar y desactivar un enlace de su ficha preparada. IMC México decide por separado el permiso de anunciante, la aprobación del contenido y la publicación en el catálogo.'), ('Asistencia mediante IA', 'Las sugerencias pueden contener errores. Debes revisarlas antes de enviar. Los datos desconocidos permanecen sin especificar y pueden solicitarse aclaraciones.'), ('Cambios y disponibilidad', 'Las modificaciones relevantes requieren una nueva revisión. Informa si el equipo se reserva, vende o retira. Compartir el enlace no acredita publicación en la web principal.')]),
 }
@@ -149,7 +149,7 @@ def machines(request):
 def machine_create(request):
     from .category_profiles import category_catalog
     from .intake import contact_complete
-    from .catalogue_intake import catalogue_choices, catalogue_proposal
+    from .catalogue_intake import catalogue_proposal
     if not contact_complete(request.user):
         return redirect('/panel/perfil/?next=/panel/maquinarias/nueva/')
     categories = Category.objects.filter(active=True)
@@ -161,14 +161,12 @@ def machine_create(request):
         category=None
         if category_id in (None, '', 'unsure') and request.POST.get('entry_mode') in {'catalogue','manual_identity'}:
             return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
-                'catalogue_intake_json':catalogue_choices(categories),
                 'error':'Selecciona el tipo de máquina que quieres anunciar.'},status=400)
         if category_id not in (None, '', 'unsure'):
             try:
                 category=categories.get(pk=category_id)
             except (Category.DoesNotExist, ValueError, TypeError):
                 return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
-                    'catalogue_intake_json':catalogue_choices(categories),
                     'error':'Selecciona un tipo disponible o «No estoy seguro».'},status=400)
         entry_mode=request.POST.get('entry_mode','')
         provenance={'currency':{'source':'system','review':'needs_review'}}
@@ -176,7 +174,11 @@ def machine_create(request):
         data={'currency':'USD'}
         title=None
         if entry_mode=='catalogue':
-            proposal=catalogue_proposal(category.pk,request.POST.get('catalogue_model'))
+            try:
+                proposal=catalogue_proposal(category.pk,request.POST.get('catalogue_model'))
+            except ValidationError as exc:
+                return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+                    'error':' '.join(exc.messages)},status=400)
             data,provenance=proposal['data'],{**proposal['provenance'],
                 'title':proposal['title_provenance'],
                 'category':{'source':'user','review':'confirmed'}}
@@ -186,7 +188,6 @@ def machine_create(request):
             model=request.POST.get('catalogue_manual_model','').strip()[:100]
             if not brand or not model:
                 return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
-                    'catalogue_intake_json':catalogue_choices(categories),
                     'error':'Escribe la marca y el modelo, o selecciona un modelo del catálogo.'},status=400)
             data.update({'brand':brand,'model':model})
             provenance.update({'brand':{'source':'user','review':'confirmed'},
@@ -194,7 +195,7 @@ def machine_create(request):
         if serial: provenance['serial']={'source':'user','review':'confirmed'}
         if serial:data['serial']=serial
         for key,value in declared.items():
-            if value:
+            if value and not (entry_mode=='catalogue' and key in {'brand','model','description'}):
                 data[key]=value
                 provenance[key]={'source':'user','review':'confirmed'}
         machine=Machine.objects.create(owner=request.user,category=category,data=data,
@@ -202,24 +203,32 @@ def machine_create(request):
         event(request,'draft_started',machine)
         suffix=('?entrada=catalogue&paso=2' if entry_mode=='catalogue' else
                 '?entrada='+entry_mode if entry_mode in {'plate','serial','photos','manual_identity'} else '')
+        if entry_mode=='catalogue' and request.POST.get('catalogue_enrichment')=='1':
+            suffix+='&completar=1'
         return redirect(f'/panel/maquinarias/{machine.pk}/'+suffix)
-    return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
-        'catalogue_intake_json':catalogue_choices(categories)})
+    return render(request,'portal/start.html',{'categories_json':category_catalog(categories)})
 
 
 @require_http_methods(["GET", "POST"])
 @api
 def api_catalogue_intake(request):
     """Read approved local models or create the explicit no-media catalogue draft."""
-    from .catalogue_intake import catalogue_choices, catalogue_proposal
+    from .catalogue_intake import approved_catalogue_models, catalogue_proposal
     from .intake import contact_complete
     if request.method=='GET':
-        category=request.GET.get('category')
-        categories=Category.objects.filter(active=True)
+        from .catalogue_discovery import MAX_PAGE, PAGE_SIZE, _page, _positive_id
+        category=_positive_id(request.GET,'category')
+        models=approved_catalogue_models()
         if category:
-            try:categories=categories.filter(pk=int(category))
-            except (TypeError,ValueError):raise ValidationError('Selecciona un tipo de máquina disponible.')
-        return JsonResponse({'models':catalogue_choices(categories)})
+            models=models.filter(category_id=category)
+        page=_page(request.GET)
+        total=models.count()
+        start=(page-1)*PAGE_SIZE
+        models=models.order_by('category__name','brand__name','name','pk')[start:start+PAGE_SIZE]
+        return JsonResponse({'models':[{'id':model.pk,'category':model.category_id,'brand':model.brand.name,
+                                        'name':model.name} for model in models],
+                             'page':page,'page_size':PAGE_SIZE,'total':total,
+                             'has_more':page<MAX_PAGE and page*PAGE_SIZE<total})
     if not contact_complete(request.user):
         return JsonResponse({'error':'Completa tus datos de contacto antes de publicar.',
                              'url':'/panel/perfil/?next=/panel/maquinarias/nueva/'},status=400)
@@ -236,19 +245,28 @@ def api_catalogue_intake(request):
 @ensure_csrf_cookie
 def machine_wizard(request,pk):
     from .category_profiles import category_catalog
+    from .catalogue_intake import approved_catalogue_models
     from .intake import preparation_completeness
     machine=owned(request,pk)
     try:step=max(1,min(2,int(request.GET.get('paso',request.GET.get('step',1)))))
     except ValueError:step=1
     job=AnalysisJob.objects.filter(machine=machine).order_by('-created_at').first()
-    models=EquipmentModel.objects.filter(active=True,brand__active=True).filter(Q(category__isnull=True)|Q(category__active=True)).select_related('brand')
-    catalog_models=[{'name':item.name,'brand':item.brand.name,'category':item.category_id} for item in models]
+    # The picker discovers models on demand. Keep only the current identity's
+    # first page for an immediate datalist fallback instead of serializing the
+    # complete technical library into every wizard response.
+    catalog_models=[]
+    current_brand=(machine.data or {}).get('brand') if isinstance(machine.data,dict) else None
+    if machine.category_id and isinstance(current_brand,str) and current_brand.strip():
+        initial_models=approved_catalogue_models().filter(category_id=machine.category_id,
+            brand__name__iexact=current_brand.strip()).order_by('name')[:25]
+        catalog_models=[{'id':item.pk,'name':item.name,'brand':item.brand.name,'category':item.category_id}
+                        for item in initial_models]
     shared=PreparedShare.objects.filter(machine=machine,authorized_by_id=machine.owner_id).first()
     share_context={'share_include_serial':bool(shared and shared.include_serial),
         'share_include_contact':bool(shared and shared.snapshot.get('contact_authorized')),
         'preparation_completion':preparation_completeness(machine)}
     state=machine_state(machine)
-    return render(request,'portal/wizard.html',{**share_context,'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True),'catalog_models_json':catalog_models,'step':step,'job':job,'data':state['data'],'provenance':machine.provenance,'machine_json':state})
+    return render(request,'portal/wizard.html',{**share_context,'machine':machine,'can_delete_draft':machine.owner_id==request.user.pk and machine.can_delete_draft,'can_export':can_export_machine(request),'assets':machine.assets.all(),'categories':Category.objects.filter(active=True),'categories_json':category_catalog(Category.objects.filter(active=True)),'catalog_brands':Brand.objects.filter(active=True).only('pk','name'),'catalog_models_json':catalog_models,'step':step,'job':job,'data':state['data'],'provenance':machine.provenance,'machine_json':state})
 
 @login_required
 def requests_list(request):
@@ -387,19 +405,32 @@ def api_asset_action(request,pk):
 @api
 def api_analyze(request,pk):
     from .processing import enqueue_analysis
-    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode','auto_apply','revision','research','preflight'])
+    machine=owned(request,pk);body=payload(request,allowed=['consent','asset_ids','mode','auto_apply','revision','research','preflight','enrich_catalogue'])
     if body.get('consent') is not True:raise ValidationError('Autoriza el procesamiento de las imágenes necesarias mediante OpenAI.')
+    if 'enrich_catalogue' in body and type(body['enrich_catalogue']) is not bool:
+        raise ValidationError('Indica si deseas complementar las referencias del catálogo.')
     from .intake import preparation_mode
     mode=preparation_mode(machine,body.get('asset_ids'))
     if mode=='catalogue':
+        enrich_catalogue=body.get('enrich_catalogue') is True
         # The catalogue fiche is already composed from approved local records.
         # Do not create an unsupported AnalysisJob or send a paid request when
         # the owner presses "Generar" again without unit evidence.
         if body.get('revision') is not None and body.get('revision') != machine.revision:
             return JsonResponse({'error':'Hay una versión más reciente. Recarga antes de actualizar la ficha.',
                                  'revision':machine.revision},status=409)
+        if enrich_catalogue:
+            from .intake import catalogue_enrichment_needed
+            if catalogue_enrichment_needed(machine):
+                job=enqueue_analysis(machine,request.user,[],"description",
+                    analytics_context=capture_context(request,page='analysis'),auto_apply=body.get('auto_apply',False),
+                    expected_revision=body.get('revision'),authorize_ai=True,research=True,
+                    catalogue_enrichment=True)
+                machine.refresh_from_db()
+                return JsonResponse(analysis_state(job,machine))
         return JsonResponse({'id':None,'status':'completed','mode':'catalogue','refresh':True,
-                             'result':{'catalogue':{'status':'ready','message':'La ficha conserva las referencias documentadas del modelo; no son datos confirmados de esta unidad.'}},
+                             'result':{'catalogue':{'status':'ready','message':'La ficha conserva las referencias documentadas del modelo; no son datos confirmados de esta unidad.',
+                                                    'enrichment_needed':False}},
                              'processing_stage':'completed','processing_progress':{'stage':'completed'},
                              'error':'','assets':[asset_info(asset) for asset in machine.assets.all()],
                              'machine':machine_state(machine),'auto_apply':{'status':'no_changes','applied_fields':[]}})

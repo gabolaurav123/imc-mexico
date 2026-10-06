@@ -263,6 +263,15 @@ def research_identity(result, snapshot=None, allowed_categories=None):
         meta = provenance.get(key, {})
         if key not in declared and meta.get("component") == "machine" and meta.get("review") == "clear" and meta.get("source") in {"plate", "image", "user"}:
             identity[key] = _identifier(data.get(key))
+        # A model picked from the reviewed local catalogue is an established
+        # model identity, not a reading of this particular unit.  The caller
+        # only creates this route after validating the persisted selection;
+        # retaining its distinct provenance prevents it from being promoted to
+        # a user declaration or an exact-unit fact.
+        if (key not in declared and meta.get("source") == "web_model"
+                and meta.get("review") == "confirmed" and meta.get("scope") == "model"
+                and meta.get("basis") == "catalogue_intake"):
+            identity[key] = _identifier(data.get(key))
     if "serial" in declared:
         identity["serial"] = _identifier(declared.get("serial"), serial=True)
     serial_meta = provenance.get("serial", {})
@@ -838,6 +847,46 @@ def machine_capacity_evidence(value, evidence):
     return False
 
 
+_LABELLED_METRIC_FIELDS = {
+    "weight": r"(?:operating\s+)?weight",
+    "power": r"(?:gross\s+)?horsepower",
+    "travel_speed": r"(?:maximum\s+)?travel\s+speed",
+}
+_LABELLED_METRIC_UNITS = frozenset({"kg", "kw", "kph"})
+
+
+def _literal_or_same_labelled_metric_value(key, value, evidence):
+    """Accept a metric suffix only when its own source label declares it.
+
+    Manufacturer tables sometimes write a unit only in the field header, such
+    as ``Operating weight (kg) 54 870``.  The stored display value keeps that
+    unit (``54 870 kg``), but it must still be bound to the immediately
+    following source reading.  This intentionally does not accept a unit or a
+    number elsewhere in the passage.
+    """
+    value_key = identifier_key(value)
+    evidence_key = identifier_key(evidence)
+    if value_key and value_key in evidence_key:
+        return True
+
+    label = _LABELLED_METRIC_FIELDS.get(key)
+    suffix = re.fullmatch(r"(?P<reading>.+?)(?:\s+)(?P<unit>kg|kw|kph)\s*", value, re.I)
+    if not label or not suffix:
+        return False
+    unit = suffix.group("unit").casefold()
+    if unit not in _LABELLED_METRIC_UNITS:
+        return False
+    reading = suffix.group("reading").strip()
+    if not reading:
+        return False
+    # Preserve every non-whitespace character in the source reading.  A field
+    # label may add a unit, but it cannot turn 70 into 170 or bridge two rows.
+    literal_reading = re.escape(reading).replace(r"\ ", r"\s+")
+    pattern = (rf"\b{label}\s*\(\s*{re.escape(unit)}\s*\)\s*:?\s*"
+               rf"{literal_reading}(?![\w,]|\.\d)")
+    return bool(re.search(pattern, evidence, re.I))
+
+
 def documented_model_period(evidence):
     """An explicitly labelled closed production period, never a unit's year.
 
@@ -1198,8 +1247,10 @@ def normalize_research(parsed, identity, basis, sources, search_text, citations=
         if not bound_passages:
             reject("evidence_wrong_citation")
             continue
-        # The extracted value must occur literally in its cited passage.
-        if identifier_key(item.value) not in identifier_key(evidence):
+        # The extracted value must occur literally in its cited passage.  A
+        # narrow exception retains units that a manufacturer puts only in the
+        # immediately preceding metric field label.
+        if not _literal_or_same_labelled_metric_value(item.key, item.value, evidence):
             reject("value_not_literal")
             continue
         if item.key == "capacity" and not machine_capacity_evidence(item.value, evidence):
@@ -1693,8 +1744,14 @@ def _research_photo_catalog_reference(client, model, result, identity, basis, ph
 
 
 def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None,
-                     knowledge_category=None):
+                     knowledge_category=None, catalogue_enrichment=False, catalogue_reference=None):
     identity, basis = research_identity(result, snapshot, allowed_categories)
+    if catalogue_enrichment:
+        # The catalogue route enriches model references only.  An optional
+        # serial already saved in the draft must not turn a no-photo request
+        # into an exact-unit lookup.
+        identity["serial"] = None
+        basis = "model" if identity.get("brand") and identity.get("model") else "none"
     if basis in {"none", "category"}:
         photo_reference = _research_photo_catalog_reference(
             client, model, result, identity, basis, photo_inputs, snapshot, allowed)
@@ -1716,17 +1773,25 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
     # database dependency. The worker passes the actual selected Category.
     if knowledge_category is not None:
         from .knowledge import research_from_knowledge
-        local = research_from_knowledge(result, snapshot or {}, knowledge_category, identity)
+        local = catalogue_reference if catalogue_enrichment else None
+        if local is None:
+            local = research_from_knowledge(result, snapshot or {}, knowledge_category, identity)
         if local is not None and _verified_local_reference(local, identity):
             if allowed is not None and not allowed():
                 cancelled = empty_research("degraded", identity, basis)
                 cancelled["warnings"].append("La autorización de búsqueda ya no está vigente. Se conservó la lectura de las fotos.")
                 return cancelled, UsageTotals()
             profile_category = "Excavadoras" if getattr(knowledge_category, "slug", None) == "excavadoras" else category
-            if _local_reference_is_complete(local, identity, profile_category, result, snapshot):
+            if _local_reference_is_complete(local, identity, profile_category, result, snapshot) and not catalogue_enrichment:
                 return local, UsageTotals()
+            seed = _local_pipeline_evidence(local, identity)
+            if catalogue_enrichment:
+                # A local technical reference means a broad manual search is
+                # redundant.  The pipeline still checks manufacturer and
+                # independent catalogue sources for genuinely missing fields.
+                seed["prioritize_local_reference"] = True
             return research_identified_machine(client, model, result, identity, basis, allowed, category,
-                                               initial_evidence=_local_pipeline_evidence(local, identity))
+                                               initial_evidence=seed)
     return research_identified_machine(client, model, result, identity, basis, allowed, category)
 
 

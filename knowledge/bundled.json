@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-25-expanded",
+  "version": "2026-10-06-catalogue-first",
   "files": [
     {
       "path": "excavadoras/caterpillar_320.json",
@@ -48,6 +48,14 @@
     {
       "path": "catalogo_historico_volvo_2026-09-25.json",
       "sha256": "14a97c95ae83e8a083cf36f76fce7735182ecc0466213bdfdfca171fecada7bb"
+    },
+    {
+      "path": "new_ritchiespecs_construction_identities_2026-10-06.json",
+      "sha256": "a50f6bac7c4dbcc607d6c5befe6fbb07967b4d7e4188962aa8a3d85c86f9e3f5"
+    },
+    {
+      "path": "new_komatsu_current_specs_2026-10-06.json",
+      "sha256": "ea32c333273a5923636c09c297b0aced5e490b03c82064f2a8772b6dba8a78d4"
     }
   ]
 }

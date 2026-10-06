@@ -68,6 +68,21 @@ class TechnicalLibraryTests(TestCase):
         self.assertContains(response, "Excavadoras")
         self.assertNotContains(response, "Volvo")
 
+    def test_library_separates_indexed_identity_rows_from_documented_coverage(self):
+        identity_only = self.make_reference(brand="Komatsu", model="PC200", specs={})
+        self.login_with_permission()
+        response = self.client.get("/operaciones/base-tecnica/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["coverage_visibility"], {
+            "specification_rows": 1, "period_rows": 1, "market_rows": 0, "identity_only_rows": 1,
+        })
+        self.assertContains(response, "Identidades indexadas")
+        self.assertContains(response, "Sólo identidad")
+        response = self.client.get("/operaciones/base-tecnica/", {"availability": "identity_only"})
+        self.assertEqual(list(response.context["references"]), [identity_only])
+        detail = self.client.get(f"/operaciones/base-tecnica/{identity_only.pk}/")
+        self.assertContains(detail, "Sólo identidad indexada")
+
     def test_detail_shows_human_readable_specs_and_the_internal_source_to_authorized_staff(self):
         self.login_with_permission()
         response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
@@ -107,13 +122,13 @@ class TechnicalLibraryTests(TestCase):
 
     def test_market_ranges_are_separate_from_specs_and_require_two_approved_listings(self):
         values = {"equipment_model": self.equipment_model, "currency": "USD", "market": "NL",
-                  "price_type": "asking", "condition": "used", "retrieved_at": "2026-09-01",
+                  "price_type": "asking", "condition": "used", "retrieved_at": timezone.localdate() - timedelta(days=1),
                   "evidence": "Precio y condición visibles en el anuncio.", "review": "approved", "active": True}
         MarketReference.objects.create(**values, source="https://market.example.invalid/listing-1", source_title="Anuncio 1", price="45000.00")
         self.login_with_permission()
         response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
         self.assertContains(response, "Aún no hay al menos dos anuncios aprobados")
-        later_values = {**values, "retrieved_at": "2026-09-09"}
+        later_values = {**values, "retrieved_at": timezone.localdate()}
         MarketReference.objects.create(**later_values, source="https://market.example.invalid/listing-2", source_title="Anuncio 2", price="50000.00")
         response = self.client.get(f"/operaciones/base-tecnica/{self.reference.pk}/")
         self.assertContains(response, "45000")

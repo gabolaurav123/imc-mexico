@@ -12,6 +12,7 @@ from django.test import TestCase
 from portal.knowledge import research_from_knowledge, retrieve_technical_references
 from portal.knowledge_catalogue import KNOWLEDGE_ROOT, bundled_records, link_catalogue
 from portal.models import Brand, Category, EquipmentModel, Machine, TechnicalReference
+from portal.research import _brand_key, identifier_key
 from portal.structured_data import normalize_structured_data
 
 
@@ -24,23 +25,81 @@ class BundledKnowledgeTests(TestCase):
                          'generation': reference.generation, 'location_country': reference.market},
                 'provenance': {'variant': {'source': 'user'}, 'location_country': {'source': 'user'}}}
 
+    @staticmethod
+    def catalogue_identity(category_slug, brand, model):
+        return category_slug, _brand_key(brand), identifier_key(model)
+
     def test_bundle_creates_real_linked_rows_without_listing_inventory(self):
         self.seed()
         self.assertFalse(Machine.objects.exists())
-        self.assertEqual(TechnicalReference.objects.count(), len(bundled_records()))
-        for reference in TechnicalReference.objects.select_related('equipment_model__brand'):
+        bundled = bundled_records()
+        self.assertEqual(TechnicalReference.objects.count(), len(bundled))
+        expected_models = {self.catalogue_identity(item['category_slug'], item['brand'], item['model'])
+                           for item in bundled}
+        actual_models = {self.catalogue_identity(model.category.slug, model.brand.name, model.name)
+                         for model in EquipmentModel.objects.select_related('category', 'brand')}
+        linked_models = {
+            self.catalogue_identity(reference.category.slug, reference.equipment_model.brand.name,
+                                    reference.equipment_model.name)
+            for reference in TechnicalReference.objects.select_related('category', 'equipment_model__brand')
+        }
+        # The pre-expansion release contained 545 selectable canonical models.
+        # This checks the user-visible selector, not the number of source rows.
+        self.assertGreaterEqual(len(expected_models), 10 * 545)
+        # The seed also preserves a small set of existing selector suggestions
+        # that deliberately have no TechnicalReference.  Every bundled model
+        # must exist in the selector, while the linked rows must be exactly the
+        # canonical identities declared by the release bundle.
+        self.assertTrue(expected_models <= actual_models)
+        self.assertEqual(linked_models, expected_models)
+        for reference in TechnicalReference.objects.select_related('category', 'equipment_model__brand'):
             with self.subTest(model=str(reference)):
                 self.assertIsNotNone(reference.equipment_model_id)
                 self.assertEqual(reference.equipment_model.category_id, reference.category_id)
-                self.assertEqual(reference.equipment_model.name, reference.model)
-                self.assertEqual(reference.equipment_model.brand.name, reference.brand)
+                self.assertEqual(
+                    self.catalogue_identity(reference.category.slug, reference.equipment_model.brand.name,
+                                            reference.equipment_model.name),
+                    self.catalogue_identity(reference.category.slug, reference.brand, reference.model),
+                )
                 self.assertTrue(reference.active)
                 self.assertEqual(reference.review, 'approved')
+
+    def test_bundle_never_assigns_one_canonical_identity_to_multiple_categories(self):
+        categories = {}
+        for item in bundled_records():
+            identity = (_brand_key(item['brand']), identifier_key(item['model']))
+            categories.setdefault(identity, set()).add(item['category_slug'])
+        conflicts = {identity: values for identity, values in categories.items() if len(values) > 1}
+        self.assertEqual(conflicts, {})
+
+    def test_current_komatsu_specs_are_metric_and_only_claim_published_fields(self):
+        rows = [
+            item for item in bundled_records()
+            if item.get('source_version') == 'US public product page'
+            and item.get('source', '').startswith('https://www.komatsu.com/en-us/products/')
+        ]
+        self.assertEqual(len(rows), 120)
+        for row in rows:
+            with self.subTest(model=row['model']):
+                self.assertTrue(row['specs'])
+                self.assertTrue(set(row['specs']) <= {'power', 'weight', 'travel_speed'})
+                self.assertNotIn('capacity', row['specs'])
+                for key, spec in row['specs'].items():
+                    self.assertIn('Komatsu', spec['evidence'])
+                    self.assertIn(row['model'], spec['evidence'])
+                    if key == 'travel_speed':
+                        self.assertTrue(spec['value'].endswith(' kph'))
 
     def test_each_curated_spec_survives_real_research_validation(self):
         self.seed()
         for reference in TechnicalReference.objects.all():
             with self.subTest(model=str(reference)):
+                # Sitemap identities deliberately have no measurements.  They
+                # must be selectable, but cannot be made to look like a
+                # research source simply to satisfy a specification assertion.
+                if reference.provenance.get('scope') == 'model_identity':
+                    self.assertEqual(reference.specs, {})
+                    continue
                 research = research_from_knowledge({}, self.snapshot_for(reference), reference.category)
                 self.assertIsNotNone(research)
                 fields = {field['key']: field for field in research['fields']}

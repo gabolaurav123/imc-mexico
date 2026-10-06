@@ -2,64 +2,56 @@ const {JSDOM}=require('jsdom');
 const fs=require('fs'),assert=require('node:assert/strict'),path=require('node:path');
 const base=path.join(__dirname,'..');
 const html=fs.readFileSync(path.join(base,'templates/portal/start.html'),'utf8').replace(/{%[\s\S]*?%}/g,'').replace(/{{[\s\S]*?}}/g,'');
-const catalogue=[{id:1,name:'Excavadoras',slug:'excavadoras',aliases:['excavadora'],fields:[],profile:{}}];
-const models=[{id:7,category:1,brand:'Caterpillar',name:'320'}];
-const dom=new JSDOM(html+`<script id="category-data" type="application/json">${JSON.stringify(catalogue)}</script><script id="catalogue-intake-data" type="application/json">${JSON.stringify(models)}</script>`,{runScripts:'outside-only'});
-const {window}=dom,{document}=window;
-window.HTMLElement.prototype.scrollIntoView=function(){};
-for (const name of ['category-picker.js','start-intake.js']) window.eval(fs.readFileSync(path.join(base,'static/portal',name),'utf8'));
-const $=selector=>document.querySelector(selector),form=$('#start-machine-form');
-function submit(button){const event=new window.SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:button});form.dispatchEvent(event);return event.defaultPrevented;}
-function clickToSubmit(button){
-  let captured=null;
-  const capture=event=>{
-    captured={prevented:event.defaultPrevented,submitter:event.submitter,data:new window.FormData(form)};
-    event.preventDefault(); // Keep the test on this page after the native form submission.
-  };
-  form.addEventListener('submit',capture,{once:true});
-  button.click();
-  form.removeEventListener('submit',capture);
-  return captured;
+const categories=[{id:1,name:'Excavadoras',slug:'excavadoras',aliases:['excavadora']},{id:2,name:'Compactadores',slug:'compactadores',aliases:['compactadora']}];
+const pause=()=>new Promise(resolve=>setTimeout(resolve,0));
+function fixture(responder){
+  const dom=new JSDOM(html+`<script id="category-data" type="application/json">${JSON.stringify(categories)}</script>`,{runScripts:'outside-only',url:'https://portal.example/panel/maquinarias/nueva/'});
+  const {window}=dom,$=selector=>window.document.querySelector(selector),calls=[];
+  $('[data-intake-start]').dataset.catalogueUrl='/api/maquinarias/catalogo/descubrir/';
+  window.fetch=async(url,options)=>{calls.push(url); const value=await responder(new URL(url,window.location.origin),options);return {ok:true,headers:{get:()=> 'application/json'},json:async()=>value};};
+  for(const name of ['category-picker.js','start-intake.js'])window.eval(fs.readFileSync(path.join(base,'static/portal',name),'utf8'));
+  const form=$('#start-machine-form');
+  function submit(button){const event=new window.SubmitEvent('submit',{bubbles:true,cancelable:true,submitter:$(button)});form.dispatchEvent(event);return {prevented:event.defaultPrevented,data:new window.FormData(form)};}
+  return {dom,window,$,calls,submit};
 }
-assert.equal($('#identifier-question').hidden,true);
-assert.equal(submit($('#identifier-yes .intake-finish')),true,'implicit Enter on hidden default button never creates a draft');
-assert.equal(submit($('[data-photo-answer="yes"]')),true,'hidden photo choice cannot create a draft');
-const search=$('#start-category-search'); search.value='excavadora'; search.dispatchEvent(new window.Event('input',{bubbles:true}));
-$('#start-category-results button').click(); $('#start-category-next').click();
-assert.equal($('#start-category').value,'1'); assert.equal($('#identifier-question').hidden,false);
-$('[data-identifier-answer="no"]').click();
-assert.equal($('#photos-question').hidden,false,'a missing serial asks about photos before choosing a catalogue path');
-const photoChoice=$('[data-photo-answer="yes"]'),photoSubmission=clickToSubmit(photoChoice);
-assert.equal($('#photos-yes'),null,'there is no intermediate photo confirmation screen');
-assert.equal(photoChoice.type,'submit','photo choice uses the existing native form POST');
-assert.equal(form.method,'post');
-assert.ok(photoSubmission,'one click on the photo choice submits the existing intake form');
-assert.equal(photoSubmission.prevented,false); assert.equal(photoSubmission.submitter,photoChoice);
-assert.equal(photoSubmission.data.get('entry_mode'),'photos'); assert.equal(photoSubmission.data.get('category'),'1'); assert.equal(photoSubmission.data.get('serial'),'');
-$('[data-photo-answer="no"]').click();
-assert.equal($('#catalogue-question').hidden,false);
-$('#catalogue-brand-select').value='Caterpillar'; $('#catalogue-brand-select').dispatchEvent(new window.Event('change',{bubbles:true}));
-assert.equal($('#catalogue-model-select').disabled,false); $('#catalogue-model-select').value='7'; $('#catalogue-model-select').dispatchEvent(new window.Event('change',{bubbles:true}));
-assert.equal(submit($('#catalogue-question .intake-finish')),false); assert.equal($('#catalogue-model').value,'7'); assert.equal($('#start-entry-mode').value,'catalogue');
-$('#catalogue-manual-toggle').click(); $('#catalogue-manual-brand').value='Marca conocida'; $('#catalogue-manual-model').value='Modelo conocido';
-assert.equal(submit($('#catalogue-question .intake-finish')),false); assert.equal($('#start-entry-mode').value,'manual_identity');
-$('#catalogue-question [data-photo-back]').click(); $('#photos-question [data-identifier-back]').click(); $('[data-identifier-answer="yes"]').click();
-assert.equal(submit($('#identifier-yes .intake-finish')),true,'yes must choose plate or typed input before creating a draft');
-$('[data-identifier-choice="plate"]').click();
-assert.equal(submit($('#identifier-yes .intake-finish')),false); assert.equal($('#start-entry-mode').value,'plate'); assert.equal($('#start-serial').value,'');
-$('[data-identifier-choice="typed"]').click(); $('#typed-serial').value='  SERIAL-QA-001  '; $('#typed-serial').dispatchEvent(new window.Event('input',{bubbles:true}));
-assert.equal(submit($('#identifier-yes .intake-finish')),false); assert.equal($('#start-serial').value,'SERIAL-QA-001');
-// The AI can identify the type from a serial or photographs alone.
-$('#start-category').value='';
-assert.equal(submit($('#identifier-yes .intake-finish')),false,'serial-only entry permits an unknown category');
-$('#typed-serial').value=''; $('#typed-serial').dispatchEvent(new window.Event('input',{bubbles:true}));
-assert.equal(submit($('#identifier-yes .intake-finish')),true,'typed serial still requires a value');
-assert.equal($('#typed-serial').validity.valid,false);
-$('#identifier-yes [data-identifier-back]').click(); $('[data-identifier-answer="no"]').click();
-const optionalTypeSubmission=clickToSubmit(photoChoice);
-assert.ok(optionalTypeSubmission,'abandoning an invalid typed serial does not block the photos route');
-assert.equal(optionalTypeSubmission.prevented,false,'photo-only entry permits an unknown category');
-assert.equal(optionalTypeSubmission.data.get('category'),''); assert.equal(optionalTypeSubmission.data.get('entry_mode'),'photos'); assert.equal(optionalTypeSubmission.data.get('serial'),'');
-$('[data-photo-answer="no"]').click();
-assert.equal($('#type-question').hidden,false,'catalogue route retains its category requirement');
-dom.window.close();console.log('Start intake DOM PASS: direct native photo entry, optional AI type, serial, plate, catalogue, manual identity, and guards.');
+const defaultResponse=url=>url.searchParams.get('stage')==='brands'?{items:[{id:11,label:'Caterpillar'}],total:1,has_more:false}:{items:[{id:77,label:'320',has_specs:true}],total:1,has_more:false};
+(async()=>{
+  let f=fixture(defaultResponse),{$,window}=f;
+  assert.equal(f.calls.length,0,'initial page does not download all model rows');
+  assert.equal($('#catalogue-intake-data'),null,'the full model catalogue is not embedded');
+  assert.equal(f.submit('[data-entry-route=photos]').prevented,true,'hidden routes cannot create drafts');
+  assert.equal(f.submit('#catalogue-generate').prevented,true,'a partial identity cannot create a catalogue draft');
+  $('[data-category-id="1"]').click();await pause();
+  assert.equal($('#brand-question').hidden,false,'a type immediately opens its brands');
+  assert.equal($('#start-category').value,'1');assert.match(f.calls[0],/stage=brands/);
+  $('#catalogue-brand-results button').click();await pause();
+  assert.equal($('#model-question').hidden,false);assert.match(f.calls[1],/brand=11/);
+  assert.equal($('#catalogue-generate').disabled,true);
+  $('#catalogue-model-results button').click();
+  assert.equal($('#catalogue-generate').disabled,false);assert.equal($('#catalogue-model').value,'77');
+  assert.match($('#selection-summary').textContent,/Excavadoras.*Caterpillar.*320/);
+  $('[data-browse-back=brand]').click();assert.equal($('#brand-question').hidden,false);
+  $('#catalogue-brand-results button').click();await pause();assert.equal(f.calls.length,2,'back navigation reuses current-page cache');
+  assert.equal($('#catalogue-model').value,'','changing a parent invalidates the selected model');
+  $('#catalogue-model-results button').click();
+  const created=f.submit('#catalogue-generate');assert.equal(created.prevented,false);assert.equal(created.data.get('entry_mode'),'catalogue');assert.equal(created.data.get('catalogue_enrichment'),'1');assert.equal(created.data.get('catalogue_model'),'77');
+  assert.equal(f.submit('#catalogue-generate').prevented,true,'double submission cannot create duplicate drafts');f.dom.window.close();
+  for(const route of ['photos','plate','serial']){
+    f=fixture(defaultResponse);({$,window}=f);$('#identify-with-photos').click();
+    assert.equal($('#identify-question').hidden,false);
+    if(route==='serial'){assert.equal(f.submit('[data-entry-route=serial]').prevented,true);$('#typed-serial').value='ABC12345';}
+    const result=f.submit(`[data-entry-route=${route}]`);assert.equal(result.prevented,false);assert.equal(result.data.get('entry_mode'),route);
+    assert.equal(result.data.get('serial'),route==='serial'?'ABC12345':'');f.dom.window.close();
+  }
+  let releaseOld;
+  f=fixture(url=>url.searchParams.get('category')==='1'?new Promise(resolve=>{releaseOld=resolve;}):{items:[{id:22,label:'BOMAG'}],total:1,has_more:false});({$}=f);
+  $('[data-category-id="1"]').click();$('[data-browse-back=category]').click();$('[data-category-id="2"]').click();await pause();
+  releaseOld({items:[{id:11,label:'Wrong stale Caterpillar'}],total:1,has_more:false});await pause();
+  assert.equal($('#catalogue-brand-results').textContent,'BOMAG','late response cannot populate another category');f.dom.window.close();
+  f=fixture(()=>{throw new Error('Catálogo no disponible');});({$}=f);$('[data-category-id="1"]').click();await pause();
+  assert.equal($('#brand-status').textContent,'Catálogo no disponible');assert.equal($('#catalogue-brand-results button').textContent,'Reintentar');
+  $('#identify-with-photos').click();assert.equal(f.submit('[data-entry-route=photos]').prevented,false,'catalogue outage retains photo entry');f.dom.window.close();
+  f=fixture(defaultResponse);({$,window}=f);$('#start-category-search').value='compactadora';$('#start-category-search').dispatchEvent(new window.Event('input',{bubbles:true}));$('#start-category-results button').click();await pause();
+  assert.equal($('#start-category').value,'2','existing category alias search opens exact scope');f.dom.window.close();
+  console.log('Start intake DOM PASS: catalogue-first cascade, bounded lazy load, cache, stale requests, alternate routes, explicit selection and duplicate guards.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

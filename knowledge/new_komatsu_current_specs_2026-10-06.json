@@ -1,0 +1,3619 @@
+{
+  "schema_version": 1,
+  "source": {
+    "provider": "Komatsu",
+    "index": "https://www.komatsu.com/en-us/products",
+    "retrieved_at": "2026-10-06",
+    "candidate_product_count": 129,
+    "references_with_supported_metric_specs": 120,
+    "unavailable_or_unsupported_pages": 7,
+    "collection_method": "three non-overlapping deterministic batches; each public product page read once",
+    "excluded_exact_duplicate_with_existing_bundle": 2
+  },
+  "references": [
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D155AX-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d155ax-8",
+      "source_title": "D155AX-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "264 kW @ 1 900 rpm",
+          "evidence": "Komatsu D155AX-8: Horsepower (kW) 264 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "54 870 kg",
+          "evidence": "Komatsu D155AX-8: Operating weight (kg) 54 870."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D155AX-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d155ax-8-wh",
+      "source_title": "D155AX-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "264 kW @ 1 900 rpm",
+          "evidence": "Komatsu D155AX-8 WH: Horsepower (kW) 264 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "54 870 kg",
+          "evidence": "Komatsu D155AX-8 WH: Operating weight (kg) 54 870."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D155AXi-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d155axi-8",
+      "source_title": "D155AXi-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "264 kW @ 1 900 rpm",
+          "evidence": "Komatsu D155AXi-8: Horsepower (kW) 264 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "42 102 kg",
+          "evidence": "Komatsu D155AXi-8: Operating weight (kg) 42 102."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D155CX-8 K170",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d155cx-8-k170",
+      "source_title": "D155CX-8 K170 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "264 kW @ 1 900 rpm",
+          "evidence": "Komatsu D155CX-8 K170: Horsepower (kW) 264 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "42 102 kg",
+          "evidence": "Komatsu D155CX-8 K170: Operating weight (kg) 42 102."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D155PX-8 LGP",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d155px-8-lgp",
+      "source_title": "D155PX-8 LGP | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "264 kW @ 1 900 rpm",
+          "evidence": "Komatsu D155PX-8 LGP: Horsepower (kW) 264 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "54 870 kg",
+          "evidence": "Komatsu D155PX-8 LGP: Operating weight (kg) 54 870."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D85EX-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d85ex-18",
+      "source_title": "D85EX-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "197 kW @ 1 900 rpm",
+          "evidence": "Komatsu D85EX-18: Horsepower (kW) 197 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "29 300 kg",
+          "evidence": "Komatsu D85EX-18: Operating weight (kg) 29 300."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D85EX-18 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d85ex-18-wh",
+      "source_title": "D85EX-18 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "197 kW @ 1 900 rpm",
+          "evidence": "Komatsu D85EX-18 WH: Horsepower (kW) 197 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "31 688 kg",
+          "evidence": "Komatsu D85EX-18 WH: Operating weight (kg) 31 688."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D85PX-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d85px-18",
+      "source_title": "D85PX-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "197 kW @ 1 900 rpm",
+          "evidence": "Komatsu D85PX-18: Horsepower (kW) 197 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "30 670 kg",
+          "evidence": "Komatsu D85PX-18: Operating weight (kg) 30 670."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D85PX-18 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/large-dozers/d85px-18-wh",
+      "source_title": "D85PX-18 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "197 kW @ 1 900 rpm",
+          "evidence": "Komatsu D85PX-18 WH: Horsepower (kW) 197 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "32 077 kg",
+          "evidence": "Komatsu D85PX-18 WH: Operating weight (kg) 32 077."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D61EX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d61ex-24",
+      "source_title": "D61EX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D61EX-24: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "20 697 - 22 133 kg",
+          "evidence": "Komatsu D61EX-24: Operating weight (kg) 20 697 - 22 133."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D61EXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d61exi-24",
+      "source_title": "D61EXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "125 kW @ 2 200 rpm",
+          "evidence": "Komatsu D61EXi-24: Horsepower (kW) 125 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "19 460 kg",
+          "evidence": "Komatsu D61EXi-24: Operating weight (kg) 19 460."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D61PX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d61px-24",
+      "source_title": "D61PX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D61PX-24: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "21 974 - 23 569 kg",
+          "evidence": "Komatsu D61PX-24: Operating weight (kg) 21 974 - 23 569."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D61PXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d61pxi-24",
+      "source_title": "D61PXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "125 kW @ 2 200 rpm",
+          "evidence": "Komatsu D61PXi-24: Horsepower (kW) 125 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "19 460 kg",
+          "evidence": "Komatsu D61PXi-24: Operating weight (kg) 19 460."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65EX-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65ex-18",
+      "source_title": "D65EX-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65EX-18: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "22 117 - 23 373 kg",
+          "evidence": "Komatsu D65EX-18: Operating weight (kg) 22 117 - 23 373."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65EX-18 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65ex-18-wh",
+      "source_title": "D65EX-18 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65EX-18 WH: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "24 199 kg",
+          "evidence": "Komatsu D65EX-18 WH: Operating weight (kg) 24 199."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65EXi-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65exi-18",
+      "source_title": "D65EXi-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65EXi-18: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "21 974 - 23 569 kg",
+          "evidence": "Komatsu D65EXi-18: Operating weight (kg) 21 974 - 23 569."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65PX-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65px-18",
+      "source_title": "D65PX-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65PX-18: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "22 117 - 23 373 kg",
+          "evidence": "Komatsu D65PX-18: Operating weight (kg) 22 117 - 23 373."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65PX-18 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65px-18-wh",
+      "source_title": "D65PX-18 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65PX-18 WH: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "24 199 kg",
+          "evidence": "Komatsu D65PX-18 WH: Operating weight (kg) 24 199."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65PXi-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65pxi-18",
+      "source_title": "D65PXi-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65PXi-18: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "21 974 - 23 569 kg",
+          "evidence": "Komatsu D65PXi-18: Operating weight (kg) 21 974 - 23 569."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65WX-18",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65wx-18",
+      "source_title": "D65WX-18 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65WX-18: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "21 974 - 23 569 kg",
+          "evidence": "Komatsu D65WX-18: Operating weight (kg) 21 974 - 23 569."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D65WX-18 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d65wx-18-wh",
+      "source_title": "D65WX-18 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "162 kW @ 1 950 rpm",
+          "evidence": "Komatsu D65WX-18 WH: Horsepower (kW) 162 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "24 102 - 25 554 kg",
+          "evidence": "Komatsu D65WX-18 WH: Operating weight (kg) 24 102 - 25 554."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D71EX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d71ex-24",
+      "source_title": "D71EX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "177 k @ 2 200 rpm kW",
+          "evidence": "Komatsu D71EX-24: Horsepower (kW) 177 k @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "22 700 kg",
+          "evidence": "Komatsu D71EX-24: Operating weight (kg) 22 700."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D71EXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d71exi-24",
+      "source_title": "D71EXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "177 kW @ 2 200 rpm",
+          "evidence": "Komatsu D71EXi-24: Horsepower (kW) 177 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "23 100 - 23 900 kg",
+          "evidence": "Komatsu D71EXi-24: Operating weight (kg) 23 100 - 23 900."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D71PX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d71px-24",
+      "source_title": "D71PX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "177 k @ 2 200 rpm kW",
+          "evidence": "Komatsu D71PX-24: Horsepower (kW) 177 k @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "22 700 kg",
+          "evidence": "Komatsu D71PX-24: Operating weight (kg) 22 700."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D71PXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/mid-size-dozers/d71pxi-24",
+      "source_title": "D71PXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "177 kW @ 2 200 rpm",
+          "evidence": "Komatsu D71PXi-24: Horsepower (kW) 177 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "23 100 - 23 900 kg",
+          "evidence": "Komatsu D71PXi-24: Operating weight (kg) 23 100 - 23 900."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D37EX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d37ex-24",
+      "source_title": "D37EX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D37EX-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "10 350 kg",
+          "evidence": "Komatsu D37EX-24: Operating weight (kg) 10 350."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D37PX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d37px-24",
+      "source_title": "D37PX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D37PX-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "10 350 kg",
+          "evidence": "Komatsu D37PX-24: Operating weight (kg) 10 350."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D39EX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d39ex-24",
+      "source_title": "D39EX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D39EX-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "10 350 kg",
+          "evidence": "Komatsu D39EX-24: Operating weight (kg) 10 350."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D39EXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d39exi-24",
+      "source_title": "D39EXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D39EXi-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "10 350 kg",
+          "evidence": "Komatsu D39EXi-24: Operating weight (kg) 10 350."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D39PX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d39px-24",
+      "source_title": "D39PX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D39PX-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "9 930 kg",
+          "evidence": "Komatsu D39PX-24: Operating weight (kg) 9 930."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D39PXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d39pxi-24",
+      "source_title": "D39PXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "78 kW @ 2 200 rpm",
+          "evidence": "Komatsu D39PXi-24: Horsepower (kW) 78 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "10 350 kg",
+          "evidence": "Komatsu D39PXi-24: Operating weight (kg) 10 350."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D51EX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d51ex-24",
+      "source_title": "D51EX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "98 kW @ 2 200 rpm",
+          "evidence": "Komatsu D51EX-24: Horsepower (kW) 98 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "14 180 kg",
+          "evidence": "Komatsu D51EX-24: Operating weight (kg) 14 180."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D51EXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d51exi-24",
+      "source_title": "D51EXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "98 kW @ 2 200 rpm",
+          "evidence": "Komatsu D51EXi-24: Horsepower (kW) 98 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "14 180 kg",
+          "evidence": "Komatsu D51EXi-24: Operating weight (kg) 14 180."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D51PX-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d51px-24",
+      "source_title": "D51PX-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "98 kW @ 2 200 rpm",
+          "evidence": "Komatsu D51PX-24: Horsepower (kW) 98 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "13 699 kg",
+          "evidence": "Komatsu D51PX-24: Operating weight (kg) 13 699."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D51PXi-24",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/small-dozers/d51pxi-24",
+      "source_title": "D51PXi-24 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "98 kW @ 2 200 rpm",
+          "evidence": "Komatsu D51PXi-24: Horsepower (kW) 98 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "14 180 kg",
+          "evidence": "Komatsu D51PXi-24: Operating weight (kg) 14 180."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D375A-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/surface-mining-dozers/d375a-8",
+      "source_title": "D375A-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "664 kW @ 2 000 rpm",
+          "evidence": "Komatsu D375A-8: Horsepower (kW) 664 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "115 300 kg",
+          "evidence": "Komatsu D375A-8: Operating weight (kg) 115 300."
+        }
+      }
+    },
+    {
+      "category_slug": "tractores",
+      "brand": "Komatsu",
+      "model": "D475A-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/dozers/surface-mining-dozers/d475a-8",
+      "source_title": "D475A-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "tractor sobre orugas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "455 kW @ 1 800 rpm",
+          "evidence": "Komatsu D475A-8: Horsepower (kW) 455 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "74 090 kg",
+          "evidence": "Komatsu D475A-8: Operating weight (kg) 74 090."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC1250LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc1250lc-11",
+      "source_title": "PC1250LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC1250LC-11: Horsepower (kW) 565 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "117 916 - 120 610 kg",
+          "evidence": "Komatsu PC1250LC-11: Operating weight (kg) 117 916 - 120 610."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC1250LC-11 MH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc1250lc-11-mh",
+      "source_title": "PC1250LC-11 MH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC1250LC-11 MH: Horsepower (kW) 565 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC1250SP-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc1250sp-11",
+      "source_title": "PC1250SP-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC1250SP-11: Horsepower (kW) 565 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "122 152 - 123 649 kg",
+          "evidence": "Komatsu PC1250SP-11: Operating weight (kg) 122 152 - 123 649."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC360LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc360lc-11",
+      "source_title": "PC360LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC360LC-11: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "36 407 - 37 166 kg",
+          "evidence": "Komatsu PC360LC-11: Operating weight (kg) 36 407 - 37 166."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC360LC-11 SLF",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc360lc-11-slf",
+      "source_title": "PC360LC-11 SLF | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC360LC-11 SLF: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "40 797 - 41 737 kg",
+          "evidence": "Komatsu PC360LC-11 SLF: Operating weight (kg) 40 797 - 41 737."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC360LC-11 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc360lc-11-wh",
+      "source_title": "PC360LC-11 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC360LC-11 WH: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "39 856 - 41 023 kg",
+          "evidence": "Komatsu PC360LC-11 WH: Operating weight (kg) 39 856 - 41 023."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC360LCi-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc360lci-11",
+      "source_title": "PC360LCi-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC360LCi-11: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "36 407 - 37 166 kg",
+          "evidence": "Komatsu PC360LCi-11: Operating weight (kg) 36 407 - 37 166."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC365LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc365lc-11",
+      "source_title": "PC365LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 900 rpm",
+          "evidence": "Komatsu PC365LC-11: Horsepower (kW) 268 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "47 930 - 49 995 kg",
+          "evidence": "Komatsu PC365LC-11: Operating weight (kg) 47 930 - 49 995."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC390LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc390lc-11",
+      "source_title": "PC390LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC390LC-11: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "40 797 - 41 737 kg",
+          "evidence": "Komatsu PC390LC-11: Operating weight (kg) 40 797 - 41 737."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC390LC-11 MH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc390lc-11-mh",
+      "source_title": "PC390LC-11 MH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 900 rpm",
+          "evidence": "Komatsu PC390LC-11 MH: Horsepower (kW) 268 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "39 856 - 41 023 kg",
+          "evidence": "Komatsu PC390LC-11 MH: Operating weight (kg) 39 856 - 41 023."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC390LC-11 SLF",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc390lc-11-slf",
+      "source_title": "PC390LC-11 SLF | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC390LC-11 SLF: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "39 856 - 41 023 kg",
+          "evidence": "Komatsu PC390LC-11 SLF: Operating weight (kg) 39 856 - 41 023."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC390LC-11 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc390lc-11-wh",
+      "source_title": "PC390LC-11 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "192 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC390LC-11 WH: Horsepower (kW) 192 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "39 856 - 41 023 kg",
+          "evidence": "Komatsu PC390LC-11 WH: Operating weight (kg) 39 856 - 41 023."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC390LCi-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc390lci-11",
+      "source_title": "PC390LCi-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC390LCi-11: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "24 598 - 25 247 kg",
+          "evidence": "Komatsu PC390LCi-11: Operating weight (kg) 24 598 - 25 247."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC490LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc490lc-11",
+      "source_title": "PC490LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC490LC-11: Horsepower (kW) 268 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "41 737 - 54 417 kg",
+          "evidence": "Komatsu PC490LC-11: Operating weight (kg) 41 737 - 54 417."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC490LC-11 MH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc490lc-11-mh",
+      "source_title": "PC490LC-11 MH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 900 rpm",
+          "evidence": "Komatsu PC490LC-11 MH: Horsepower (kW) 268 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "47 930 - 49 995 kg",
+          "evidence": "Komatsu PC490LC-11 MH: Operating weight (kg) 47 930 - 49 995."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC490LC-11 SLF",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc490lc-11-slf",
+      "source_title": "PC490LC-11 SLF | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 900 rpm",
+          "evidence": "Komatsu PC490LC-11 SLF: Horsepower (kW) 268 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "47 930 - 49 995 kg",
+          "evidence": "Komatsu PC490LC-11 SLF: Operating weight (kg) 47 930 - 49 995."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC490LCi-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc490lci-11",
+      "source_title": "PC490LCi-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "268 kW @ 1 950 rpm",
+          "evidence": "Komatsu PC490LCi-11: Horsepower (kW) 268 kW @ 1 950 rpm."
+        },
+        "weight": {
+          "value": "41 737 - 54 417 kg",
+          "evidence": "Komatsu PC490LCi-11: Operating weight (kg) 41 737 - 54 417."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC650LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc650lc-11",
+      "source_title": "PC650LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC650LC-11: Horsepower (kW) 565 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "122 152 - 123 649 kg",
+          "evidence": "Komatsu PC650LC-11: Operating weight (kg) 122 152 - 123 649."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC650LC-11 MH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc650lc-11-mh",
+      "source_title": "PC650LC-11 MH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC650LC-11 MH: Horsepower (kW) 565 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC900LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/large-excavators/pc900lc-11",
+      "source_title": "PC900LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "565 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC900LC-11: Horsepower (kW) 565 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "117 916 - 120 610 kg",
+          "evidence": "Komatsu PC900LC-11: Operating weight (kg) 117 916 - 120 610."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC130LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc130lc-11",
+      "source_title": "PC130LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "72.5 kW @ 2 050 rpm",
+          "evidence": "Komatsu PC130LC-11: Horsepower (kW) 72.5 kW @ 2 050 rpm."
+        },
+        "weight": {
+          "value": "15 682 - 17 032 kg",
+          "evidence": "Komatsu PC130LC-11: Operating weight (kg) 15 682 - 17 032."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC138USLC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc138uslc-11",
+      "source_title": "PC138USLC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC138USLC-11: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "24 598 - 25 247 kg",
+          "evidence": "Komatsu PC138USLC-11: Operating weight (kg) 24 598 - 25 247."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC170LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc170lc-11",
+      "source_title": "PC170LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "72.5 kW @ 2 050 rpm",
+          "evidence": "Komatsu PC170LC-11: Horsepower (kW) 72.5 kW @ 2 050 rpm."
+        },
+        "weight": {
+          "value": "12 900 - 13 200 kg",
+          "evidence": "Komatsu PC170LC-11: Operating weight (kg) 12 900 - 13 200."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC220LCi-12",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc220lci-12",
+      "source_title": "PC220LCi-12 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "129 @ 2,000 rpm kW",
+          "evidence": "Komatsu PC220LCi-12: Horsepower (kW) 129 @ 2,000 rpm."
+        },
+        "weight": {
+          "value": "24,200-24,800 kg",
+          "evidence": "Komatsu PC220LCi-12: Operating weight (kg) 24,200-24,800."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC238USLC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc238uslc-11",
+      "source_title": "PC238USLC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "132 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC238USLC-11: Horsepower (kW) 132 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "25 294 - 25 574 kg",
+          "evidence": "Komatsu PC238USLC-11: Operating weight (kg) 25 294 - 25 574."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC240LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc240lc-11",
+      "source_title": "PC240LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "132 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC240LC-11: Horsepower (kW) 132 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "26 589 - 26 869 kg",
+          "evidence": "Komatsu PC240LC-11: Operating weight (kg) 26 589 - 26 869."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC240LC-11 SLF",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc240lc-11-slf",
+      "source_title": "PC240LC-11 SLF | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "132 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC240LC-11 SLF: Horsepower (kW) 132 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "25 294 - 25 574 kg",
+          "evidence": "Komatsu PC240LC-11 SLF: Operating weight (kg) 25 294 - 25 574."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC290LC-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc290lc-11",
+      "source_title": "PC290LC-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "132 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC290LC-11: Horsepower (kW) 132 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "25 294 - 25 574 kg",
+          "evidence": "Komatsu PC290LC-11: Operating weight (kg) 25 294 - 25 574."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC290LC-11 demolition",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc290lc-11-demolition",
+      "source_title": "PC290LC-11 demolition | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "147 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC290LC-11 demolition: Horsepower (kW) 147 kW @ 2 000 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC290LCi-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc290lci-11",
+      "source_title": "PC290LCi-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "132 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC290LCi-11: Horsepower (kW) 132 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "25 294 - 25 574 kg",
+          "evidence": "Komatsu PC290LCi-11: Operating weight (kg) 25 294 - 25 574."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC490HRD-11 demolition",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/mid-size-excavators/pc490hrd-11-demolition",
+      "source_title": "PC490HRD-11 demolition | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "147 kW @ 2 000 rpm",
+          "evidence": "Komatsu PC490HRD-11 demolition: Horsepower (kW) 147 kW @ 2 000 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC30MR-5 E1",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc30mr-5-e1",
+      "source_title": "PC30MR-5 E1 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "28.3 kW @ 2 400 rpm",
+          "evidence": "Komatsu PC30MR-5 E1: Horsepower (kW) 28.3 kW @ 2 400 rpm."
+        },
+        "weight": {
+          "value": "5 150 - 5 270 kg",
+          "evidence": "Komatsu PC30MR-5 E1: Operating weight (kg) 5 150 - 5 270."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC35MR-5 E1",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc35mr-5-e1",
+      "source_title": "PC35MR-5 E1 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "18.2 kW @ 2 200 rpm",
+          "evidence": "Komatsu PC35MR-5 E1: Horsepower (kW) 18.2 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "3 090 - 3 240 kg",
+          "evidence": "Komatsu PC35MR-5 E1: Operating weight (kg) 3 090 - 3 240."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC45MR-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc45mr-5",
+      "source_title": "PC45MR-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "18.2 kW @ 2 200 rpm",
+          "evidence": "Komatsu PC45MR-5: Horsepower (kW) 18.2 kW @ 2 200 rpm."
+        },
+        "weight": {
+          "value": "3 090 - 3 240 kg",
+          "evidence": "Komatsu PC45MR-5: Operating weight (kg) 3 090 - 3 240."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC55MR-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc55mr-5",
+      "source_title": "PC55MR-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "51 kW @ 1 850 rpm",
+          "evidence": "Komatsu PC55MR-5: Horsepower (kW) 51 kW @ 1 850 rpm."
+        },
+        "weight": {
+          "value": "7 910 - 8 250 kg",
+          "evidence": "Komatsu PC55MR-5: Operating weight (kg) 7 910 - 8 250."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC78US-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc78us-11",
+      "source_title": "PC78US-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "51 kW @ 1 850 rpm",
+          "evidence": "Komatsu PC78US-11: Horsepower (kW) 51 kW @ 1 850 rpm."
+        },
+        "weight": {
+          "value": "8 500 - 8 720 kg",
+          "evidence": "Komatsu PC78US-11: Operating weight (kg) 8 500 - 8 720."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC88MR-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/small-excavators/pc88mr-11",
+      "source_title": "PC88MR-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "28.3 kW @ 2 400 rpm",
+          "evidence": "Komatsu PC88MR-11: Horsepower (kW) 28.3 kW @ 2 400 rpm."
+        },
+        "weight": {
+          "value": "4 870 - 4 990 kg",
+          "evidence": "Komatsu PC88MR-11: Operating weight (kg) 4 870 - 4 990."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC2000-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc2000-11",
+      "source_title": "PC2000-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "940 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC2000-11: Horsepower (kW) 940 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "201 930 - 207 258 kg",
+          "evidence": "Komatsu PC2000-11: Operating weight (kg) 201 930 - 207 258."
+        },
+        "travel_speed": {
+          "value": "2.7 kph",
+          "evidence": "Komatsu PC2000-11: Maximum travel speed (kph): 2.7."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC3000-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc3000-11",
+      "source_title": "PC3000-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "780 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC3000-11: Horsepower (kW) 780 kW @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "201 930 - 207 258 kg",
+          "evidence": "Komatsu PC3000-11: Operating weight (kg) 201 930 - 207 258."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC4000-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc4000-11",
+      "source_title": "PC4000-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "2 x 940 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC4000-11: Horsepower (kW) 2 x 940 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC5500-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc5500-11",
+      "source_title": "PC5500-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 400 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC5500-11: Horsepower (kW) 1 400 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC7000-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc7000-11",
+      "source_title": "PC7000-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 400 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC7000-11: Horsepower (kW) 1 400 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC8000-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc8000-11",
+      "source_title": "PC8000-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 400 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC8000-11: Horsepower (kW) 1 400 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "excavadoras",
+      "brand": "Komatsu",
+      "model": "PC9000-12",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/excavators/surface-mining-excavators/pc9000-12",
+      "source_title": "PC9000-12 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "excavadora hidráulica",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "2 x 1 500 kW @ 1 800 rpm",
+          "evidence": "Komatsu PC9000-12: Horsepower (kW) 2 x 1 500 kW @ 1 800 rpm."
+        }
+      }
+    },
+    {
+      "category_slug": "motoniveladoras",
+      "brand": "Komatsu",
+      "model": "GD655-6",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/motor-graders/gd655-6",
+      "source_title": "GD655-6 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "motoniveladora",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "163 kW @ 2100 rpm",
+          "evidence": "Komatsu GD655-6: Horsepower (kW) 163 kW @ 2100 rpm."
+        },
+        "weight": {
+          "value": "17 350 kg",
+          "evidence": "Komatsu GD655-6: Operating weight (kg) 17 350."
+        }
+      }
+    },
+    {
+      "category_slug": "motoniveladoras",
+      "brand": "Komatsu",
+      "model": "GD655-7",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/motor-graders/gd655-7",
+      "source_title": "GD655-7 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "motoniveladora",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "163 kW @ 2100 rpm",
+          "evidence": "Komatsu GD655-7: Horsepower (kW) 163 kW @ 2100 rpm."
+        },
+        "weight": {
+          "value": "16 940 kg",
+          "evidence": "Komatsu GD655-7: Operating weight (kg) 16 940."
+        }
+      }
+    },
+    {
+      "category_slug": "motoniveladoras",
+      "brand": "Komatsu",
+      "model": "GD955-7",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/motor-graders/gd955-7",
+      "source_title": "GD955-7 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "motoniveladora",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "163 kW @ 2100 rpm",
+          "evidence": "Komatsu GD955-7: Horsepower (kW) 163 kW @ 2100 rpm."
+        },
+        "weight": {
+          "value": "16 940 kg",
+          "evidence": "Komatsu GD955-7: Operating weight (kg) 16 940."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HM300-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/articulated-trucks/hm300-5",
+      "source_title": "HM300-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "353 kW @ 2 000 rpm",
+          "evidence": "Komatsu HM300-5: Gross horsepower (kW) 353 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "75 135 kg",
+          "evidence": "Komatsu HM300-5: Operating weight (kg) 75 135."
+        },
+        "travel_speed": {
+          "value": "58.6 kph",
+          "evidence": "Komatsu HM300-5: Maximum travel speed (kph): 58.6."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HM400-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/articulated-trucks/hm400-5",
+      "source_title": "HM400-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "248 kW @ 2 000 rpm",
+          "evidence": "Komatsu HM400-5: Gross horsepower (kW) 248 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "53 475 kg",
+          "evidence": "Komatsu HM400-5: Operating weight (kg) 53 475."
+        },
+        "travel_speed": {
+          "value": "55.9 kph",
+          "evidence": "Komatsu HM400-5: Maximum travel speed (kph): 55.9."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HM460-6",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/articulated-trucks/hm460-6",
+      "source_title": "HM460-6 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "248 kW @ 2 000 rpm",
+          "evidence": "Komatsu HM460-6: Gross horsepower (kW) 248 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "53 475 kg",
+          "evidence": "Komatsu HM460-6: Operating weight (kg) 53 475."
+        },
+        "travel_speed": {
+          "value": "53.3 kph",
+          "evidence": "Komatsu HM460-6: Maximum travel speed (kph): 53.3."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "730E-10",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/730e-10",
+      "source_title": "730E-10 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1,865 @1,800 rpm kW",
+          "evidence": "Komatsu 730E-10: Gross horsepower (kW) 1,865 @1,800 rpm."
+        },
+        "weight": {
+          "value": "411 136 kg",
+          "evidence": "Komatsu 730E-10: Operating weight (kg) 411 136."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "830E-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/830e-5",
+      "source_title": "830E-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1,491 @ 1,900 rpm kW",
+          "evidence": "Komatsu 830E-5: Gross horsepower (kW) 1,491 @ 1,900 rpm."
+        },
+        "weight": {
+          "value": "338 075 kg",
+          "evidence": "Komatsu 830E-5: Operating weight (kg) 338 075."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "860E-1K",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/860e-1k",
+      "source_title": "860E-1K | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1,865 @1,800 rpm kW",
+          "evidence": "Komatsu 860E-1K: Gross horsepower (kW) 1,865 @1,800 rpm."
+        },
+        "weight": {
+          "value": "411 136 kg",
+          "evidence": "Komatsu 860E-1K: Operating weight (kg) 411 136."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "930E-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/930e-5",
+      "source_title": "930E-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "2 611 @ 1 800 rpm kW",
+          "evidence": "Komatsu 930E-5: Gross horsepower (kW) 2 611 @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "267 620 kg",
+          "evidence": "Komatsu 930E-5: Operating weight (kg) 267 620."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "930E-5SE",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/930e-5se",
+      "source_title": "930E-5SE | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "3 281 @ 1 800 rpm kW",
+          "evidence": "Komatsu 930E-5SE: Gross horsepower (kW) 3 281 @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "635 029 kg",
+          "evidence": "Komatsu 930E-5SE: Operating weight (kg) 635 029."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "980E-5",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/980e-5",
+      "source_title": "980E-5 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "3 281 @ 1 800 rpm kW",
+          "evidence": "Komatsu 980E-5: Gross horsepower (kW) 3 281 @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "635 029 kg",
+          "evidence": "Komatsu 980E-5: Operating weight (kg) 635 029."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "980E-5SE",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/electric-drive-mining-trucks/980e-5se",
+      "source_title": "980E-5SE | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "2 611 @ 1 800 rpm kW",
+          "evidence": "Komatsu 980E-5SE: Gross horsepower (kW) 2 611 @ 1 800 rpm."
+        },
+        "weight": {
+          "value": "521 631 kg",
+          "evidence": "Komatsu 980E-5SE: Operating weight (kg) 521 631."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD1500-8E0",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd1500-8e0",
+      "source_title": "HD1500-8E0 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 180 @ 1 900 rpm kW",
+          "evidence": "Komatsu HD1500-8E0: Gross horsepower (kW) 1 180 @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "201 930 - 207 258 kg",
+          "evidence": "Komatsu HD1500-8E0: Operating weight (kg) 201 930 - 207 258."
+        },
+        "travel_speed": {
+          "value": "56.5 kph",
+          "evidence": "Komatsu HD1500-8E0: Maximum travel speed (kph): 56.5."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD325-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd325-8",
+      "source_title": "HD325-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "386 kW @ 2 000 rpm",
+          "evidence": "Komatsu HD325-8: Gross horsepower (kW) 386 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "63 710 - 65 900 kg",
+          "evidence": "Komatsu HD325-8: Operating weight (kg) 63 710 - 65 900."
+        },
+        "travel_speed": {
+          "value": "68 kph",
+          "evidence": "Komatsu HD325-8: Maximum travel speed (kph): 68."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD405-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd405-8",
+      "source_title": "HD405-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "386 kW @ 2 000 rpm",
+          "evidence": "Komatsu HD405-8: Gross horsepower (kW) 386 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "92 600 kg",
+          "evidence": "Komatsu HD405-8: Operating weight (kg) 92 600."
+        },
+        "travel_speed": {
+          "value": "66 kph",
+          "evidence": "Komatsu HD405-8: Maximum travel speed (kph): 66."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD465-10",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd465-10",
+      "source_title": "HD465-10 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "610 kW @ 2 000 rpm",
+          "evidence": "Komatsu HD465-10: Gross horsepower (kW) 610 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "55,400 - 57,501 kg",
+          "evidence": "Komatsu HD465-10: Operating weight (kg) 55,400 - 57,501."
+        },
+        "travel_speed": {
+          "value": "70 kph",
+          "evidence": "Komatsu HD465-10: Maximum travel speed (kph): 70."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD605-10",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd605-10",
+      "source_title": "HD605-10 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "610 kW @ 2 000 rpm",
+          "evidence": "Komatsu HD605-10: Gross horsepower (kW) 610 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "97 100 kg",
+          "evidence": "Komatsu HD605-10: Operating weight (kg) 97 100."
+        },
+        "travel_speed": {
+          "value": "70 kph",
+          "evidence": "Komatsu HD605-10: Maximum travel speed (kph): 70."
+        }
+      }
+    },
+    {
+      "category_slug": "camiones",
+      "brand": "Komatsu",
+      "model": "HD785-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/trucks/mechanical-trucks/hd785-8",
+      "source_title": "HD785-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "camión fuera de carretera",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "895 kW @ 1 900 rpm",
+          "evidence": "Komatsu HD785-8: Gross horsepower (kW) 895 kW @ 1 900 rpm."
+        },
+        "weight": {
+          "value": "166 080 kg",
+          "evidence": "Komatsu HD785-8: Operating weight (kg) 166 080."
+        },
+        "travel_speed": {
+          "value": "65 kph",
+          "evidence": "Komatsu HD785-8: Maximum travel speed (kph): 65."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA380-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa380-8",
+      "source_title": "WA380-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "143 kW @ 2 100 rpm",
+          "evidence": "Komatsu WA380-8: Horsepower (kW) 143 kW @ 2 100 rpm."
+        },
+        "weight": {
+          "value": "18 385 - 19 020 kg",
+          "evidence": "Komatsu WA380-8: Operating weight (kg) 18 385 - 19 020."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA380-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa380-8-wh",
+      "source_title": "WA380-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "143 kW @ 2 100 rpm",
+          "evidence": "Komatsu WA380-8 WH: Horsepower (kW) 143 kW @ 2 100 rpm."
+        },
+        "weight": {
+          "value": "18 385 - 19 020 kg",
+          "evidence": "Komatsu WA380-8 WH: Operating weight (kg) 18 385 - 19 020."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA475-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa475-11",
+      "source_title": "WA475-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "270 kW @ 1 600 rpm",
+          "evidence": "Komatsu WA475-11: Horsepower (kW) 270 kW @ 1 600 rpm."
+        },
+        "weight": {
+          "value": "27,865 - 28,575 kg",
+          "evidence": "Komatsu WA475-11: Operating weight (kg) 27,865 - 28,575."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA485-11",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa485-11",
+      "source_title": "WA485-11 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "256 kW @ 1 600 rpm",
+          "evidence": "Komatsu WA485-11: Horsepower (kW) 256 kW @ 1 600 rpm."
+        },
+        "weight": {
+          "value": "25 620 - 25 890 kg",
+          "evidence": "Komatsu WA485-11: Operating weight (kg) 25 620 - 25 890."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA500-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa500-8",
+      "source_title": "WA500-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "394 kW @ 1,800 rpm",
+          "evidence": "Komatsu WA500-8: Horsepower (kW) 394 kW @ 1,800 rpm."
+        },
+        "weight": {
+          "value": "55,400 - 57,501 kg",
+          "evidence": "Komatsu WA500-8: Operating weight (kg) 55,400 - 57,501."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA500-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa500-8-wh",
+      "source_title": "WA500-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "263 kW @ 1,900 rpm",
+          "evidence": "Komatsu WA500-8 WH: Horsepower (kW) 263 kW @ 1,900 rpm."
+        },
+        "weight": {
+          "value": "34 880 - 35 315 kg",
+          "evidence": "Komatsu WA500-8 WH: Operating weight (kg) 34 880 - 35 315."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA500-8 yard loader",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa500-8-yard-loader",
+      "source_title": "WA500-8 yard loader | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "263 kW @ 1,900 rpm",
+          "evidence": "Komatsu WA500-8 yard loader: Horsepower (kW) 263 kW @ 1,900 rpm."
+        },
+        "weight": {
+          "value": "35 504-35 734 kg",
+          "evidence": "Komatsu WA500-8 yard loader: Operating weight (kg) 35 504-35 734."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA600-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/large-wheel-loaders/wa600-8",
+      "source_title": "WA600-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "637 kW @ 2,025 rpm",
+          "evidence": "Komatsu WA600-8: Horsepower (kW) 637 kW @ 2,025 rpm."
+        },
+        "weight": {
+          "value": "115 530 kg",
+          "evidence": "Komatsu WA600-8: Operating weight (kg) 115 530."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA200-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa200-8",
+      "source_title": "WA200-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "94 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA200-8: Horsepower (kW) 94 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "11 715 - 12 015 kg",
+          "evidence": "Komatsu WA200-8: Operating weight (kg) 11 715 - 12 015."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA200-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa200-8-wh",
+      "source_title": "WA200-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA200-8 WH: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "5 480 - 15 870 kg",
+          "evidence": "Komatsu WA200-8 WH: Operating weight (kg) 5 480 - 15 870."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA270-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa270-8",
+      "source_title": "WA270-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA270-8: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "5 480 - 15 870 kg",
+          "evidence": "Komatsu WA270-8: Operating weight (kg) 5 480 - 15 870."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA270-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa270-8-wh",
+      "source_title": "WA270-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA270-8 WH: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "5 480 - 15 870 kg",
+          "evidence": "Komatsu WA270-8 WH: Operating weight (kg) 5 480 - 15 870."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA320-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa320-8",
+      "source_title": "WA320-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA320-8: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "5 480 - 15 870 kg",
+          "evidence": "Komatsu WA320-8: Operating weight (kg) 5 480 - 15 870."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA320-8 WH",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/mid-size-wheel-loaders/wa320-8-wh",
+      "source_title": "WA320-8 WH | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "123 kW @ 2 000 rpm",
+          "evidence": "Komatsu WA320-8 WH: Horsepower (kW) 123 kW @ 2 000 rpm."
+        },
+        "weight": {
+          "value": "5 480 - 15 870 kg",
+          "evidence": "Komatsu WA320-8 WH: Operating weight (kg) 5 480 - 15 870."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA700-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/wa700-8",
+      "source_title": "WA700-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "671 @ 2,050 rpm kW",
+          "evidence": "Komatsu WA700-8: Horsepower (kW) 671 @ 2,050 rpm."
+        },
+        "weight": {
+          "value": "116 400 kg",
+          "evidence": "Komatsu WA700-8: Operating weight (kg) 116 400."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA800-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/wa800-8",
+      "source_title": "WA800-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "671 @ 2,050 rpm kW",
+          "evidence": "Komatsu WA800-8: Horsepower (kW) 671 @ 2,050 rpm."
+        },
+        "weight": {
+          "value": "116 400 kg",
+          "evidence": "Komatsu WA800-8: Operating weight (kg) 116 400."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WA900-8",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/wa900-8",
+      "source_title": "WA900-8 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "637 kW @ 2,025 rpm",
+          "evidence": "Komatsu WA900-8: Horsepower (kW) 637 kW @ 2,025 rpm."
+        },
+        "weight": {
+          "value": "115 530 kg",
+          "evidence": "Komatsu WA900-8: Operating weight (kg) 115 530."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WE1350",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/we1350",
+      "source_title": "WE1350 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 491 kW",
+          "evidence": "Komatsu WE1350: Horsepower (kW) 1 491."
+        },
+        "weight": {
+          "value": "267 620 kg",
+          "evidence": "Komatsu WE1350: Operating weight (kg) 267 620."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WE1850",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/we1850",
+      "source_title": "WE1850 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 250 kW",
+          "evidence": "Komatsu WE1850: Horsepower (kW) 1 250."
+        },
+        "weight": {
+          "value": "194 228 kg",
+          "evidence": "Komatsu WE1850: Operating weight (kg) 194 228."
+        }
+      }
+    },
+    {
+      "category_slug": "cargadores",
+      "brand": "Komatsu",
+      "model": "WE2350",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.komatsu.com/en-us/products/equipment/wheel-loaders/surface-mining-wheel-loaders/we2350",
+      "source_title": "WE2350 | Komatsu",
+      "source_version": "US public product page",
+      "retrieved_at": "2026-10-06",
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "type_es": "cargador sobre ruedas",
+        "type_en": "construction equipment",
+        "market_scope": "US current product page",
+        "note": "Valores métricos publicados para la configuración de página del fabricante; no acreditan opciones ni condición de una unidad concreta."
+      },
+      "specs": {
+        "power": {
+          "value": "1 250 kW",
+          "evidence": "Komatsu WE2350: Horsepower (kW) 1 250."
+        },
+        "weight": {
+          "value": "194 228 kg",
+          "evidence": "Komatsu WE2350: Operating weight (kg) 194 228."
+        }
+      }
+    }
+  ]
+}
