@@ -31,7 +31,8 @@ class SerialCopySeedTests(TestCase):
             row.refresh_from_db()
             self.assertNotEqual(row.body,OLD_INSTALLATION[key][1])
             expected[key]=(row.title,row.body,row.active)
-        self.assertIn('tipo de máquina, la marca y el modelo',rows['como-funciona'].body)
+        self.assertIn('tipo de máquina',rows['como-funciona'].body)
+        self.assertIn('la marca y el modelo',rows['como-funciona'].body)
         self.assertIn('número de serie o fotografías',rows['como-funciona'].body)
         self.seed()
         for key,row in rows.items():
@@ -87,7 +88,11 @@ class SerialCopySeedTests(TestCase):
 
     def test_fallback_pages_explain_photos_only_and_general_context(self):
         how=self.client.get('/como-funciona/')
-        self.assertContains(how,'tipo de máquina, la marca y el modelo')
+        self.assertContains(how,'Selecciona el tipo de máquina')
+        self.assertContains(how,'si los conoces, la marca y el modelo')
+        self.assertContains(how,'Puedes probar una ficha sin cuenta')
+        self.assertContains(how,'Al compartir la prueba te pediremos crear una cuenta')
+        self.assertContains(how,'href="/publicar/">Comenzar con mis fotos')
         self.assertContains(how,'número de serie o fotografías')
         self.assertContains(how,'referencias del modelo sirven de contexto')
         privacy=self.client.get('/privacidad/')
