@@ -21,7 +21,8 @@ from typing import Literal
 from .research_evidence import explicit_manufacturing_origin, has_conflicting_unit_reference
 from .research_field_values import is_valid_research_field_value
 from .model_reading import allows_model_prefix_hint
-from .ai_model import is_reasoning_model, model_options, output_limit, request_timeout, token_reservation
+from .ai_model import (is_reasoning_model, model_options, output_limit, request_timeout, token_reservation,
+                       provider_configuration_failure)
 
 RESEARCH_VERSION = "imc-research-2026-09-v3"
 CONSENT_VERSION = "2026-09-research"
@@ -2119,6 +2120,9 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
                             search_text, cited_passages, source_titles), discovery_hint)
                         diagnostics["hypothesis_count"] = len(outcome["hypotheses"])
                 except Exception as exc:
+                    if provider_configuration_failure(exc) == "billing_unavailable":
+                        exc.accounted_usage = usage
+                        raise
                     diagnostics["hypothesis_error_type"] = type(exc).__name__[:80]
                     outcome["warnings"].append("No se pudo estructurar la hipótesis de modelo; no se aplicaron datos de la unidad.")
             else:
@@ -2134,6 +2138,10 @@ def _research_general_context(client, model, result, snapshot=None, allowed=None
         return outcome, usage
     except Exception as exc:
         # A web outage or unsupported tool never discards OCR.
+        configuration_failure = provider_configuration_failure(exc)
+        if configuration_failure == "billing_unavailable":
+            exc.accounted_usage = usage
+            raise
         if not received:
             usage.estimate(token_reservation(model, SEARCH_RESERVATION))
         direct = direct_catalog_fallback()

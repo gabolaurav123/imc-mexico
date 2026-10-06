@@ -26,6 +26,7 @@ from .research import (UsageTotals, _contains_brand, _contains_identifier,
     _conflicting_explicit_model_reason, _get, _identifier, _retrieved_url_identity,
     human_declared_data, identifier_key, is_validated_web_field, response_sources, safe_public_url,
     web_search_completed)
+from .ai_model import provider_configuration_failure
 from .research_catalogs import _Document, _Node
 from .research_fetch import CatalogFetchError, _read_html, _resolve_public_ip
 from .ai_model import model_options, output_limit, request_timeout, token_reservation
@@ -1000,7 +1001,14 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
         valuation = _normalize(response.output_parsed, passages, identity)
         return finish(valuation)
     except Exception as exc:
-        if not received and phase in {'search', 'parse'}:
+        configuration_failure = provider_configuration_failure(exc)
+        if configuration_failure == "billing_unavailable":
+            # This request was refused before it could yield a valuation.
+            # Let the worker stop the remaining paid stages while retaining
+            # measured usage from earlier successful stages.
+            exc.accounted_usage = usage
+            raise
+        if not received and phase in {'search', 'parse'} and not configuration_failure:
             usage.estimate(token_reservation(model, SEARCH_RESERVATION if phase == 'search' else PARSE_RESERVATION))
             record_phase(phase, 'outcome_unknown')
         outcome = _empty(identity, 'La consulta de comparables no pudo completarse. Faltan precios públicos verificables; no se propone un importe.')

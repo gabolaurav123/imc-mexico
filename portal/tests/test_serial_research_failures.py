@@ -2,7 +2,7 @@
 from unittest.mock import Mock, patch
 
 import httpx2 as httpx
-from openai import AuthenticationError, BadRequestError, NotFoundError, PermissionDeniedError
+from openai import AuthenticationError, BadRequestError, NotFoundError, PermissionDeniedError, RateLimitError
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -18,6 +18,12 @@ PRIVATE_ERROR = "private-provider-detail OWNER-SECRET owner@example.invalid"
 def provider_error(error_type, status):
     response = httpx.Response(status, request=httpx.Request("POST", "https://api.openai.com/v1/responses"))
     return error_type(PRIVATE_ERROR, response=response, body={"private": PRIVATE_ERROR})
+
+
+def no_credit_error():
+    response = httpx.Response(429, request=httpx.Request("POST", "https://api.openai.com/v1/responses"))
+    return RateLimitError(PRIVATE_ERROR, response=response,
+                          body={"error": {"code": "insufficient_quota", "type": "insufficient_quota"}})
 
 
 @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-5.6-luna",
@@ -140,3 +146,82 @@ class ResearchFailurePreservationTests(SimpleTestCase):
     def test_generic_description_makes_no_claim_about_input_images(self):
         self.assertEqual(compose_description({"serial": "UNIT123"}, {}), "Maquinaria.")
         self.assertEqual(compose_description({}, {}, "Excavadoras"), "Excavadora.")
+
+
+@override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-5.6-luna",
+                   SECURE_SSL_REDIRECT=False)
+class NoCreditWorkerFailureTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(email="no-credit@example.invalid")
+        self.machine = Machine.objects.create(owner=self.user, data={"serial": "NO-CREDIT-001"},
+            provenance={"serial": {"source": "user", "review": "confirmed"}})
+        PlatformSettings.objects.create(ai_enabled=True)
+        self.provider = self.enterContext(patch("openai.OpenAI"))
+        self.client.force_login(self.user)
+
+    def test_insufficient_quota_fails_once_without_consumption_or_auto_apply(self):
+        self.provider.return_value.responses.parse.side_effect = no_credit_error()
+        job = enqueue_analysis(self.machine, self.user, mode="description", auto_apply=True,
+            expected_revision=self.machine.revision, authorize_ai=True)
+
+        self.assertTrue(process_next_job())
+        self.assertFalse(process_next_job())
+
+        job.refresh_from_db()
+        self.machine.refresh_from_db()
+        self.assertEqual((job.status, job.attempts, job.input_tokens, job.output_tokens, job.reserved_tokens),
+                         ("failed", 1, 0, 0, 0))
+        self.assertEqual(job.result["provider_error_code"], "billing_unavailable")
+        self.assertIn("saldo", job.error)
+        self.assertNotIn(PRIVATE_ERROR, str(job.result))
+        self.assertNotIn("description", self.machine.data)
+        self.provider.return_value.responses.parse.assert_called_once()
+        response = self.client.get(f"/api/analisis/{job.pk}/")
+        self.assertEqual(response.status_code, 200)
+        state = response.json()
+        self.assertEqual(state["failure_code"], "billing_unavailable")
+        self.assertIsNone(state["result"])
+        self.assertNotIn(PRIVATE_ERROR, response.content.decode())
+
+    def test_analysis_api_drops_unrecognized_provider_failure_codes(self):
+        job = enqueue_analysis(self.machine, self.user, mode="description", authorize_ai=True)
+        job.status = "failed"
+        job.error = "No pudimos completar el análisis."
+        job.result = {"provider_error_code": PRIVATE_ERROR}
+        job.save(update_fields=["status", "error", "result"])
+
+        response = self.client.get(f"/api/analisis/{job.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["failure_code"], "")
+        self.assertNotIn(PRIVATE_ERROR, response.content.decode())
+
+    def test_insufficient_quota_stops_a_price_lookup_without_estimated_usage(self):
+        from portal.valuation import estimate_machine
+
+        client = Mock()
+        client.responses.create.side_effect = no_credit_error()
+        result = {"data": {"brand": "Caterpillar", "model": "420F2"},
+                  "provenance": {"brand": {"source": "user", "review": "confirmed"},
+                                 "model": {"source": "user", "review": "confirmed"}}}
+        with self.assertRaises(RateLimitError) as raised:
+            estimate_machine(client, "gpt-5.6-luna", result, result)
+
+        usage = raised.exception.accounted_usage
+        self.assertEqual(usage.as_dict(), {"input_tokens": 0, "output_tokens": 0,
+                                            "estimated_tokens": 0, "web_search_calls": 0})
+        client.responses.create.assert_called_once()
+
+    def test_insufficient_quota_stops_completion_without_estimated_usage(self):
+        from portal.ai_completion import complete_machine_reference
+
+        client = Mock()
+        client.responses.parse.side_effect = no_credit_error()
+        result = {"data": {"brand": "Caterpillar", "model": "420F2"},
+                  "provenance": {"brand": {"source": "user", "review": "confirmed"},
+                                 "model": {"source": "user", "review": "confirmed"}}}
+        with self.assertRaises(RateLimitError) as raised:
+            complete_machine_reference(client, "gpt-5.6-luna", result, result)
+
+        self.assertEqual(raised.exception.accounted_usage.as_dict(),
+                         {"input_tokens": 0, "output_tokens": 0, "estimated_tokens": 0, "web_search_calls": 0})
+        client.responses.parse.assert_called_once()

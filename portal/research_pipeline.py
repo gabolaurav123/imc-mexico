@@ -285,6 +285,12 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
 
     def configuration_failure(exc):
         code = provider_configuration_failure(exc)
+        if code == "billing_unavailable":
+            # The provider explicitly rejected this request for lack of
+            # credit.  Continuing with valuation or completion only produces
+            # more rejected requests and a misleading completed fiche.
+            exc.accounted_usage = usage
+            raise exc
         if code and result.get("identifier_only") is True:
             # No visual reading exists to preserve. Let the worker expose its
             # safe configuration error, retaining any earlier successful usage.

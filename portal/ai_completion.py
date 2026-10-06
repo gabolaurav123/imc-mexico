@@ -15,7 +15,7 @@ from django.core import signing
 from django.utils import timezone
 from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
-from .ai_model import model_options, output_limit, request_timeout, token_reservation
+from .ai_model import model_options, output_limit, request_timeout, token_reservation, provider_configuration_failure
 from .description_quality import has_technical_description, is_generic_variation_notice
 from .research import (UsageTotals, _get, human_declared_data, identifier_key,
                        is_validated_web_field, safe_public_url)
@@ -465,8 +465,14 @@ def complete_machine_reference(client, model, result, snapshot=None, allowed=Non
             return None, usage
         return normalize_reference(response.output_parsed, identity, data, category, allowed_categories, private,
                                    payload["references"], provenance=provenance), usage
-    except Exception:
-        if not received:
+    except Exception as exc:
+        configuration_failure = provider_configuration_failure(exc)
+        if configuration_failure == "billing_unavailable":
+            # Do not turn a known no-credit response into a silently skipped
+            # completion: the worker must pause the paid pipeline.
+            exc.accounted_usage = usage
+            raise
+        if not received and not configuration_failure:
             usage.estimate(completion_reservation(model))
         return None, usage
 

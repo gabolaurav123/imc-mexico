@@ -1,5 +1,6 @@
 import base64
 from io import BytesIO
+from urllib.parse import parse_qs, urlencode, urlsplit
 import qrcode
 from django.conf import settings
 from django.contrib import messages
@@ -19,14 +20,26 @@ from django.views.decorators.http import require_POST
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
-from .models import User, Consent, Notification, AccountRequest, PlatformSettings
+from .models import User, Consent, Notification, AccountRequest, PlatformSettings, Category
 from .security import throttle, login_destination, safe_next_url, management_home, is_management_user
 from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
+def publication_destination(request):
+    value=safe_next_url(request,request.POST.get('next') or request.GET.get('next'),fallback='/panel/')
+    parsed=urlsplit(value)
+    if parsed.path!='/panel/maquinarias/nueva/':
+        return ''
+    slug=parse_qs(parsed.query).get('tipo',[''])[0]
+    if slug and Category.objects.filter(active=True,slug=slug).exists():
+        return parsed.path+'?'+urlencode({'tipo':slug})
+    return parsed.path
+
+
 def auth_render(request,form,title,submit_label,**extra):
-    publication_flow=(request.POST.get('next') or request.GET.get('next'))=='/panel/maquinarias/nueva/'
-    return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,'publication_flow':publication_flow,**extra})
+    destination=publication_destination(request)
+    return render(request,'portal/auth.html',{'form':form,'title':title,'submit_label':submit_label,
+        'publication_flow':bool(destination),'publication_next':destination,**extra})
 
 def activation_email(user,kind='activation'):
     uid=urlsafe_base64_encode(force_bytes(user.pk))
@@ -41,8 +54,9 @@ def activation_email(user,kind='activation'):
     return Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
 
 def register(request):
-    publication_flow=(request.POST.get('next') or request.GET.get('next'))=='/panel/maquinarias/nueva/'
-    destination='/panel/maquinarias/nueva/' if publication_flow else '/panel/'
+    publication_next=publication_destination(request)
+    publication_flow=bool(publication_next)
+    destination=publication_next or '/panel/'
     if request.user.is_authenticated:
         from .guest import claim_after_authentication
         claimed = claim_after_authentication(request, request.user)

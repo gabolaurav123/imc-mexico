@@ -124,6 +124,7 @@
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
   let preflightTimer, preflightRunning = false, preflightStamp = '', checkedPhotoStamp = '', photoCheckBlocked = false;
+  let servicePaused = false;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
     const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
     const additionalPlateLabels = { digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',front_tire_size:'Llantas delanteras',rear_tire_size:'Llantas traseras',mast_tilt:'Inclinación mástil (placa)',load_tire_tread:'Entrecentros de llantas de carga',manufacturer:'Fabricante',manufacturer_address:'Dirección del fabricante',voltage:'Voltaje',lift_height:'Altura de elevación',load_center:'Centro de carga',battery_weight:'Peso de batería',battery_capacity:'Capacidad de batería',fork_length:'Longitud de horquillas' };
@@ -266,6 +267,31 @@
     organizePhotos();
     if (scroll) $('.wizard-progress').scrollIntoView({behavior:'smooth',block:'start'});
   }
+  function selectEvidenceMode(mode,focus=false) {
+    const serialMode=mode==='serial';
+    $('#entry-serial-slot').hidden=!serialMode;
+    $('#entry-photos-slot').hidden=serialMode;
+    $$('[data-evidence-mode]',wizard).forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.evidenceMode===mode)));
+    if(focus){const url=new URL(location.href);url.searchParams.set('entrada',mode);history.replaceState(null,'',url);displayStep(1,false);$(serialMode?'#serial':'#drop-zone').scrollIntoView({behavior:'smooth',block:'center'});if(serialMode)$('#serial').focus({preventScroll:true});}
+  }
+  $$('[data-evidence-mode]',wizard).forEach(button=>button.addEventListener('click',()=>selectEvidenceMode(button.dataset.evidenceMode,true)));
+  function pausePreparation() {
+    servicePaused=true;jobPending=false;preflightRunning=false;clearTimeout(preflightTimer);
+    setAnalysisLoading(false);
+    if($('#service-paused'))$('#service-paused').hidden=false;
+    $('#analysis-feedback').hidden=true;
+    photoCheckMessage('');
+    $('#ready-heading').textContent='Tu borrador está guardado.';
+    $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
+    renderEstimateGuidance(collect().data);
+    prepareLabel();
+  }
+  $('#service-edit')?.addEventListener('click',()=>displayStep(2));
+  $('#service-retry')?.addEventListener('click',()=>{
+    if(!editable||preparing||polling||submitting||deleting)return;
+    servicePaused=false;$('#service-paused').hidden=true;prepareLabel();
+    if(!$('#analyze-button').disabled)$('#analyze-button').click();else displayStep(1);
+  });
   $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => displayStep(button.dataset.stepTo)));
   $('#step-prev').addEventListener('click',() => displayStep(1));
   $$('[data-submit-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#submit-machine').click()));
@@ -348,19 +374,20 @@
       if(option){const change=el('button','button button-outline',`Cambiar tipo a ${option.textContent}`);change.type='button';change.addEventListener('click',async()=>{change.disabled=true;try{$('#category').value=option.value;$('#category').dispatchEvent(new Event('change',{bubbles:true}));await save();photoCheckBlocked=false;schedulePhotoCheck();}catch(error){problem(error.message);}finally{change.disabled=false;}});actions.append(change);actions.hidden=false;}
     }
     renderRelevance(relevanceOf(job));
-    if(currentStep!==1)displayStep(1);
+    selectEvidenceMode('photos',true);
     return true;
   }
   function schedulePhotoCheck() {
     if(guest||!editable||deleting)return;
     clearTimeout(preflightTimer);checkedPhotoStamp='';photoCheckBlocked=false;
+    if(servicePaused)return;
     $('#photo-correction-actions')?.replaceChildren();prepareLabel();
     photoCheckMessage('Comprobaremos las fotografías para identificar la maquinaria.');
     $('#ready-heading').textContent='Fotos actualizadas';
     preflightTimer=setTimeout(()=>startPhotoCheck(),700);
   }
   async function startPhotoCheck() {
-    if(preflightRunning||preparing||jobPending||submitting||deleting)return;
+    if(servicePaused||preflightRunning||preparing||jobPending||submitting||deleting)return;
     preflightRunning=true;prepareLabel();let started=false;
     try{
       await uploadsReady();await save();
@@ -591,8 +618,8 @@
     const hasInput = usefulSerial || uploadCount > 0 || $$('.asset-card[data-kind="image"]',wizard).some(card=>card.dataset.purpose !== 'document');
     const requirement = $('#evidence-requirement'); if(requirement) requirement.hidden = hasInput;
     $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; });
-    $('#analyze-button').disabled = !editable || !hasInput || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
-    $('#analyze-button').textContent = preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →';
+    $('#analyze-button').disabled = !editable || !hasInput || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
+    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : 'Generar ficha de maquinaria →';
     $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;});
     $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting;
     const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting;
@@ -673,6 +700,9 @@
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(jobUrl(id));
+      if(job.status==='failed' && ['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code)){
+        await syncSnapshot(job);pausePreparation();return;
+      }
       if(job.preflight||job.result?.preflight){
         jobPending=false;setAnalysisLoading(false);
         if(job.status==='completed'){completedPhotoCheck(job);}
@@ -696,7 +726,7 @@
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
-    if (!editable || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
+    if (!editable || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
     clearTimeout(preflightTimer);
     if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();
@@ -1143,7 +1173,7 @@
     const list = el('ul'); lines.forEach(line => list.append(el('li','',typeof line === 'string' ? line : String(line?.label || line?.text || '')))); target.append(list);
   }
   function openInformation(targetId, fieldId) {
-    if (targetId === 'photos') { displayStep(1); if (fieldId === 'plate') { const purpose = $('#upload-purpose'); if (purpose) purpose.value = 'plate'; } return; }
+    if (targetId === 'photos') { selectEvidenceMode('photos',true); if (fieldId === 'plate') { const purpose = $('#upload-purpose'); if (purpose) purpose.value = 'plate'; } return; }
     const section = $(`#${targetId}`); if (section?.tagName === 'DETAILS') section.open = true;
     section?.scrollIntoView({behavior:'smooth',block:'center'});
     const field = $(`#${fieldId}`); if (field) setTimeout(() => field.focus(), 200);
@@ -1176,9 +1206,9 @@
       if (!editable || preparing || jobPending || polling) continue;
       const actions = el('div','estimate-help-actions');
       const photo = el('button','link-button','Añadir foto o serie →'); photo.type = 'button';
-      photo.addEventListener('click',()=>{ displayStep(1); $('#entry-serial-slot').hidden=false; $('#drop-zone').scrollIntoView({behavior:'smooth',block:'center'}); });
+      photo.addEventListener('click',()=>{ displayStep(1); selectEvidenceMode('photos',true); });
       actions.append(photo);
-      if (detail) { const retry = el('button','link-button','Volver a investigar →'); retry.type='button'; retry.addEventListener('click',()=>{if(!$('#analyze-button').disabled) $('#analyze-button').click();}); actions.append(retry); }
+      if (detail && !servicePaused) { const retry = el('button','link-button','Volver a investigar →'); retry.type='button'; retry.addEventListener('click',()=>{if(!$('#analyze-button').disabled) $('#analyze-button').click();}); actions.append(retry); }
       target.append(actions);
     }
   }
@@ -1197,7 +1227,7 @@
   let initialJob = null;
   try { if ($('#current-job')) initialJob = JSON.parse($('#current-job').textContent); } catch { /* Manual editing remains available. */ }
   const params = new URL(location.href).searchParams, explicitStep = params.get('paso') || params.get('step');
-  if($('#entry-serial-slot')) $('#entry-serial-slot').hidden=params.get('entrada')==='photos' && missing(state.data.serial);
+  selectEvidenceMode(params.get('entrada')==='serial' || params.get('entrada')!=='photos' && params.get('entrada')!=='plate' && !missing(state.data.serial) ? 'serial' : 'photos');
   if(params.get('entrada')==='plate' && !initialJob && $('#upload-purpose')) $('#upload-purpose').value='plate';
   displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
   if (initialJob) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }

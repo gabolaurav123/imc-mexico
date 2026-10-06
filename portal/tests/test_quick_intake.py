@@ -110,7 +110,7 @@ class QuickIntakeTests(TestCase):
     def test_catalogue_first_intake_keeps_serial_and_photo_alternatives(self):
         response=self.client.get('/panel/maquinarias/nueva/')
         self.assertContains(response,'¿Qué máquina quieres anunciar?')
-        self.assertContains(response,'¿Tienes el número de serie escrito?')
+        self.assertContains(response,'Tengo el número de serie')
         self.assertContains(response,'id="catalogue-brand-search"')
         self.assertContains(response,'id="catalogue-model-search"')
         self.assertNotContains(response,'id="photos-yes"')

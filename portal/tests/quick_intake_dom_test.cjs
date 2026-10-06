@@ -501,5 +501,82 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  let staleCheck;const staleCalls=[];
  staleCheck=setup(async(url)=>{staleCalls.push(url);await pause(1);return response(200,{...completed(staleCheck.state,{model:'Modelo obsoleto'}),input_category:701,input_assets:[{id:'removed',purpose:'general'}]});},{job:{id:'old-photos',status:'completed'}});
  await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.equal(staleCheck.doc.querySelector('#ready-heading').textContent,'Fotos actualizadas');assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');
+
+ const evidenceCalls=[];
+ const evidence=setup(async(url)=>{evidenceCalls.push(url);throw Error('changing the evidence tab must not request work');},{query:'?entrada=serial',data:{serial:'SERIE-QUE-SE-CONSERVA'}});
+ const evidencePhotos=evidence.doc.querySelector('[data-evidence-mode="photos"]'),evidenceSerial=evidence.doc.querySelector('[data-evidence-mode="serial"]');
+ assert.equal(evidence.doc.querySelector('#entry-serial-slot').hidden,false,'entrada=serial opens the serial input');
+ assert.equal(evidence.doc.querySelector('#entry-photos-slot').hidden,true,'entrada=serial hides photo intake');
+ assert.equal(evidenceSerial.getAttribute('aria-pressed'),'true');
+ const assetCount=evidence.doc.querySelectorAll('.asset-card').length;
+ evidencePhotos.click();
+ assert.equal(evidence.doc.querySelector('#entry-photos-slot').hidden,false);
+ assert.equal(evidence.doc.querySelector('#entry-serial-slot').hidden,true);
+ assert.equal(evidencePhotos.getAttribute('aria-pressed'),'true');
+ assert.equal(evidence.doc.querySelector('#serial').value,'SERIE-QUE-SE-CONSERVA','photo mode does not clear serial');
+ assert.equal(evidence.doc.querySelectorAll('.asset-card').length,assetCount,'photo mode does not alter existing photos');
+ evidenceSerial.click();
+ assert.equal(evidence.doc.querySelector('#entry-serial-slot').hidden,false);
+ assert.equal(evidence.doc.querySelector('#entry-photos-slot').hidden,true);
+ assert.equal(evidenceSerial.getAttribute('aria-pressed'),'true');
+ assert.equal(evidence.doc.querySelector('#serial').value,'SERIE-QUE-SE-CONSERVA','serial mode preserves the input');
+ assert.equal(evidenceCalls.length,0);
+ evidence.close();pass('evidence tabs honor entrada=serial and switch visibility without changing serial or photos');
+
+ const plateFromSerial=setup(async()=>{throw Error('adding a plate opens intake only');},{query:'?entrada=serial&paso=2',data:{serial:'SERIE-PRIVADA-77'}});
+ assert.equal(plateFromSerial.doc.querySelector('[data-step-panel="2"]').hidden,false);
+ assert.equal(plateFromSerial.doc.querySelector('#entry-photos-slot').hidden,true,'the fixture starts in serial mode');
+ click(plateFromSerial,'add-plate-information');
+ assert.equal(plateFromSerial.doc.querySelector('[data-step-panel="1"]').hidden,false,'adding a plate returns to intake');
+ assert.equal(plateFromSerial.doc.querySelector('#entry-photos-slot').hidden,false,'the photo manager is visible after adding a plate');
+ assert.equal(plateFromSerial.doc.querySelector('#entry-serial-slot').hidden,true);
+ assert.equal(plateFromSerial.doc.querySelector('#upload-purpose').value,'plate','the next upload is identified as a private plate');
+ assert.equal(plateFromSerial.doc.querySelector('#serial').value,'SERIE-PRIVADA-77','opening plate intake keeps the private serial');
+ plateFromSerial.close();pass('adding a plate from the editable sheet switches a serial intake to visible photos without clearing serial');
+
+ let pausedGuidance,pausedGuidancePolls=0;
+ pausedGuidance=setup(async(url)=>{
+   if(url.includes('/api/analisis/')){pausedGuidancePolls++;return response(200,{id:'billing-guidance',status:'failed',failure_code:'billing_unavailable',result:null});}
+   if(url.endsWith('guardar/'))return response(200,{revision:2});
+   throw Error(url);
+ },{job:{id:'billing-guidance',status:'running'},before(w){
+   w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_details:[{field:'price_range',action:'Añade una referencia antes de volver a investigar.'}]});
+ }});
+ await pause(35);assert.equal(pausedGuidancePolls,1);assert.equal(pausedGuidance.doc.querySelector('#service-paused').hidden,false);
+ input(pausedGuidance,'brand','Edición con servicio pausado');
+ assert.equal(pausedGuidance.doc.querySelector('#estimate-price-help').querySelector('button:nth-of-type(2)'),null,'paused guidance never offers a research retry');
+ assert.doesNotMatch(pausedGuidance.doc.querySelector('#estimate-price-help').textContent,/Volver a investigar/);
+ pausedGuidance.close();pass('estimate guidance retains the add-evidence route but hides research retry while service is paused');
+
+ for(const [label,job] of [
+   ['regular',{id:'billing-regular',status:'failed',failure_code:'billing_unavailable',result:null}],
+   ['preflight',{id:'billing-preflight',status:'failed',failure_code:'billing_unavailable',preflight:true,result:null}]
+ ]){
+   let paused,analysisStarts=0,polls=0,saves=0;
+   paused=setup(async(url,o)=>{
+     if(url.includes('/api/analisis/')){polls++;return response(200,polls===1?job:{id:`billing-retry-${label}`,status:'running'});}
+     if(url.endsWith('guardar/')){saves++;const body=JSON.parse(o.body);return response(200,{revision:body.revision+1});}
+     if(url.endsWith('analizar/')){analysisStarts++;return response(200,{id:`billing-retry-${label}`,status:'running'});}
+     throw Error(url);
+   },{job});
+   await pause(35);
+   assert.equal(polls,1,`${label} billing failure polls its known job once`);
+   assert.equal(analysisStarts,0,`${label} billing failure does not start a replacement job on open`);
+   assert.equal(paused.doc.querySelector('#service-paused').hidden,false);
+   assert.equal(paused.doc.querySelector('#analyze-button').disabled,true);
+   assert.match(paused.doc.querySelector('#analyze-button').textContent,/pausada/);
+   input(paused,'brand',`Corrección ${label}`);await pause(920);
+   assert.equal(paused.doc.querySelector('#brand').value,`Corrección ${label}`,'manual edit remains in the form');
+   assert.ok(saves>=1,'manual edit remains saveable while automatic service is paused');
+   assert.equal(analysisStarts,0,'manual edits do not retry the service');
+   click(paused,'service-edit');
+   assert.equal(paused.doc.querySelector('[data-step-panel="2"]').hidden,false,'continue editing opens the editable sheet');
+   click(paused,'service-retry');await pause(35);
+   assert.equal(paused.doc.querySelector('#service-paused').hidden,true);
+   assert.equal(analysisStarts,1,'only explicit retry starts exactly one new job');
+   assert.equal(paused.doc.querySelector('#brand').value,`Corrección ${label}`,'retry does not lose manual edits');
+   paused.close();
+ }
+ pass('billing-unavailable regular and preflight jobs pause automation, preserve edits and retry only explicitly');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

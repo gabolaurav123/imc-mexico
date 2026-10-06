@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Equippo",
+    "URLs": ["https://www.equippo.com/en/", "https://www.equippo.com/en/buying/marketplace/"],
+    "observed_flow": "Busca por categoría, marca o modelo; las fichas se apoyan en inspección, fotos, vídeo e informe. El flujo comercial visible pasa de catálogo a compra u oferta, confirmación y entrega.",
+    "limits": "Es un proceso intermediado de compra y garantía, no un alta autoservicio de vendedor.",
+    "applicable_pattern": "En la ficha IMC, colocar evidencia de condición antes de la acción principal: fotos, inspección, vídeo, historial y ubicación."
+  },
+  {
+    "name": "Boom & Bucket",
+    "URLs": ["https://www.boomandbucket.com/", "https://support.boomandbucket.com/en/how-does-this-work"],
+    "observed_flow": "El inicio permite buscar por categoría, marca o modelo y por código postal. Para vender, solicita año, marca, modelo y horas antes de que el equipo comercial gestione valoración, inspección y publicación.",
+    "limits": "El cierre y la publicación son asistidos por consignment; no se observa un editor público completo.",
+    "applicable_pattern": "Empezar el borrador con marca, modelo, año, horas, fotos y ubicación; pedir el resto después, sin bloquear la primera acción."
+  },
+  {
+    "name": "BigIron",
+    "URLs": ["https://auction.bigiron.com/"],
+    "observed_flow": "La página para vendedores recoge contacto y descripción del equipo, y comunica optimización de listing, marketing y analítica.",
+    "limits": "La ficha individual no fue accesible en la investigación; el flujo demostrado es una landing de captación.",
+    "applicable_pattern": "Usar un formulario de contacto contextual desde el borrador y un panel simple de estado para revisión de anuncios."
+  },
+  {
+    "name": "Purple Wave",
+    "URLs": ["https://www.purplewave.com/sell", "https://www.purplewave.com/buy"],
+    "observed_flow": "El alta acepta descripción, fotos o documentos; permite hoja de cálculo de flota y después contacto, ubicación, propiedad y gravámenes. El usuario puede retomar una solicitud previa.",
+    "limits": "El flujo está diseñado para subasta y tiene requisitos legales que no corresponden al alta ligera de IMC.",
+    "applicable_pattern": "Autoguardar el borrador, permitir fotos o número de serie como punto de inicio, y mostrar faltantes de forma progresiva."
+  },
+  {
+    "name": "GovPlanet",
+    "URLs": ["https://www.govplanet.com/jsp/s/auction.ips?l2=USA-GA&mode=1&msg=117733&sm=0", "https://help.ritchiebros.com/govplanet/"],
+    "observed_flow": "El catálogo de subasta filtra por tipo y fecha. Los lotes tienen inspección individual y el comprador sigue estados de registro, verificación y autorización.",
+    "limits": "Es excedente gubernamental y subasta regulada; requisitos y permisos no aplican directamente a IMC.",
+    "applicable_pattern": "Separar claramente el estado de revisión del staff de los datos declarados por el vendedor; usar etiquetas de estado visibles."
+  },
+  {
+    "name": "Machineryline",
+    "URLs": ["https://machineryline.com/"],
+    "observed_flow": "El catálogo ofrece filtros, comparar, ordenar, favoritos y reseñas de vendedor. Para vender ofrece anuncio privado o cuenta PRO, publicación, perfil de empresa, estadísticas y renovación.",
+    "limits": "La gama de extras comerciales es amplia para el flujo inicial de IMC.",
+    "applicable_pattern": "Conservar un único editor básico y dejar estadísticas, perfil de empresa y promoción como áreas posteriores al anuncio aprobado."
+  },
+  {
+    "name": "Plant & Equipment",
+    "URLs": ["https://www.plantandequipment.com/"],
+    "observed_flow": "Busca por equipo, marca, modelo o ubicación; muestra listings verificados y permite distinguir clasificados, subastas y venta como dealer.",
+    "limits": "Combina categorías de vehículos y mecanismos de venta que IMC no necesita en esta fase.",
+    "applicable_pattern": "Hacer que ubicación y sello de verificación estén visibles en tarjeta y ficha; mantener una sola modalidad de publicación."
+  },
+  {
+    "name": "Cat Used",
+    "URLs": ["https://catused.cat.com/en/", "https://www.cat.com/en_US/products/new/equipment.html"],
+    "observed_flow": "Cat enlaza su catálogo de usados y su localizador de distribuidor desde el sitio oficial; la experiencia se integra con cuenta y red de dealers.",
+    "limits": "El subdominio Cat Used bloqueó la lectura directa; no cuenta como experiencia de ficha completa validada.",
+    "applicable_pattern": "Incluir identidad comercial verificable del vendedor y una ubicación/contacto consistente en la ficha, sin inferir más del catálogo bloqueado."
+  },
+  {
+    "name": "Volvo CE Used Equipment",
+    "URLs": ["https://used.volvoce.com/en", "https://used.volvoce.com/en/for-sale/volvo-l110h2-2025.a2db9c51-3b38-4f5a-8937-6ba228968929"],
+    "observed_flow": "El catálogo filtra por región, país, fabricante y categoría. La ficha real muestra galería, condición, horas, año, serie, potencia, peso, accesorios, certificados, historial, dueños, ubicación y contacto de distribuidor.",
+    "limits": "Parte del inventario usa precio bajo solicitud y la certificación depende de una red OEM.",
+    "applicable_pattern": "Estructurar la ficha editable en Identidad, Especificaciones, Condición, Historial, Accesorios, Evidencia y Ubicación."
+  },
+  {
+    "name": "TradeMachines",
+    "URLs": ["https://www.trademachines.com/", "https://www.trademachines.com/sell"],
+    "observed_flow": "Excluido: las rutas de catálogo y venta no fueron accesibles durante la investigación.",
+    "limits": "No debe contarse como experiencia estudiada ni inspirar decisiones de interfaz.",
+    "applicable_pattern": "Ninguno; fue sustituido por Surplex y Troostwijk Auctions."
+  },
+  {
+    "name": "Surplex",
+    "URLs": ["https://www.surplex.com/en/selling-with-surplex", "https://www.surplex.com/en/broker", "https://www.surplex.com/en/l/mistral-151009-3d-measuring-machine-1995-A7-48839-66"],
+    "observed_flow": "El ingreso de venta recoge datos de empresa e información inicial, y un equipo revisa y ayuda a comercializar. La ficha pública organiza fotos o vídeo, marca, tipo, año, serie, peso, dimensiones, descripción y condiciones.",
+    "limits": "Es una venta intermediada y orientada a subasta; no reutilizar su complejidad comercial.",
+    "applicable_pattern": "Borrador mínimo con marca/modelo o serie, fotos, ubicación y contacto; estado En revisión IMC; comentarios del staff y secciones editables de ficha."
+  },
+  {
+    "name": "Troostwijk Auctions",
+    "URLs": ["https://www.troostwijkauctions.com/en/l/mixed-lot-of-test-equipment-A1-49606-730", "https://www.troostwijkauctions.com/en/l/-lifting-and-transportation-equipment-A1-48805-224"],
+    "observed_flow": "La ficha muestra galería, categoría, ubicación, vendedor, identificador de lote, especificaciones, descripción, observaciones, documentos y condiciones. Separa explícitamente condición declarada y términos de entrega.",
+    "limits": "La información de retiro y subasta sería exceso de alcance para IMC.",
+    "applicable_pattern": "Generar identificador y enlace compartible desde borrador; priorizar galería y resumen; separar Condición declarada por vendedor de Revisión IMC."
+  }
+]

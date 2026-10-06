@@ -540,6 +540,32 @@ class ResearchPipelineTests(TestCase):
         self.assertEqual(job.result["data"]["brand"], "Caterpillar")
         self.assertNotIn("provider-private", str(job.result))
 
+    def test_billing_rejection_after_vision_stops_later_paid_stages_and_keeps_known_usage(self):
+        import httpx2
+        from openai import RateLimitError
+
+        job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
+        response = httpx2.Response(429, request=httpx2.Request("POST", "https://api.openai.com/v1/responses"))
+        no_credit = RateLimitError("provider-private", response=response,
+                                   body={"error": {"code": "insufficient_quota", "type": "insufficient_quota"}})
+        vision_response = SimpleNamespace(status="completed", output_parsed=self.parsed(),
+                                          usage=SimpleNamespace(input_tokens=300, output_tokens=120))
+        with patch("openai.OpenAI") as provider, \
+                patch("portal.processing.estimate_machine") as estimate, \
+                patch("portal.processing.complete_machine_reference") as completion:
+            provider.return_value.responses.parse.return_value = vision_response
+            provider.return_value.responses.create.side_effect = no_credit
+            self.assertTrue(process_next_job())
+
+        job.refresh_from_db()
+        self.assertEqual((job.status, job.attempts, job.input_tokens, job.output_tokens, job.reserved_tokens),
+                         ("failed", 1, 300, 120, 0))
+        self.assertEqual(job.result["provider_error_code"], "billing_unavailable")
+        provider.return_value.responses.create.assert_called_once()
+        provider.return_value.responses.parse.assert_called_once()
+        estimate.assert_not_called()
+        completion.assert_not_called()
+
     def test_local_validation_failure_keeps_actual_vision_usage(self):
         job = enqueue_analysis(self.machine, self.user, research=True, authorize_ai=True)
         parsed = self.parsed()

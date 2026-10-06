@@ -1956,8 +1956,15 @@ def process_analysis(job):
                         bound = _bind_image_aliases(response.output_parsed, [binding])
                         reading = normalize_analysis(bound, [binding["asset_id"]], allowed_categories=categories)
                     except Exception as exc:
-                        if not received and not provider_configuration_failure(exc):
+                        configuration_failure = provider_configuration_failure(exc)
+                        if not received and not configuration_failure:
                             usage.estimate(image_reservation)
+                        if configuration_failure:
+                            # A rejected provider request has no usable
+                            # reading.  Do not publish a partial fiche as if
+                            # the unavailable service had completed it.
+                            exc.accounted_usage = usage
+                            raise
                         if not readings:
                             exc.accounted_usage = usage
                             raise
@@ -2274,7 +2281,9 @@ def process_next_job():
             audit(job.requested_by, "analysis.completed", job, {"model": job.model, "attempts": job.attempts})
     except Exception as exc:
         from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
-        transient = isinstance(exc, (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError))
+        configuration_failure = provider_configuration_failure(exc)
+        transient = (isinstance(exc, (APIConnectionError, APITimeoutError, InternalServerError, RateLimitError))
+                     and not configuration_failure)
         with transaction.atomic():
             machine = Machine.all_objects.select_for_update().get(pk=job.machine_id)
             locked = AnalysisJob.objects.select_for_update().get(pk=job.pk)
@@ -2288,13 +2297,14 @@ def process_next_job():
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
                             "No pudimos completar el análisis. Tu borrador está guardado; puedes enviar la ficha con la información disponible.")
-            configuration_failure = provider_configuration_failure(exc)
             if configuration_failure:
                 locked.result = {**locked.result, 'provider_error_code': configuration_failure}
                 locked.error = (f"El modelo {locked.model} no está disponible con la configuración actual del proyecto. "
                                 "Conservamos tu borrador y la edición manual; el equipo debe revisar el acceso al modelo."
                                 if configuration_failure == 'model_unavailable' else
-                                "No se pudo autenticar el servicio de IA. Conservamos tu borrador y la edición manual; el equipo debe revisar su configuración.")
+                                "No se pudo autenticar el servicio de IA. Conservamos tu borrador y la edición manual; el equipo debe revisar su configuración."
+                                if configuration_failure == 'credentials_unavailable' else
+                                "El servicio de IA no tiene saldo disponible. Conservamos tu borrador y la edición manual; el equipo puede agregar saldo y solicitar un nuevo análisis.")
             if deleted:
                 locked.error = "El borrador se envió a la papelera. Este análisis no se reanudará al restaurarlo."
             accounted = getattr(exc, "accounted_usage", None)

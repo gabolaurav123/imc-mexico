@@ -7,8 +7,10 @@
   let categories=[]; try { categories=JSON.parse($('category-data').textContent); } catch { /* Photo entry remains available. */ }
   let stage='category', selectedCategory=null, selectedBrand=null, selectedModel=null, allCategories=false, submitting=false;
   const cache=new Map(), requests={brand:0,model:0}, controllers={}, timers={}, pages={brand:1,model:1};
+  const submitLabels=new Map([...form.querySelectorAll('[data-entry-route]')].map(button=>[button,[...button.childNodes].map(node=>node.cloneNode(true))]));
   const error=message=>{ $('intake-error').textContent=message||''; $('intake-error').hidden=!message; };
   function show(next,focus=false) {
+    root.dataset.stage=next;
     stage=next; Object.entries(sections).forEach(([name,node])=>{node.hidden=name!==next;});
     $('catalogue-fallback').hidden=next==='identify'; $('catalogue-continue').hidden=next!=='model';
     document.querySelectorAll('[data-browse-back]').forEach(button=>{
@@ -48,6 +50,12 @@
     $('popular-categories').replaceChildren();
     for(const item of allCategories?sorted:sorted.slice(0,8)){
       const button=document.createElement('button'); button.type='button'; button.className='catalogue-option'; button.textContent=item.name;
+      if(root.dataset.iconsUrl){
+        const icons={'excavadoras':'excavator','retroexcavadoras':'backhoe','compactadores':'compactor','cargadores':'loader','minicargadores':'skidsteer','gruas':'crane','montacargas':'forklift','plataformas-elevadoras':'platform'};
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'), use=document.createElementNS('http://www.w3.org/2000/svg','use');
+        svg.setAttribute('viewBox','0 0 64 48');svg.setAttribute('aria-hidden','true');svg.setAttribute('class','category-option-icon');
+        use.setAttribute('href',root.dataset.iconsUrl+'#'+(icons[item.slug]||'generic'));svg.append(use);button.prepend(svg);
+      }
       button.dataset.categoryId=String(item.id); button.addEventListener('click',()=>chooseCategory(item)); $('popular-categories').append(button);
     }
     $('show-all-categories').hidden=sorted.length<=8; $('show-all-categories').textContent=allCategories?'Ver tipos principales ↑':`Ver los ${sorted.length} tipos ↓`;
@@ -85,7 +93,7 @@
       more.hidden=!data.has_more;
     } catch(exc) {
       if(ticket!==requests[kind]||exc.name==='AbortError')return;
-      status.textContent=exc.message;const retry=document.createElement('button');retry.type='button';retry.className='link-button';retry.textContent='Reintentar';retry.addEventListener('click',()=>load(kind));list.append(retry);
+      status.textContent=exc.message;const retry=document.createElement('button');retry.type='button';retry.className='link-button';retry.textContent='Reintentar';retry.addEventListener('click',()=>{retry.remove();load(kind,append);});list.append(retry);
     } finally {if(ticket===requests[kind])list.setAttribute('aria-busy','false');}
   }
   root.addEventListener('categoryselected',event=>{if(event.detail?.category)chooseCategory(event.detail.category);});
@@ -105,6 +113,10 @@
   }
   document.querySelectorAll('[data-browse-back]').forEach(button=>button.addEventListener('click',()=>show(button.dataset.browseBack,true)));
   $('identify-with-photos').addEventListener('click',()=>{error('');show('identify',true);});
+  root.querySelectorAll('[data-quick-entry]').forEach(button=>button.addEventListener('click',()=>{
+    if(submitting)return;error('');show('identify');
+    form.requestSubmit(form.querySelector('[data-entry-route="photos"]'));
+  }));
   $('return-catalogue').addEventListener('click',()=>{error('');show(selectedBrand?'model':selectedCategory?'brand':'category',true);});
   $('typed-serial').addEventListener('input',()=>{$('typed-serial').setCustomValidity('');error('');});
   form.addEventListener('submit',event=>{
@@ -118,6 +130,12 @@
     if(route!=='catalogue')model.value='';
     submitting=true;form.setAttribute('aria-busy','true');event.submitter.textContent=route==='catalogue'?'Abriendo tu ficha…':'Abriendo tu ficha…';
   });
-  addEventListener('pageshow',event=>{if(event.persisted){submitting=false;form.removeAttribute('aria-busy');$('catalogue-generate').textContent='Continuar con fotos o serie →';}});
+  addEventListener('pageshow',event=>{if(event.persisted){
+    submitting=false;form.removeAttribute('aria-busy');
+    for(const [button,nodes] of submitLabels)button.replaceChildren(...nodes.map(node=>node.cloneNode(true)));
+    if(selectedModel)model.value=String(selectedModel.id);
+  }});
   renderCategories();show('category');
+  const initial=categories.find(item=>item.slug===root.dataset.initialCategory);
+  if(initial)chooseCategory(initial);
 })();

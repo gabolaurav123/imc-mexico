@@ -64,6 +64,54 @@ class PublishEntryTests(TestCase):
         response = self.client.post('/registro/', self.registration(next='https://outside.example/'))
         self.assertRedirects(response, '/panel/')
 
+    def test_category_entry_survives_registration_and_does_not_create_paid_work(self):
+        from urllib.parse import parse_qs, urlsplit
+        target = f'/panel/maquinarias/nueva/?tipo={self.category.slug}'
+        entry = self.client.get('/publicar/', {'tipo': self.category.slug})
+        self.assertEqual(parse_qs(urlsplit(entry.url).query)['next'], [target])
+        page = self.client.get(entry.url)
+        self.assertEqual(page.context['publication_next'], target)
+        self.assertContains(page, f'name="next" value="{target}"')
+        sign_in = self.client.get('/iniciar-sesion/', {'next': target})
+        self.assertEqual(sign_in.context['publication_next'], target)
+        response = self.client.post('/registro/', self.registration(next=target))
+        self.assertRedirects(response, target)
+        page = self.client.get(target)
+        self.assertEqual(page.context['initial_category_slug'], self.category.slug)
+        self.assertContains(page, f'data-initial-category="{self.category.slug}"')
+        self.assertFalse(Machine.objects.exists())
+        self.assertFalse(AnalysisJob.objects.exists())
+
+    def test_category_entry_survives_incomplete_contact(self):
+        from urllib.parse import parse_qs, urlsplit
+        user = User.objects.create_user(email='category-contact@example.invalid')
+        self.client.force_login(user)
+        target = f'/panel/maquinarias/nueva/?tipo={self.category.slug}'
+        response = self.client.get(target)
+        self.assertEqual(urlsplit(response.url).path, '/panel/perfil/')
+        self.assertEqual(parse_qs(urlsplit(response.url).query)['next'], [target])
+        self.assertFalse(AnalysisJob.objects.exists())
+
+    def test_unknown_or_inactive_category_cannot_preselect_or_redirect(self):
+        user = User.objects.create_user(email='category-safe@example.invalid', phone='+525512345678')
+        self.client.force_login(user)
+        self.category.active = False
+        self.category.save(update_fields=['active'])
+        for slug in (self.category.slug, 'missing', 'https://outside.example/'):
+            with self.subTest(slug=slug):
+                response = self.client.get('/publicar/', {'tipo': slug})
+                self.assertRedirects(response, '/panel/maquinarias/nueva/')
+                page = self.client.get('/panel/maquinarias/nueva/', {'tipo': slug})
+                self.assertEqual(page.context['initial_category_slug'], '')
+        self.assertFalse(AnalysisJob.objects.exists())
+
+    def test_home_category_shortcuts_only_include_active_categories(self):
+        Category.objects.create(name='Compactadores', slug='compactadores', active=True)
+        Category.objects.create(name='Cargadores', slug='cargadores', active=False)
+        page = self.client.get('/')
+        self.assertContains(page, 'href="/publicar/?tipo=compactadores"')
+        self.assertNotContains(page, 'href="/publicar/?tipo=cargadores"')
+
     def test_existing_account_completes_contact_before_new_machine(self):
         user = User.objects.create_user(email='contact-missing@example.invalid')
         self.client.force_login(user)

@@ -1,0 +1,12 @@
+{
+  "asset": "portal/static/portal/industrial-yard-20261006.webp",
+  "generated_with": "Built-in image_gen.imagegen tool; no project API key used",
+  "purpose": "Decorative hero image. It does not depict inventory offered for sale.",
+  "date": "2026-10-06",
+  "dimensions": {
+    "width": 1672,
+    "height": 941
+  },
+  "format_conversion": "PNG to WebP for web delivery; original generation preserved in the Codex generated_images directory.",
+  "prompt": "Use case: photorealistic-natural. Asset: wide landscape editorial hero photograph for IMC México, a serious heavy construction machinery selling portal. Create a credible premium industrial equipment photograph, 16:9 composition, natural muted daylight, an unbranded yellow hydraulic tracked excavator viewed from a low front three-quarter angle in a clean gravel equipment yard, boom folded safely, grounded proportions and mechanically credible tracks, hydraulic hoses, bucket and glass cabin. Excavator fills the central and right two thirds, generous quiet gray-blue sky and distant industrial structures, faint mountain horizon. Restrained navy-gray environment, authentic yellow paint with subtle ordinary use, real photography with sharp material detail and no cinematic lens tricks. Elegant industrial editorial treatment, not a sci-fi render or toy. No people, no lettering, no logos, no watermarks, no price tags, no UI, no extra machine arms, no sunset. This is a decorative reference image, not an actual machine for sale."
+}

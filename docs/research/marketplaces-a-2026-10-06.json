@@ -1,0 +1,91 @@
+{
+  "researched_on": "2026-10-06",
+  "scope": "Experiencias públicas de catálogo y alta de vendedores. No se inició sesión, no se enviaron formularios ni se verificaron flujos autenticados.",
+  "unique_platforms": 11,
+  "excluded": [
+    {
+      "name": "Ritchie List",
+      "url": "https://www.ritchielist.com/",
+      "reason": "La URL redirige a Boom & Bucket; no se cuenta como experiencia independiente."
+    }
+  ],
+  "platforms": [
+    {
+      "name": "MachineryTrader",
+      "urls": ["https://www.machinerytrader.com/info/how-to", "https://www.machinerytrader.com/info/advertising"],
+      "observed_flow": "Catálogo con filtros, fotos y vídeo, contacto al vendedor, watchlists con notas y alertas de cambio de precio. Para publicar: login, iniciar venta, adjuntar hasta 40 fotos o vídeos, datos de fabricante/modelo/categoría/condición/serie, descripción y contacto. También presenta programas para distribuidores.",
+      "limits": "El flujo tras iniciar sesión y los programas comerciales no fueron recorridos.",
+      "applicable_pattern": "Alta por pasos con previsualización; galería y datos técnicos estructurados; favoritos y alerta de precio como mejoras posteriores."
+    },
+    {
+      "name": "Mascus",
+      "urls": ["https://es.mascus.com/", "https://prod.mascus.com/construction/demolition-excavators?from_brandmodel=hyuandai%2F%2F%2F%2F%2F%2F%2FJCB"],
+      "observed_flow": "Anuncios directos de vendedores profesionales y particulares; contacto por teléfono, email o WhatsApp. La categoría expone filtros de tipo de anuncio, categoría, marca, ubicación y precio. Distingue End User para venta aislada y Dealer para venta frecuente; el registro se verifica antes de anunciar.",
+      "limits": "No se revisó el sistema de gestión de inventario autenticado ni el formulario de validación.",
+      "applicable_pattern": "Distinguir particular y empresa; mantener teléfono y WhatsApp visibles en la ficha; mostrar filtros de ubicación y condición."
+    },
+    {
+      "name": "Machinio",
+      "urls": ["https://www.machinio.com/", "https://www.machinio.com/inventory", "https://www.machinio.com/sell"],
+      "observed_flow": "Búsqueda por fabricante, modelo o palabra y ubicación; catálogo por categoría y fabricante con especificaciones y anuncios activos. El alta pública se describe como registro, creación de anuncios mientras se revisa la cuenta, aprobación y recepción de consultas.",
+      "limits": "No se ingresó al sistema de gestión ni se comprobó la revisión tras el registro.",
+      "applicable_pattern": "Estado explícito de revisión de una ficha y especificaciones organizadas por categoría."
+    },
+    {
+      "name": "Equipment Trader",
+      "urls": ["https://www.equipmenttrader.com/", "https://www.equipmenttrader.com/Sell", "https://www.equipmenttrader.com/locator"],
+      "observed_flow": "Búsqueda por operación, categoría, marca, código postal, radio y palabra clave. Publicación guiada que presenta fotos, vídeo, centro de mensajes y herramientas de prevención de fraude; su locator recoge una necesidad de comprador y la comunica a distribuidores.",
+      "limits": "No se realizó selección de paquete, pago ni alta de MyTrader.",
+      "applicable_pattern": "Formulario claro y corto, centro de consultas y una futura solicitud de maquinaria para capturar demanda no cubierta."
+    },
+    {
+      "name": "IronPlanet",
+      "urls": ["https://www.ironplanet.com/", "https://www.ironplanet.com/how-to-sell-new", "https://www.ironplanet.com/sell-your-equipment"],
+      "observed_flow": "Buscador, árbol de categorías y calendario de eventos. La venta gestionada describe cotización, inspección, publicación del informe y confirmación de pago; distingue modalidades de venta y destaca su informe de inspección.",
+      "limits": "No se abrió el formulario de cotización ni se verificaron documentos, inspección o pago.",
+      "applicable_pattern": "Separar claramente los datos declarados por vendedor de evidencia adjunta; introducir un sello discreto de datos revisados sólo cuando IMC los compruebe."
+    },
+    {
+      "name": "Ritchie Bros.",
+      "urls": ["https://mkt.rbauction.com/blog/from-job-site-to-auction-to-job-site", "https://mkt.rbauction.com/blog/how-to-sell-heavy-equipment-five-equipment-selling-methods-explained"],
+      "observed_flow": "Sus fuentes públicas describen una venta asistida donde se recopilan marca, modelo, año, horas, accesorios, fotos y documentos; la información se publica y se facilita la inspección de los compradores.",
+      "limits": "La portada contemporánea agotó tiempo de carga con la herramienta; no se infiere ninguna interfaz actual ni se revisó una cuenta.",
+      "applicable_pattern": "Una ficha completa debe poder reunir datos esenciales, fotos y documentos, pero la ruta asistida debe ser opcional frente a publicar por cuenta propia."
+    },
+    {
+      "name": "MarketBook.ca",
+      "urls": ["https://www.marketbook.ca/info/how-to", "https://www.marketbook.ca/en-gb/home"],
+      "observed_flow": "Registro público mínimo con email, nombre y contraseña, seguido de verificación. Para publicar: login, iniciar venta, adjuntar hasta 40 fotos o vídeos, fabricante/modelo/categoría/condición/serie o VIN, descripción y contacto. Las búsquedas y alertas usan categoría, marca, modelo, rango de año, precio y distancia.",
+      "limits": "La portada regional agotó tiempo de carga y no se enviaron formularios ni se revisó una cuenta autenticada.",
+      "applicable_pattern": "Ficha compartible basada en marca, modelo, año, horas, ubicación, precio y fecha de actualización; documentos e historial como evidencia opcional para la revisión."
+    },
+    {
+      "name": "MachineryZone",
+      "urls": ["https://www.machineryzone.com/"],
+      "observed_flow": "La portada mantiene un CTA para colocar anuncio y un árbol de categorías/subcategorías con conteos, incluyendo maquinaria, accesorios y repuestos.",
+      "limits": "No se cruzó el CTA de publicación ni se observaron requisitos, formulario o pago.",
+      "applicable_pattern": "Categorías en niveles con cantidades disponibles y CTA persistente para publicar una máquina."
+    },
+    {
+      "name": "Truck1",
+      "urls": ["https://www.truck1.eu/"],
+      "observed_flow": "Búsqueda global, selección de idioma y moneda, y bloque de vendedores con alta de empresa/distribuidor, tarifas y soporte. La portada ofrece mercados por país.",
+      "limits": "No se realizó el registro de distribuidor ni se revisó su formulario o servicios pagados.",
+      "applicable_pattern": "Controles globales de país, idioma y moneda; para IMC, español y MXN como valores iniciales y datos de empresa separados de la ficha."
+    },
+    {
+      "name": "Machinery Pete",
+      "urls": ["https://www.machinerypete.com/", "https://www.machinerypete.com/products", "https://www.machinerypete.com/construction"],
+      "observed_flow": "Ofrece venta por propietario, búsqueda rápida que exige categoría y subcategoría, guardados y búsqueda de concesionarios. Su ruta Sell It Yourself muestra estadísticas de rendimiento y renovación cancelable.",
+      "limits": "No se inició el flujo Sell Now ni se revisó pago, edición de un anuncio o estadísticas autenticadas.",
+      "applicable_pattern": "Pedir primero sólo categoría, título, precio, ubicación, fotos y contacto; mostrar campos técnicos después, según la categoría elegida."
+    },
+    {
+      "name": "EquipmentFacts",
+      "urls": ["https://www.equipmentfacts.com/", "https://www.equipmentfacts.com/info/faq"],
+      "observed_flow": "Las tarjetas públicas de eventos usan estado, fecha/hora, modalidad, nombre, ciudad/teléfono, progreso, organizador y CTA consistente. Su FAQ describe registro básico con email, nombre, domicilio, teléfono, contraseña y verificaciones para pujar; incluye watchlist en cada ítem.",
+      "limits": "Es una plataforma de simulcast; no se revisó la interfaz de organizador ni se debe trasladar su flujo de puja a IMC.",
+      "applicable_pattern": "Tarjetas y fichas con estado inequívoco, ubicación, actualización y una sola acción principal; para IMC usar Pendiente de revisión y Publicado, sin mecánica de subasta."
+    }
+  ]
+}

@@ -17,14 +17,14 @@
     <p class="eyebrow">{% if admin_access %}ADMINISTRACIÓN IMC MÉXICO{% elif 'iniciar-sesion' in request.path %}ACCESO A IMC MÉXICO{% else %}PORTAL DE ANUNCIANTES{% endif %}</p><h2>{{ title }}</h2>
     {% if intro %}<p>{{ intro }}</p>{% endif %}
     {% if form and 'registro' in request.path %}<p class="small muted">Los campos con * son obligatorios. Selecciona o escribe el prefijo de tu país antes del número. Puedes mostrar cada contraseña con el botón del ojo.</p>{% endif %}
-    {% if form %}<form method="post" novalidate>{% csrf_token %}{% if publication_flow %}<input type="hidden" name="next" value="/panel/maquinarias/nueva/">{% endif %}{% include 'portal/form_fields.html' %}<button class="button button-red full-width" type="submit">{{ submit_label|default:'Continuar' }} <span aria-hidden="true">→</span></button></form>{% endif %}
+    {% if form %}<form method="post" novalidate>{% csrf_token %}{% if publication_flow %}<input type="hidden" name="next" value="{{ publication_next }}">{% endif %}{% include 'portal/form_fields.html' %}<button class="button button-red full-width" type="submit">{{ submit_label|default:'Continuar' }} <span aria-hidden="true">→</span></button></form>{% endif %}
     <div class="auth-links">
       {% if admin_access %}
         <p class="small">Al entrar, te pediremos el código de tu aplicación de autenticación antes de mostrar la gestión.</p><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Vas a anunciar maquinaria? <a href="/iniciar-sesion/">Ir al acceso general</a>.</p>
       {% elif 'registro' in request.path %}
-        <p>¿Ya tienes una cuenta? <a href="/iniciar-sesion/{% if publication_flow %}?next=/panel/maquinarias/nueva/{% endif %}">Inicia sesión</a>.</p><p class="small">Tener una cuenta te permite preparar y enviar solicitudes. El permiso de anunciante y cada publicación se revisan por separado.</p>
+        <p>¿Ya tienes una cuenta? <a href="/iniciar-sesion/{% if publication_flow %}?next={{ publication_next|urlencode }}{% endif %}">Inicia sesión</a>.</p><p class="small">Tener una cuenta te permite preparar y enviar solicitudes. El permiso de anunciante y cada publicación se revisan por separado.</p>
       {% elif 'iniciar-sesion' in request.path %}
-        <p class="small">Este acceso sirve para anunciantes y para el equipo de IMC. Las cuentas administrativas entran a gestión tras verificar su acceso.</p><a href="/administracion/" class="text-link">Acceso administrativo →</a><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Es tu primera vez? <a href="/registro/{% if publication_flow %}?next=/panel/maquinarias/nueva/{% endif %}">Crear mi cuenta</a>.</p>
+        <p class="small">Este acceso sirve para anunciantes y para el equipo de IMC. Las cuentas administrativas entran a gestión tras verificar su acceso.</p><a href="/administracion/" class="text-link">Acceso administrativo →</a><a href="/recuperar-acceso/">Olvidé mi contraseña</a><p>¿Es tu primera vez? <a href="/registro/{% if publication_flow %}?next={{ publication_next|urlencode }}{% endif %}">Crear mi cuenta</a>.</p>
       {% else %}<a href="/iniciar-sesion/">Volver a iniciar sesión →</a>{% endif %}
     </div>
   </div>

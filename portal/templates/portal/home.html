@@ -2,27 +2,19 @@
 {% block title %}Publicar maquinaria · IMC México{% endblock %}
 {% block body_class %}publishing-home{% endblock %}
 {% block content %}
-<section class="wrap publish-hero" aria-labelledby="publish-heading">
-  <div class="publish-hero-copy">
-    <p class="eyebrow"><span class="tiny-square" aria-hidden="true"></span> MAQUINARIA CONSTRUCCIÓN · IMC MÉXICO</p>
-    <h1 id="publish-heading">Tu máquina.<br>Una ficha que<br><em>la represente.</em></h1>
-    <p class="publish-lead">Empieza con una fotografía o el número de serie. Nosotros preparamos la información.</p>
-    <p class="publish-explainer">Identificación, características, descripción y referencias para estimar su año y valor. Todo reunido en una ficha que puedes editar y compartir.</p>
-    <a class="button button-red publish-primary" href="{% url 'publish_start' %}">Publicar maquinaria <span aria-hidden="true">→</span></a>
-    <p class="publish-resume">{% if user.is_authenticated %}<a href="/panel/maquinarias/">Continuar una ficha guardada →</a>{% else %}¿Ya comenzaste? <a href="/iniciar-sesion/?next=/panel/maquinarias/">Continúa tu ficha →</a>{% endif %}</p>
-    <div class="publish-minimum"><b>Lo mínimo para empezar</b><span>1 fotografía <span aria-hidden="true">/</span> número de serie</span><small>La foto de la placa también sirve. No necesitas ambas opciones.</small></div>
+<section class="industrial-hero" aria-labelledby="publish-heading">
+  <div class="industrial-hero-copy">
+    <p class="eyebrow">IMC MÉXICO / PUBLICACIÓN DE MAQUINARIA</p>
+    <h1 id="publish-heading">Tu maquinaria.<br>Su próxima<br><span>oportunidad.</span></h1>
+    <p class="hero-purpose">Prepara una ficha para vender.<br>Nosotros te ayudamos con los datos.</p>
+    <a class="button button-red hero-start" href="{% url 'publish_start' %}">Publicar maquinaria <span aria-hidden="true">↗</span></a>
+    <p class="hero-return">{% if user.is_authenticated %}<a href="/panel/maquinarias/">Continuar una ficha guardada →</a>{% else %}¿Ya comenzaste? <a href="/iniciar-sesion/?next=/panel/maquinarias/">Continúa tu ficha →</a>{% endif %}</p>
+    <div class="hero-requirement"><span aria-hidden="true">↥</span><p><b>Una foto o el número de serie.</b><br>Empieza con lo que tengas. No necesitas ambos.</p></div>
   </div>
-  <aside class="publish-sample" aria-label="Ejemplo ilustrativo de la organización de una ficha">
-    <div class="sample-topline"><span>ASÍ SE ORGANIZA TU FICHA</span><span>01 / EQUIPO</span></div>
-    <div class="sample-drawing"><img src="{% static 'portal/machine-outline.svg' %}" alt="Esquema ilustrativo de una excavadora" width="620" height="330"><span>ILUSTRACIÓN DE REFERENCIA</span></div>
-    <div class="sample-body"><p class="eyebrow">IDENTIFICACIÓN Y DATOS ESENCIALES</p><h2>Tu maquinaria,<br>bien presentada.</h2><div class="sample-facts"><div><span>Identificación</span><b>Tipo · marca · modelo</b></div><div><span>Datos de referencia</span><b>Año y valor estimados</b></div></div><p>Una descripción clara, las características relevantes y tus mejores fotografías.</p></div>
-    <div class="sample-footer"><span>EDITABLE · COMPARTIBLE</span><b>IMC MÉXICO</b></div>
-    <p class="sample-caption">Ejemplo de estructura. Las estimaciones de cada equipo se calculan con la información y las referencias disponibles.</p>
-  </aside>
+  <figure class="industrial-hero-image"><img src="{% static 'portal/industrial-yard-20261006.webp' %}" alt="Excavadora amarilla en un entorno industrial, imagen ilustrativa" width="1672" height="941" fetchpriority="high"><figcaption>MAQUINARIA QUE SIGUE CONSTRUYENDO <small>Imagen ilustrativa</small></figcaption></figure>
 </section>
-<section class="publishing-process" aria-labelledby="process-heading"><div class="wrap">
-  <div class="process-heading"><p class="eyebrow">PUBLICAR, SIN COMPLICARSE</p><h2 id="process-heading">Tú conoces la máquina.<br>Nosotros te ayudamos a presentarla.</h2></div>
-  <ol class="process-steps"><li><span class="process-number">01</span><h3>Elige el tipo</h3><p>Busca excavadora, grúa, compactadora u otro equipo. Si conoces la marca y el modelo, selecciónalos.</p></li><li><span class="process-number">02</span><h3>Aporta una foto o la serie</h3><p>Una imagen general o de la placa es suficiente para comenzar. También puedes escribir el número de serie.</p></li><li><span class="process-number">03</span><h3>Edita y comparte</h3><p>Recibe tu ficha, ajusta lo que conoces y compártela con un enlace corto. IMC México revisa y autoriza la publicación en el catálogo.</p></li></ol>
-</div></section>
-<section class="wrap publish-support" aria-label="Ayuda para publicar"><div><h2>No tienes que conocer todos los datos.</h2><p>Buscamos referencias del equipo para completar su ficha. Si un dato no puede establecerse, te indicamos qué información ayudaría. Tus cambios siempre se conservan.</p></div><div><a class="text-link" href="/guia-de-fotos/">Cómo tomar las fotografías <span aria-hidden="true">↗</span></a><a class="text-link" href="/como-funciona/">Conoce el proceso <span aria-hidden="true">↗</span></a><a class="text-link" href="/contacto/">Habla con el equipo IMC México <span aria-hidden="true">↗</span></a></div></section>
+<section class="journey-strip" aria-label="Cómo preparar tu publicación"><div class="wrap"><div><span>01</span><p><b>Elige el equipo</b>Tipo · marca · modelo, si los conoces</p></div><div><span>02</span><p><b>Añade una foto o serie</b>Preparamos la información disponible</p></div><div><span>03</span><p><b>Revisa y comparte</b>Tu ficha editable, en un enlace</p></div></div></section>
+{% if home_categories %}<section class="wrap home-equipment" aria-labelledby="equipment-heading"><div class="section-heading"><div><p class="eyebrow">COMIENZA POR TU EQUIPO</p><h2 id="equipment-heading">¿Qué maquinaria quieres publicar?</h2></div><a class="text-link" href="/publicar/">Ver todos los tipos ↗</a></div><div class="home-equipment-grid">{% for item in home_categories %}<a class="equipment-tile" href="/publicar/?tipo={{ item.slug }}"><svg viewBox="0 0 64 48" aria-hidden="true"><use href="{% static 'portal/equipment-icons.svg' %}#{{ item.icon }}"></use></svg><strong>{{ item.name }}</strong><span aria-hidden="true">↗</span></a>{% endfor %}</div></section>{% endif %}
+<section class="sheet-introduction"><div class="wrap sheet-introduction-grid"><div><p class="eyebrow">UNA FICHA. LO QUE IMPORTA.</p><h2>Información útil.<br>Lista para una<br>conversación seria.</h2><p>Empieza con una fotografía o el número de serie. Identificamos el equipo y buscamos referencias para preparar una descripción, sus características y estimaciones de año y valor.</p><p>Si conoces la marca y el modelo, selecciónalos. Puedes corregir cualquier dato, añadir las horas y elegir tu precio.</p><a class="text-link" href="/como-funciona/">Así funciona el proceso ↗</a></div><div class="sheet-blueprint" aria-label="Contenido de una ficha"><header><span>FICHA DE MAQUINARIA</span><b>IMC MÉXICO</b></header><div class="blueprint-heading"><span>01 / IDENTIFICACIÓN</span><h3>Tipo · marca · modelo</h3></div><div class="blueprint-grid"><div><small>REFERENCIA DEL EQUIPO</small><b>Año aproximado</b></div><div><small>REFERENCIA DE MERCADO</small><b>Valor estimado</b></div></div><div class="blueprint-line"><span>02</span><p><b>Fotografías y descripción</b>El equipo y sus características esenciales.</p></div><div class="blueprint-line"><span>03</span><p><b>Tus datos, bajo tu control</b>Edita, añade información y decide qué compartir.</p></div><footer>Las estimaciones de cada equipo se calculan con la información y las referencias disponibles.</footer></div></div></section>
+<section class="wrap publication-close"><div><p class="eyebrow">DEL BORRADOR A LA OPORTUNIDAD</p><h2>La siguiente ficha puede ser la tuya.</h2><p>Revísala y compártela con un enlace corto. IMC México revisa y autoriza la publicación en el catálogo.</p></div><a class="button button-red" href="/publicar/">Comenzar mi ficha <span aria-hidden="true">↗</span></a></section>
 {% endblock %}

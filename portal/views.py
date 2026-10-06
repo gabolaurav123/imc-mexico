@@ -60,15 +60,26 @@ def event(request,name,machine=None):
 
 def home(request):
     content=SiteContent.objects.filter(key='home-hero',active=True).first()
-    return render(request,'portal/home.html',{'home_content':content})
+    icons={'excavadoras':'excavator','retroexcavadoras':'backhoe','compactadores':'compactor',
+           'cargadores':'loader','minicargadores':'skidsteer','gruas':'crane',
+           'montacargas':'forklift','plataformas-elevadoras':'platform'}
+    categories={row.slug:row for row in Category.objects.filter(active=True,slug__in=icons)}
+    featured=[{'slug':slug,'name':categories[slug].name,'icon':icon}
+              for slug,icon in icons.items() if slug in categories]
+    return render(request,'portal/home.html',{'home_content':content,'home_categories':featured})
 
 @require_http_methods(["GET", "POST"])
 def publish_start(request):
     # Existing temporary drafts retain their session capability and claim
     # route, while new publication starts with the user's contact account.
+    target='/panel/maquinarias/nueva/'
+    slug=request.GET.get('tipo','')
+    if slug and Category.objects.filter(active=True,slug=slug).exists():
+        target+='?'+urlencode({'tipo':slug})
     if not request.user.is_authenticated:
-        return redirect('/registro/?next=/panel/maquinarias/nueva/')
-    return redirect('machine_create')
+        return redirect('/registro/?'+urlencode({'next':target}) if slug and '?' in target
+                        else '/registro/?next=/panel/maquinarias/nueva/')
+    return redirect(target)
 
 PAGES={
  'como-funciona': ('Tu máquina, una ficha compartible', 'Elige el tipo, la marca y el modelo del catálogo, y confirma la unidad con una foto o serie.', [('01 · Tipo, marca, modelo y evidencia', 'Completa tu contacto y selecciona el tipo de máquina, la marca y el modelo en el catálogo. Si no encuentras el modelo o no lo conoces, continúa con el número de serie o fotografías. Esa selección orienta el modelo; para generar la ficha agrega una fotografía de la máquina —incluida una foto de placa— o escribe el número de serie. Una sola alternativa basta; las referencias del modelo sirven de contexto y no confirman las especificaciones de tu unidad.'), ('02 · Edita, comparte o envía tu ficha', 'Con evidencia de tu unidad, el sistema puede proponer el año y precio estimados, la descripción y las características disponibles. Corrige cualquier propuesta o indica datos exactos, horas y ubicación. Puedes habilitar un enlace corto y desactivarlo después. La serie y el contacto sólo se incluyen con autorización expresa. También puedes enviar la ficha a revisión; IMC México autoriza por separado su publicación en el catálogo.')]),
@@ -151,6 +162,10 @@ def machine_create(request):
     from .intake import contact_complete
     from .catalogue_intake import catalogue_proposal
     if not contact_complete(request.user):
+        slug=request.GET.get('tipo','')
+        if slug and Category.objects.filter(active=True,slug=slug).exists():
+            next_url='/panel/maquinarias/nueva/?'+urlencode({'tipo':slug})
+            return redirect('/panel/perfil/?'+urlencode({'next':next_url}))
         return redirect('/panel/perfil/?next=/panel/maquinarias/nueva/')
     categories = Category.objects.filter(active=True)
     if request.method=='POST':
@@ -206,7 +221,8 @@ def machine_create(request):
         suffix=('?entrada=catalogue&paso=1' if entry_mode=='catalogue' else
                 '?entrada='+entry_mode if entry_mode in {'plate','serial','photos','manual_identity'} else '')
         return redirect(f'/panel/maquinarias/{machine.pk}/'+suffix)
-    return render(request,'portal/start.html',{'categories_json':category_catalog(categories)})
+    return render(request,'portal/start.html',{'categories_json':category_catalog(categories),
+        'initial_category_slug':categories.filter(slug=request.GET.get('tipo','')).values_list('slug',flat=True).first() or ''})
 
 
 @require_http_methods(["GET", "POST"])
@@ -339,11 +355,14 @@ def machine_state(machine):
 
 def analysis_state(job, machine):
     from .intake import preparation_completeness
+    failure_code=job.result.get('provider_error_code','') if job.status=='failed' and isinstance(job.result,dict) else ''
+    if failure_code not in {'billing_unavailable','credentials_unavailable','model_unavailable'}:
+        failure_code=''
     result=job.result if job.status=='completed' else None
     if isinstance(result,dict):result={key:value for key,value in result.items() if key!='photo_cache'}
     if isinstance(result,dict) and isinstance(result.get('valuation'),dict):
         result={**result,'valuation':{key:value for key,value in result['valuation'].items() if key!='diagnostics'}}
-    return {'id':str(job.pk),'status':job.status,'result':result,'completion':preparation_completeness(machine,job) if job.status=='completed' else {},'preflight':job.result.get('preflight') is True,
+    return {'id':str(job.pk),'status':job.status,'failure_code':failure_code,'result':result,'completion':preparation_completeness(machine,job) if job.status=='completed' else {},'preflight':job.result.get('preflight') is True,
             'input_assets':[{'id':str(item.get('id')), 'purpose':item.get('purpose')}
                 for item in (job.application_snapshot or {}).get('assets',[])
                 if item.get('kind')=='image' and item.get('purpose')!='document'],

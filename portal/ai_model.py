@@ -44,9 +44,20 @@ def token_reservation(model, legacy):
 
 def provider_configuration_failure(exc):
     """Expose a bounded error code, never a provider response or credential."""
-    from openai import AuthenticationError, NotFoundError, PermissionDeniedError
+    from openai import AuthenticationError, NotFoundError, PermissionDeniedError, RateLimitError
     if isinstance(exc, AuthenticationError):
         return 'credentials_unavailable'
     if isinstance(exc, (NotFoundError, PermissionDeniedError)):
         return 'model_unavailable'
+    if isinstance(exc, RateLimitError):
+        # A generic 429 can be temporary and is safe to retry.  OpenAI uses
+        # this explicit code when the project has no available credit; no
+        # request was accepted, so it must not consume a retry reservation.
+        body = getattr(exc, "body", None)
+        error = body.get("error", {}) if isinstance(body, dict) else {}
+        code = getattr(exc, "code", None) or (error.get("code") if isinstance(error, dict) else None)
+        kind = getattr(exc, "type", None) or (error.get("type") if isinstance(error, dict) else None)
+        if str(code or kind or "").casefold() in {
+                "insufficient_quota", "billing_not_active", "billing_hard_limit_reached"}:
+            return "billing_unavailable"
     return ''
