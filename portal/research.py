@@ -1780,6 +1780,14 @@ def _visual_identity_compatible_with_catalogue(result, catalogue_identity):
     provenance = result.get("provenance", {}) if isinstance(result, dict) else {}
     if not isinstance(data, dict) or not isinstance(provenance, dict):
         return False
+    brand_meta = provenance.get("brand", {})
+    visual_brand = _identifier(data.get("brand"))
+    if visual_brand:
+        if not (isinstance(brand_meta, dict) and brand_meta.get("source") in {"image", "plate"}
+                and brand_meta.get("component") == "machine"):
+            return False
+        if identifier_key(visual_brand) not in {identifier_key(alias) for alias in _brand_aliases(catalogue_identity.get("brand"))}:
+            return False
     model_meta = provenance.get("model", {})
     visual_model = _identifier(data.get("model"))
     if (visual_model and isinstance(model_meta, dict) and model_meta.get("source") in {"image", "plate"}
@@ -1790,12 +1798,7 @@ def _visual_identity_compatible_with_catalogue(result, catalogue_identity):
     # model label, never an alternative printed on the photographed unit.
     if data.get("model") not in (None, ""):
         return False
-    brand_meta = provenance.get("brand", {})
-    visual_brand = _identifier(data.get("brand"))
-    if (visual_brand and isinstance(brand_meta, dict) and brand_meta.get("source") in {"image", "plate"}
-            and brand_meta.get("component") == "machine"):
-        return identifier_key(visual_brand) in {identifier_key(alias) for alias in _brand_aliases(catalogue_identity.get("brand"))}
-    return visual_brand is None
+    return True
 
 
 def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None,
@@ -1813,11 +1816,13 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
         else:
             identity["serial"] = None
         basis = "model" if identity.get("brand") and identity.get("model") else "none"
-    elif (selected_catalogue and not identity.get("serial") and not identity.get("model")
+    elif (selected_catalogue and not identity.get("serial")
           and _visual_identity_compatible_with_catalogue(result, selected_catalogue)):
-        # Normal one-photo analysis may read only an abbreviated brand.  The
-        # signed selection supplies the missing model for local references;
-        # an explicit photo model or serial always takes precedence.
+        # Normal one-photo analysis can inherit a signed selection whether the
+        # snapshot already carries its model or the photograph supplies only
+        # an abbreviated brand.  A serial or an explicit conflicting photo
+        # model always takes precedence; the compatibility guard above blocks
+        # the latter before local evidence is considered.
         identity = {"serial": None, "brand": selected_catalogue["brand"], "model": selected_catalogue["model"]}
         basis, catalogue_recovery = "model", True
     if basis in {"none", "category"}:
@@ -1858,6 +1863,8 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
                 # redundant.  The pipeline still checks manufacturer and
                 # independent catalogue sources for genuinely missing fields.
                 seed["prioritize_local_reference"] = True
+                seed["local_field_keys"] = sorted({field.get("key") for field in local.get("fields", [])
+                                                   if isinstance(field, dict) and isinstance(field.get("key"), str)})
             return research_identified_machine(client, model, result, identity, basis, allowed, category,
                                                initial_evidence=seed)
     return research_identified_machine(client, model, result, identity, basis, allowed, category)

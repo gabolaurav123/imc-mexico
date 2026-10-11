@@ -658,7 +658,7 @@
       analysisOutcome = 'needs_information';
       renderResults(job);
       renderRelevance(relevanceOf(job),readings);
-      const message = job.completion.message || 'Agrega una foto nítida de la placa o corrige la marca y el modelo, y vuelve a generar la ficha.';
+      const message = 'Ficha preparada. Puedes completar los datos pendientes o compartirla ahora.';
       analysisStatus(message,'needs_information');
       $('#ready-heading').textContent = 'Ficha lista para compartir';
       $('#ready-intro').textContent = 'Los datos pendientes se muestran en rojo. Puedes compartir y completarlos después.';

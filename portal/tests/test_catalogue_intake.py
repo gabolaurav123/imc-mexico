@@ -221,6 +221,51 @@ class CatalogueOnlyIntakeTests(TestCase):
         }}
         self.assertFalse(_visual_identity_compatible_with_catalogue(result, local["identity"]))
 
+    def test_catalogue_recovery_rejects_a_conflicting_visual_brand_even_when_model_matches(self):
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
+            provenance=proposal["provenance"])
+        local = catalogue_selection_research(machine)
+        from portal.research import _visual_identity_compatible_with_catalogue
+        result = {"data": {"brand": "Komatsu", "model": "320"}, "provenance": {
+            "brand": {"source": "image", "review": "clear", "component": "machine"},
+            "model": {"source": "image", "review": "clear", "component": "machine"},
+        }}
+        self.assertFalse(_visual_identity_compatible_with_catalogue(result, local["identity"]))
+        result["data"]["brand"] = "CAT"
+        self.assertTrue(_visual_identity_compatible_with_catalogue(result, local["identity"]))
+
+    def test_selected_catalogue_with_only_missing_period_seeds_the_local_technical_reference(self):
+        self.reference.period_from = self.reference.period_to = None
+        self.reference.source = "https://www.cat.com/en_US/products/320.html"
+        self.reference.source_title = "Caterpillar 320 specification sheet"
+        self.reference.specs.update({
+            "power": {"value": "121 kW", "evidence": "Caterpillar 320: Net power 121 kW."},
+            "weight": {"value": "21500 kg", "evidence": "Caterpillar 320: Operating weight 21500 kg."},
+            "digging_depth": {"value": "6720 mm", "evidence": "Caterpillar 320: Maximum digging depth 6720 mm."},
+        })
+        self.reference.save(update_fields=["period_from", "period_to", "source", "source_title", "specs"])
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
+            provenance=proposal["provenance"])
+        snapshot = {"data": proposal["data"], "provenance": {**proposal["provenance"],
+            "category": {"source": "user", "review": "confirmed"}}, "category": self.category.name}
+        result = {"data": {"brand": "CAT", "model": None}, "provenance": {
+            "brand": {"source": "image", "review": "clear", "component": "machine"},
+            "model": {"source": "image", "review": "needs_review", "component": "machine"},
+        }, "category": self.category.name, "fields": [], "warnings": []}
+        local = catalogue_selection_research(machine)
+        self.assertIsNotNone(local)
+        with patch("portal.research_pipeline.research_identified_machine",
+                   return_value=({"status": "no_results"}, UsageTotals())) as pipeline:
+            research_machine(Mock(), "gpt-6-luna", result, snapshot, allowed_categories=[self.category.name],
+                knowledge_category=self.category, catalogue_reference=local)
+
+        self.assertEqual(pipeline.call_args.args[3], {"serial": None, "brand": "Caterpillar", "model": "320"})
+        seed = pipeline.call_args.kwargs["initial_evidence"]
+        self.assertTrue(seed["prioritize_local_reference"])
+        self.assertEqual(set(seed["local_field_keys"]), {"power", "weight", "digging_depth"})
+
     def test_catalogue_selection_research_rebuilds_only_signed_model_evidence(self):
         self.reference.source = "https://www.cat.com/en_US/products/320.html"
         self.reference.source_title = "Caterpillar 320 specification sheet"

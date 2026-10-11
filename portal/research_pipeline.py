@@ -305,11 +305,16 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     stages = ["serial", "manufacturer", "catalogs"] if identity.get("serial") else ["manufacturer", "catalogs", "manuals"]
     if seed.get("prioritize_local_reference") and not identity.get("serial"):
         # The approved local reference already contributes literal,
-        # model-scoped rows.  Keep two independent source families for any
-        # missing values, but avoid a third broad manual search that merely
-        # repeats known model data.  This changes neither the validator nor
-        # the model/unit scope of accepted fields.
-        stages = ["manufacturer", "catalogs"]
+        # model-scoped rows. When it already covers the excavator technical
+        # core, the only remaining completeness gap is a model production
+        # period, for which the catalogue stage is the relevant source. Avoid
+        # re-querying the manufacturer for the exact same technical rows.
+        # This changes neither the validator nor the model/unit scope of
+        # accepted fields.
+        local_fields = set(seed.get("local_field_keys", []))
+        stages = (["catalogs"] if category == "Excavadoras"
+                  and {"power", "weight", "digging_depth"}.issubset(local_fields)
+                  else ["manufacturer", "catalogs"])
     for stage in stages:
         if interrupted or (allowed is not None and not allowed()):
             interrupted = True

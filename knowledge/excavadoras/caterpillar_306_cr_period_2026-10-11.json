@@ -1,0 +1,23 @@
+{
+  "references": [
+    {
+      "category_slug": "excavadoras",
+      "brand": "Caterpillar",
+      "model": "306 CR",
+      "period_from": 2020,
+      "period_to": 2026,
+      "source": "https://www.lectura-specs.com/en/model/construction-machinery/crawler-excavators-caterpillar/306-cr-11733214",
+      "source_title": "Caterpillar 306 CR excavator specs & dimensions (2020 - 2026) | Diggers | LECTURA Specs",
+      "source_version": "English model record 11733214",
+      "retrieved_at": "2026-10-11",
+      "provenance": {
+        "authority": "technical_catalog",
+        "scope": "model",
+        "market_scope": "global",
+        "period_evidence": "Caterpillar 306 CR: Years of manufacture 2020—2026.",
+        "note": "Catálogo técnico externo, no fabricante. El registro nombra literalmente 306 CR y publica el intervalo 2020—2026. No declara una región de comercialización única ni configura una unidad; market se deja vacío y el intervalo sólo orienta el periodo del modelo. No confirma año, generación, configuración ni serie de una unidad."
+      },
+      "specs": {}
+    }
+  ]
+}

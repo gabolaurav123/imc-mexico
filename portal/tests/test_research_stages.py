@@ -28,6 +28,25 @@ def response(text, url=URL):
 
 
 class StagedResearchTests(SimpleTestCase):
+    def test_local_technical_core_only_searches_for_missing_period_but_keeps_serial_research(self):
+        from portal.research_pipeline import research_identified_machine
+        for fields, serial, expected in (
+            (["power", "weight", "digging_depth"], None, ["catalogs"]),
+            (["power", "weight"], None, ["manufacturer", "catalogs"]),
+            (["power", "weight", "digging_depth"], "UNIT123", ["serial", "manufacturer", "catalogs"]),
+        ):
+            with self.subTest(fields=fields, serial=serial):
+                client = Mock()
+                client.responses.create.return_value = web_response(sources=[])
+                research_identified_machine(
+                    client, "gpt-6-luna", vision(serial=serial), {**IDENTITY, "serial": serial},
+                    "exact_serial" if serial else "model", category="Excavadoras",
+                    initial_evidence={"prioritize_local_reference": True, "local_field_keys": fields},
+                )
+                stages = [json.loads(call.kwargs["input"])["research_stage"]
+                          for call in client.responses.create.call_args_list]
+                self.assertEqual(stages, expected)
+
     def test_null_model_metadata_cannot_hide_an_explicit_conflicting_model(self):
         for prefix in ("Caterpillar modelo 430F2", "Caterpillar 430F2", "CAT 430F2"):
             with self.subTest(prefix=prefix):
