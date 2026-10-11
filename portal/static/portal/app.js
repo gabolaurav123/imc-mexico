@@ -126,15 +126,19 @@
   let sequence = 0, saveTimer, saving = null, conflict = false, assetMutation = null;
   let uploadCount = 0, fileChain = Promise.resolve(), preparing = false, submitting = false, downloading = false, deleting = false, deleteComplete = false;
   let analysisOutcome = null, valuationFeedback = null;
-  let completionDetails = [];
-  try { completionDetails = JSON.parse($('#preparation-completion')?.textContent || '{}').missing_details || []; } catch { /* Older saved sheets have no completion details. */ }
+  let completionDetails = [], completionFields = [];
+  try {
+    const completion = JSON.parse($('#preparation-completion')?.textContent || '{}');
+    completionDetails = Array.isArray(completion.missing_details) ? completion.missing_details : [];
+    completionFields = Array.isArray(completion.missing_fields) ? completion.missing_fields : [];
+  } catch { /* Older saved sheets have no completion details. */ }
   let serialInputRules = {minimum_alphanumeric:3,placeholders:['na','noaplica','notiene','notengo','nosabe','nose','sinserie','sinnumero','nodisponible','desconocido','desconocida','ninguno','ninguna','unknown']};
   try { const rules=JSON.parse($('#serial-input-rules')?.textContent || '{}'); if(Array.isArray(rules.placeholders))serialInputRules=rules; } catch { /* Compatible with historical wizard pages. */ }
   let valuationIdentity = valuationIdentityOf(state);
   let researchHypotheses = [], researchHypothesisIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
-  let preflightTimer, preflightRunning = false, preflightStamp = '', checkedPhotoStamp = '', photoCheckBlocked = false;
+  let photoCheckBlocked = false;
   let servicePaused = false;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
     const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
@@ -171,8 +175,13 @@
     if (['category','brand','model','model_family','serial'].includes(key) && $('#consistency-status')) $('#consistency-status').hidden = true;
     pending.set(key,{value:readInput(input),sequence:++sequence});
     renderPreview();
-    if (key === 'serial') prepareLabel();
-    if (key === 'category' || photoCheckBlocked && ['brand','model','serial'].includes(key)) schedulePhotoCheck();
+    if (photoCheckBlocked && ['category','brand','model','model_family','serial'].includes(key)) {
+      photoCheckBlocked=false;
+      photoCheckMessage('Datos de identificación actualizados. Genera de nuevo la ficha para comprobarlos con las fotos.');
+      $('#ready-heading').textContent='Datos actualizados';
+      $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
+    }
+    if (key === 'serial' || !photoCheckBlocked) prepareLabel();
     if (conflict) return;
     markSave('Cambios pendientes','pending'); clearTimeout(saveTimer);
     saveTimer = setTimeout(() => save().catch(() => {}),850);
@@ -287,7 +296,7 @@
   }
   $$('[data-evidence-mode]',wizard).forEach(button=>button.addEventListener('click',()=>selectEvidenceMode(button.dataset.evidenceMode,true)));
   function pausePreparation() {
-    servicePaused=true;jobPending=false;preflightRunning=false;clearTimeout(preflightTimer);
+    servicePaused=true;jobPending=false;
     setAnalysisLoading(false);
     if($('#service-paused'))$('#service-paused').hidden=false;
     $('#analysis-feedback').hidden=true;
@@ -386,44 +395,11 @@
     $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha pendiente';
     if(categoryConflict&&actions){
       const option=[...$('#category').options].find(item=>item.textContent.trim().toLocaleLowerCase()===String(categoryConflict.detected).trim().toLocaleLowerCase());
-      if(option){const change=el('button','button button-outline',`Cambiar tipo a ${option.textContent}`);change.type='button';change.addEventListener('click',async()=>{change.disabled=true;try{$('#category').value=option.value;$('#category').dispatchEvent(new Event('change',{bubbles:true}));await save();photoCheckBlocked=false;schedulePhotoCheck();}catch(error){problem(error.message);}finally{change.disabled=false;}});actions.append(change);actions.hidden=false;}
+      if(option){const change=el('button','button button-outline',`Cambiar tipo a ${option.textContent}`);change.type='button';change.addEventListener('click',async()=>{change.disabled=true;try{$('#category').value=option.value;$('#category').dispatchEvent(new Event('change',{bubbles:true}));await save();photoCheckBlocked=false;photoCheckMessage('Tipo actualizado. Genera de nuevo la ficha para comprobarlo con las fotos.');prepareLabel();}catch(error){problem(error.message);}finally{change.disabled=false;}});actions.append(change);actions.hidden=false;}
     }
     renderRelevance(relevanceOf(job));
     selectEvidenceMode('photos',true);
     return true;
-  }
-  function schedulePhotoCheck() {
-    if(guest||!editable||deleting)return;
-    clearTimeout(preflightTimer);checkedPhotoStamp='';photoCheckBlocked=false;
-    if(servicePaused)return;
-    $('#photo-correction-actions')?.replaceChildren();prepareLabel();
-    photoCheckMessage('Comprobaremos las fotografías para identificar la maquinaria.');
-    $('#ready-heading').textContent='Fotos actualizadas';
-    preflightTimer=setTimeout(()=>startPhotoCheck(),700);
-  }
-  async function startPhotoCheck() {
-    if(servicePaused||preflightRunning||preparing||jobPending||submitting||deleting)return;
-    preflightRunning=true;prepareLabel();let started=false;
-    try{
-      await uploadsReady();await save();
-      const ids=orderedCards().filter(card=>card.dataset.kind==='image'&&card.dataset.purpose!=='document').map(card=>card.dataset.assetId);
-      if(!ids.length){photoCheckMessage('Agrega fotos o utiliza el número de serie para continuar.');return;}
-      preflightStamp=photoStamp();
-      photoCheckMessage('Comprobando las fotografías. Puedes quitar o añadir imágenes mientras esperas.');
-      const job=await api(`${base}analizar/`,{consent:true,asset_ids:ids,preflight:true,auto_apply:false,research:false,revision:state.revision});
-      started=true;activeJob=job.id;analysisStartedAt=Date.now();await pollJob(job.id);
-    }catch(error){preflightRunning=false;photoCheckMessage(error.message,true);}
-    finally{if(!started)preflightRunning=false;prepareLabel();}
-  }
-  function completedPhotoCheck(job) {
-    preflightRunning=false;
-    if(!analysisPhotosCurrent(job)||(preflightStamp&&preflightStamp!==photoStamp())){schedulePhotoCheck();return;}
-    checkedPhotoStamp=photoStamp();
-    if(!photoCorrection(job)){
-      renderRelevance(relevanceOf(job));
-      photoCheckMessage('Fotografías comprobadas. Ya puedes generar la ficha de maquinaria.');
-    }
-    prepareLabel();
   }
   function assetSummary(card) {
     const summary = $('.asset-info>summary',card); summary.replaceChildren(el('span','',purposeLabels[card.dataset.purpose] || 'Archivo'),el('span','optional',' · opciones'));
@@ -436,11 +412,11 @@
       button.disabled = true;
       try {
         await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action}));
-        if (action === 'delete') {card.remove();schedulePhotoCheck();}
+        if (action === 'delete') {card.remove();photoCheckBlocked=false;}
         if (action === 'cover') { $$('.asset-cover',wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover',card).hidden = false; }
         if (action === 'up' || action === 'down') { const cards=orderedCards(), index=cards.indexOf(card), other=cards[index+(action==='up'?-1:1)]; if (other) { const position=card.dataset.position; card.dataset.position=other.dataset.position; other.dataset.position=position; } }
         organizePhotos();
-        renderPreview(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
+        renderPreview(); prepareLabel(); toast(action === 'delete' ? 'Archivo eliminado del borrador.' : 'Cambio guardado.');
       } catch (error) { problem(error.message); }
       finally { button.disabled = !editable || submitting || deleting; }
     }); });
@@ -448,7 +424,7 @@
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
       const previous = card.dataset.purpose; if (preparing || submitting || downloading || deleting) { select.value = previous; return; } select.disabled = true;
-      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); schedulePhotoCheck(); }
+      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); photoCheckBlocked=false; prepareLabel(); }
       catch (error) { select.value = previous; problem(error.message); }
       finally { select.disabled = !editable || submitting || deleting; }
     });
@@ -495,11 +471,11 @@
       if (file.size > maxMb * 1024 * 1024) { uploadFailures.add(row); message.textContent = `Supera ${maxMb} MB. Elige un archivo más pequeño o descártalo.`; row.classList.add('error-text'); progress.hidden = true; omit.hidden = false; continue; }
       async function attempt() {
         uploadFailures.delete(row); retry.hidden = omit.hidden = true; progress.hidden = false; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
-        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido.'; progress.hidden = true; if(result.kind==='image'&&purpose!=='document')schedulePhotoCheck(); }
+        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido.'; progress.hidden = true; if(result.kind==='image'&&purpose!=='document')photoCheckBlocked=false; }
         catch (error) { uploadFailures.add(row); message.textContent = error.message; row.classList.add('error-text'); retry.hidden = omit.hidden = false; progress.hidden = true; }
-        finally { uploadCount--; }
+        finally { uploadCount--; prepareLabel(); }
       }
-      function enqueue() { if (deleting) return; uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); }
+      function enqueue() { if (deleting) return; uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); prepareLabel(); }
       retry.addEventListener('click',enqueue); enqueue();
     }
   }
@@ -633,10 +609,10 @@
     const hasInput = usefulSerial || uploadCount > 0 || $$('.asset-card[data-kind="image"]',wizard).some(card=>card.dataset.purpose !== 'document');
     const requirement = $('#evidence-requirement'); if(requirement) requirement.hidden = hasInput;
     $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; });
-    $('#analyze-button').disabled = !editable || !hasInput || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
-    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : preflightRunning ? 'Comprobando fotografías…' : preparing && uploadCount ? 'Esperando tus archivos…' : preparing || jobPending || polling ? 'Preparando tu ficha…' : guest && guestAnalysisUsed ? 'Crear cuenta para volver a generar →' : 'Generar ficha de maquinaria →';
+    $('#analyze-button').disabled = !editable || !hasInput || servicePaused || uploadCount > 0 || preparing || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
+    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : uploadCount > 0 ? 'Subiendo foto…' : preparing ? 'Esperando tus archivos…' : jobPending || polling ? 'Preparando tu ficha…' : guest && guestAnalysisUsed ? 'Crear cuenta para volver a generar →' : 'Generar ficha de maquinaria →';
     $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;});
-    $('#submit-machine').disabled = !editable || photoCheckBlocked || preflightRunning || submitting || downloading || deleting;
+    $('#submit-machine').disabled = !editable || photoCheckBlocked || submitting || downloading || deleting;
     const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting;
     pdfLabel();
   }
@@ -648,7 +624,7 @@
     return job;
   }
   async function completedJob(job) {
-    if(job.preflight||job.result?.preflight){completedPhotoCheck(job);return;}
+    if(job.preflight||job.result?.preflight){return;}
     if(!analysisPhotosCurrent(job)){
       setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas';
       $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
@@ -676,6 +652,7 @@
     }
     setAnalysisLoading(false);
     completionDetails = Array.isArray(job.completion?.missing_details) ? job.completion.missing_details : [];
+    completionFields = Array.isArray(job.completion?.missing_fields) ? job.completion.missing_fields : [];
     renderEstimateGuidance(collect().data);
     if (Array.isArray(job.completion?.missing_fields) && job.completion.missing_fields.length) {
       analysisOutcome = 'needs_information';
@@ -683,8 +660,8 @@
       renderRelevance(relevanceOf(job),readings);
       const message = job.completion.message || 'Agrega una foto nítida de la placa o corrige la marca y el modelo, y vuelve a generar la ficha.';
       analysisStatus(message,'needs_information');
-      problem(message);
-      $('#ready-heading').textContent = 'Completa la identificación del equipo';
+      $('#ready-heading').textContent = 'Ficha lista para compartir';
+      $('#ready-intro').textContent = 'Los datos pendientes se muestran en rojo. Puedes compartir y completarlos después.';
       $('.wizard-progress [data-step-to="2"] b',wizard).textContent = 'Ficha';
       if (currentStep === 1 && !conflict && !deleting) displayStep(2);
       return;
@@ -702,6 +679,7 @@
     }
     analysisStatus(relevanceMessage + (incomplete ? incompleteReadingMessage(readings) : message),analysisOutcome);
     $('#ready-heading').textContent = incomplete ? 'Tu ficha conserva la información disponible.' : 'Tu ficha está preparada.';
+    $('#ready-intro').textContent = 'Revisa los datos. Puedes corregirlos aquí mismo.';
     $('.wizard-progress [data-step-to="2"] b',wizard).textContent = incomplete ? 'Ficha' : 'Ficha lista';
     if (currentStep === 1 && !conflict && !deleting) displayStep(2);
   }
@@ -721,9 +699,7 @@
       }
       if(job.preflight||job.result?.preflight){
         jobPending=false;setAnalysisLoading(false);
-        if(job.status==='completed'){completedPhotoCheck(job);}
-        else if(job.status==='failed'){preflightRunning=false;photoCheckMessage(job.error||'No se pudo comprobar la fotografía. Intenta generar la ficha para volver a consultarla.',true);}
-        else{preflightRunning=true;photoCheckMessage('Comprobando que las fotografías correspondan a la maquinaria.');if(Date.now()-analysisStartedAt<10*60*1000)pollTimer=setTimeout(()=>pollJob(id),2500);else{preflightRunning=false;photoCheckMessage('La comprobación continúa. Puedes consultar su avance.',true);$('#analysis-resume').hidden=false;}}
+        photoCheckMessage('La comprobación anterior no bloquea la generación de tu ficha.');
         return;
       }
       analysisOutcome = job.status;
@@ -736,15 +712,14 @@
         if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; $('#analysis-loading-continue').hidden=false; jobPending = false; setAnalysisLoading(false); analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
-    } catch (error) { jobPending = false; preflightRunning = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
+    } catch (error) { jobPending = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
     finally { polling = false; prepareLabel(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
   $('#analyze-button').addEventListener('click',async () => {
-    if (!editable || servicePaused || preparing || preflightRunning || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
+    if (!editable || servicePaused || preparing || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
     if(guest && guestAnalysisUsed){keepGuestResult();return;}
-    clearTimeout(preflightTimer);
     if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();
     try {
@@ -1015,6 +990,36 @@
     if (['visual','visual_proposal'].includes(meta.source)) return 'Observación visual · por revisar';
     return sourceLabels[meta.source] || '';
   }
+  function completionFieldReady(field,value) {
+    const data=value.data || {};
+    const validAmount=item=>!missing(item)&&Number.isFinite(Number(item))&&Number(item)>=0;
+    if(field==='price_range') return validAmount(data.price) || (validAmount(data.estimate_min)&&Number(data.estimate_min)>0&&validAmount(data.estimate_max)&&Number(data.estimate_min)<=Number(data.estimate_max)&&['USD','MXN','EUR'].includes(data.estimate_currency));
+    if(field==='year_range') return !missing(data.year)||(!missing(data.estimated_year_from)&&!missing(data.estimated_year_to));
+    if(field==='identity') return !missing(value.category)&&!missing(data.brand)&&(!missing(data.model)||!missing(data.model_family));
+    return !missing(field==='title'||field==='category' ? value[field] : data[field]);
+  }
+  function renderPendingFields(value) {
+    const labels={identity:'identificación',category:'tipo de máquina',brand:'marca',model:'modelo',model_family:'familia de modelo',description:'resumen técnico',year:'año',year_range:'rango de año',price_range:'rango de precio',hours:'horas de uso',location_country:'país',location_region:'estado o provincia',location_city:'ciudad'};
+    const targets={price_range:'#auto-valuation-section',year_range:'#auto-age-section',title:'#machine-title',category:'#category',brand:'#brand',model:'#model',model_family:'#model_family',description:'#description',year:'#year',serial:'#serial',hours:'#hours',location_country:'#location_country',location_region:'#location_region',location_city:'#location_city'};
+    $$('[data-pending-field]',wizard).forEach(node=>{node.classList.remove('needs-information');delete node.dataset.pendingField;node.querySelector('.pending-field-note')?.remove();});
+    const ownerFields=currentStep===2&&editable?['hours','location_country','location_region','location_city']:[];
+    const unresolved=[...new Set([...completionFields,...ownerFields].filter(field=>typeof field==='string'&&!completionFieldReady(field,value)))];
+    const marked=[];
+    for(const field of unresolved){
+      const fields=field==='identity'?['category','brand','model']: [field];
+      let applied=false;
+      for(const key of fields){
+        const control=$(targets[key],wizard); const target=control?.closest('.form-field') || control;
+        if(!target)continue;
+        target.classList.add('needs-information');target.dataset.pendingField=field;
+        if(!target.querySelector('.pending-field-note'))target.append(el('p','pending-field-note','Pendiente'));
+        applied=true;
+      }
+      if(applied)marked.push(labels[field]||field);
+    }
+    const summary=$('#pending-fields-summary');
+    if(summary){summary.hidden=!marked.length;summary.textContent=marked.length?`Pendiente: ${marked.join(', ')}. Puedes compartir la ficha mientras completas estos datos.`:'';}
+  }
   function renderPreview() {
     const value = collect(), data = value.data;
     $('#preview-title').textContent = value.title && value.title !== 'Mi maquinaria' ? value.title : 'Maquinaria';
@@ -1081,6 +1086,7 @@
     $('#preview-age-basis').textContent = data.estimated_year_basis || '';
     $('#preview-age-basis').hidden = !hasAgeRange || missing(data.estimated_year_basis);
     renderEstimateGuidance(data);
+    renderPendingFields(value);
     const technical = $('#preview-technical-specs'); technical.replaceChildren();
     for (const key of ['weight','power','capacity','digging_depth','lift_height','working_height','drum_width','engine','fuel','dimensions'].filter(key=>!missing(data[key])).slice(0,6)) addField(technical,key,data[key]);
     $('#preview-technical-section').hidden = !technical.children.length;
@@ -1115,7 +1121,7 @@
     if (!editable || deleting || preparing || submitting || downloading) return;
     if (conflict) return problem('El borrador cambió en otra sesión. Conservamos tus correcciones; recarga la versión actual antes de eliminar.');
     if (!confirm(deleteDraftConfirmation)) return;
-    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearTimeout(preflightTimer); clearProblem();
+    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearProblem();
     const button = $('#delete-draft'), frozen = $$('input,textarea,select,button',wizard).map(control => [control,control.disabled]);
     frozen.forEach(([control]) => { control.disabled = true; });
     button.textContent = 'Moviendo a la papelera…'; prepareLabel();
@@ -1208,7 +1214,7 @@
   }
   function renderEstimateGuidance(data) {
     const number = value => !missing(value) && Number.isFinite(Number(value)) && Number(value) >= 0;
-    const priceReady = number(data.estimate_min) && Number(data.estimate_min) > 0 && number(data.estimate_max) && Number(data.estimate_min) <= Number(data.estimate_max) && ['USD','MXN','EUR'].includes(data.estimate_currency);
+    const priceReady = number(data.price) || (number(data.estimate_min) && Number(data.estimate_min) > 0 && number(data.estimate_max) && Number(data.estimate_min) <= Number(data.estimate_max) && ['USD','MXN','EUR'].includes(data.estimate_currency));
     const year = value => number(value) && Number.isInteger(Number(value)) && Number(value) >= 1900 && Number(value) <= new Date().getFullYear() + 1;
     const yearReady = year(data.year) || year(data.estimated_year_from) && year(data.estimated_year_to) && Number(data.estimated_year_from) <= Number(data.estimated_year_to);
     for (const [id, field, ready, fallback] of [
@@ -1247,7 +1253,7 @@
   selectEvidenceMode(params.get('entrada')==='serial' || params.get('entrada')!=='photos' && params.get('entrada')!=='plate' && !missing(state.data.serial) ? 'serial' : 'photos');
   if(params.get('entrada')==='plate' && !initialJob && $('#upload-purpose')) $('#upload-purpose').value='plate';
   displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
-  if (initialJob) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
+  if (initialJob && !(initialJob.preflight === true)) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
   prepareLabel(); renderPreview();
   if(params.get('entrada')==='catalogue' && params.get('completar')==='1' && editable && !initialJob){
     // The preceding "Generar ficha" form is the explicit request. Consume

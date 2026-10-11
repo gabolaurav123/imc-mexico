@@ -12,7 +12,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
-from portal.market_catalogue import MAX_REFERENCE_AGE_DAYS, install_bundled_market, valuation_from_library
+from portal.market_catalogue import MAX_REFERENCE_AGE_DAYS, ROOT, install_bundled_market, valuation_from_library
 from portal.models import Brand, Category, EquipmentModel, MarketReference
 from portal.valuation import estimate_machine
 
@@ -128,6 +128,20 @@ class MarketCatalogueTests(TestCase):
         self.assertIsNone(valuation_from_library({**self.identity(), "configurations": []}, self.category))
         self.assertIsNone(valuation_from_library({**self.identity(), "compatibility": []}, self.category))
 
+    def test_library_reuses_normalized_catalogue_model_without_scanning_other_model_rows(self):
+        alternate = EquipmentModel.objects.create(brand=self.brand, name="320D-L", category=self.category)
+        base = dict(equipment_model=alternate, source_title="Listado", currency="USD", market="US",
+                    price_type="asking", condition="used", retrieved_at=self.today,
+                    evidence="Anuncio individual fechado.", review="approved", active=True)
+        MarketReference.objects.create(**base, source="https://market.example.invalid/alternate-one",
+                                       price="40000", unit_key="alternate-one")
+        MarketReference.objects.create(**base, source="https://market.example.invalid/alternate-two",
+                                       price="42000", unit_key="alternate-two")
+        result = valuation_from_library({**self.identity(), "model": "320 D L"}, self.category)
+        self.assertEqual(result["status"], "estimated")
+        self.assertEqual({item["url"] for item in result["comparables"]}, {
+            "https://market.example.invalid/alternate-one", "https://market.example.invalid/alternate-two"})
+
     def test_library_reference_uses_zero_ai_calls_and_never_sets_owner_price(self):
         root = self.bundle([self.listing(1), self.listing(2)])
         install_bundled_market(root)
@@ -139,3 +153,34 @@ class MarketCatalogueTests(TestCase):
         self.assertNotIn("price", value["fields"])
         self.assertEqual(usage.web_search_calls, 0)
         client.responses.create.assert_not_called()
+
+
+class BundledMarketCoverageTests(TestCase):
+    """The reviewed bundle remains a small evidence library, not an inventory."""
+
+    def setUp(self):
+        excavators = Category.objects.create(name="Excavadoras", slug="excavadoras")
+        forklifts = Category.objects.create(name="Montacargas", slug="montacargas")
+        cat = Brand.objects.create(name="Caterpillar")
+        toyota = Brand.objects.create(name="Toyota")
+        komatsu = Brand.objects.create(name="Komatsu")
+        for brand, name, category in ((cat, "320D L", excavators), (cat, "320D", excavators),
+                                      (cat, "306 CR", excavators), (toyota, "50-8FGCU25", forklifts),
+                                      (komatsu, "PC210LC-11", excavators)):
+            EquipmentModel.objects.create(brand=brand, name=name, category=category)
+        self.category = excavators
+
+    def test_bundle_imports_dated_individual_ads_and_reuses_306_cr_range(self):
+        self.assertEqual(install_bundled_market(ROOT), 14)
+        rows = MarketReference.objects.filter(equipment_model__name="306 CR")
+        self.assertEqual(rows.count(), 3)
+        self.assertEqual(set(rows.values_list("market", flat=True)), {"US"})
+        self.assertEqual(set(rows.values_list("condition", flat=True)), {"used"})
+        self.assertEqual(set(rows.values_list("price_type", flat=True)), {"asking"})
+        self.assertEqual(set(rows.values_list("year", flat=True)), {2020, 2021, 2024})
+        value = valuation_from_library({"brand": "Caterpillar", "model": "306CR", "condition": "used",
+                                        "configurations": {}, "compatibility": {}, "market_hint": None}, self.category)
+        self.assertEqual(value["status"], "estimated")
+        self.assertEqual(value["fields"]["estimate_min"], "38999.00")
+        self.assertEqual(value["fields"]["estimate_max"], "65500.00")
+        self.assertTrue(all(item["price_type"] == "asking" for item in value["comparables"]))

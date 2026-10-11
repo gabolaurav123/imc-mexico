@@ -253,9 +253,14 @@ def valuations_for_provenance(provenance):
 def _valuation_identity_matches(data, valuation, *, allow_previous_context=False):
     identity = valuation.get("identity", {})
     # Insufficient identity is a valid result with a concrete missing-data note.
-    if not isinstance(identity, dict) or not all(
-        not identity.get(key) or _reference_text(data.get(key)) == _reference_text(identity[key])
-        for key in ("brand", "model")):
+    if not isinstance(identity, dict):
+        return False
+    # Keep the model exact after normalization.  The brand comparison permits
+    # only the explicit aliases used by the research/catalogue boundary (for
+    # example CAT/Caterpillar), never a broad or fuzzy manufacturer match.
+    from .research import brands_equivalent
+    if ((identity.get("brand") and not brands_equivalent(data.get("brand"), identity["brand"]))
+            or (identity.get("model") and _reference_text(data.get("model")) != _reference_text(identity["model"]))):
         return False
     status = valuation.get("status")
     if status not in {"estimated", "conditional_reference"}:

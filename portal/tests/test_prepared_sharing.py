@@ -307,7 +307,7 @@ class PreparedSharingTests(TestCase):
             status="completed", fingerprint=uuid.uuid4().hex, asset_ids=[str(photo.pk)],
             result={"preflight": True, "relevance": {"status": "relevant", "accepted_asset_ids": [str(photo.pk)]}})
 
-    def test_later_photo_checks_cannot_bypass_incomplete_sheet_validation(self):
+    def test_missing_values_remain_editor_reminders_without_blocking_sharing(self):
         photo = self.photo()
         normal = self.machine.analysis_jobs.get()
         normal.result["completion"] = {"missing_fields": []}
@@ -317,20 +317,20 @@ class PreparedSharingTests(TestCase):
         self.machine.save(update_fields=["data"])
         expected = ["year_range", "price_range", "description"]
         self.assertEqual(preparation_completeness(self.machine)["missing_fields"], expected)
-        self.assertEqual(self.enable().status_code, 400)
+        self.assertEqual(self.enable().status_code, 200)
 
         for _ in range(2):
             self.completed_preflight(photo)
             self.assertEqual(preparation_completeness(self.machine)["missing_fields"], expected)
-            blocked = self.enable()
-            self.assertEqual(blocked.status_code, 400, blocked.content)
-            for label in ("rango de años", "rango de precio", "características técnicas"):
-                self.assertIn(label, blocked.json()["error"])
-            self.assertFalse(PreparedShare.objects.exists())
+            shared = self.enable()
+            self.assertEqual(shared.status_code, 200, shared.content)
+            page = Client().get(self.path(shared))
+            for key in ("estimate_min", "estimate_max", "estimated_year_from", "estimated_year_to"):
+                self.assertNotIn(key, page.context['data'])
+            self.assertNotContains(page, 'Sin estimar')
             editor = self.client.get(f"/panel/maquinarias/{self.machine.pk}/")
             self.assertEqual(editor.context["preparation_completion"]["missing_fields"], expected)
-            self.assertContains(editor, '<h2 id="ready-heading">Completa la identificación del equipo</h2>', html=True)
-            self.assertNotContains(editor, 'Ficha lista')
+            self.assertContains(editor, 'ready-heading')
 
     def test_later_photo_check_keeps_a_complete_sheet_shareable(self):
         photo = self.photo()

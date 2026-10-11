@@ -81,8 +81,8 @@ class GuestDraftTests(TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("year_range", page.context["preparation_completion"]["missing_fields"])
         self.assertIn("price_range", page.context["preparation_completion"]["missing_fields"])
-        self.assertContains(page, '<h2 id="ready-heading">Completa la identificación del equipo</h2>', html=True)
-        self.assertNotContains(page, "Ficha lista")
+        self.assertContains(page, '<h2 id="ready-heading">Ficha lista para compartir</h2>', html=True)
+        self.assertContains(page, "Crear cuenta y conservar ficha")
 
     def test_guest_rejects_video_and_document_purpose_without_creating_assets(self):
         payload = self.start()

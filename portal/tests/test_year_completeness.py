@@ -135,13 +135,17 @@ class ExactYearPreparedSheetTests(TestCase):
         self.assertNotIn("estimated_year_from", self.machine.data)
         self.assertNotIn("estimated_year_to", self.machine.data)
 
-    def test_no_exact_year_or_range_still_blocks_new_share(self):
+    def test_missing_year_is_omitted_from_shared_sheet_without_blocking(self):
         self.machine.data.pop("year")
         self.machine.save(update_fields=["data"])
         response = self.share()
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("rango de años", response.json()["error"])
-        self.assertFalse(PreparedShare.objects.exists())
+        self.assertEqual(response.status_code, 200, response.content)
+        share = PreparedShare.objects.get(machine=self.machine)
+        self.assertNotIn('year', share.snapshot['data'])
+        self.assertNotIn('estimated_year_from', share.snapshot['data'])
+        page = Client().get(f'/s/{share.code}/')
+        self.assertNotContains(page, 'Rango de año estimado')
+        self.assertNotContains(page, 'Sin estimar')
 
     def test_previous_price_context_and_fixed_note_survive_private_to_shared_html(self):
         from portal.ai_completion import PREVIOUS_PRICE_LABEL, PREVIOUS_PRICE_NOTE

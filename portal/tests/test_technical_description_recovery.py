@@ -156,17 +156,19 @@ class ExistingPlateShareRecoveryTests(TestCase):
         self.assertIn("1244 kg", public_projection(snapshot)["description"])
         self.machine = save_draft(self.machine, self.user, {"data": {"gradeability": None}}, self.machine.revision)
         self.assertIn("description", preparation_completeness(self.machine)["missing_fields"])
-        self.assertEqual(self.share().status_code, 400)
+        self.assertEqual(self.share().status_code, 200)
+        self.assertNotIn("25 %", PreparedShare.objects.get().snapshot["data"].get("description", ""))
         self.assertNotIn("25 %", machine_state(self.machine)["data"]["description"])
         self.machine.data["gradeability"] = DATA["gradeability"]
         self.machine.provenance["gradeability"] = {**META["gradeability"], "review_reason": "conflicting_reading"}
         self.machine.save()
-        self.assertEqual(self.share().status_code, 400)
+        self.assertEqual(self.share().status_code, 200)
+        self.assertNotIn("25 %", PreparedShare.objects.get().snapshot["data"].get("description", ""))
         self.machine = save_draft(self.machine, self.user, {"data": {"description": "Descripción escrita por el propietario."}}, self.machine.revision)
         self.assertEqual(self.share().status_code, 200)
         self.assertEqual(PreparedShare.objects.get().snapshot["data"]["description"], self.machine.data["description"])
 
-    def test_category_specific_line_limit_is_the_same_for_readiness_and_sharing(self):
+    def test_category_specific_line_limit_keeps_advisory_without_blocking_sharing(self):
         self.machine.data["capacity"] = "500 lbs / 227 kg " + "condición " * 10
         self.machine.save()
         # The generic heading fits, but the platform-specific heading must not
@@ -174,4 +176,4 @@ class ExistingPlateShareRecoveryTests(TestCase):
         self.assertTrue(recovered_technical_description(self.machine.data, self.machine.provenance))
         self.assertFalse(recovered_technical_description(self.machine.data, self.machine.provenance, category=CATEGORY))
         self.assertIn("description", preparation_completeness(self.machine)["missing_fields"])
-        self.assertEqual(self.share().status_code, 400)
+        self.assertEqual(self.share().status_code, 200)

@@ -1,0 +1,73 @@
+{
+  "subject": {
+    "brand": "Komatsu",
+    "model": "PC210LC-11",
+    "category_slug": "excavadoras"
+  },
+  "listings": [
+    {
+      "source": "MachineryTrader",
+      "title": "2020 KOMATSU PC210 LC-11 | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/258470137/2020-komatsu-pc210-lc-11-crawler-excavators",
+      "unit_key": "machinerytrader:258470137",
+      "observed_at": "2026-10-11",
+      "year": 2020,
+      "hours": 580,
+      "price": 165000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2020 KOMATSU PC210 LC-11; US$165,000; condición Used; 580 horas; ubicación Coopersville, Michigan, Estados Unidos; número de anuncio 258470137. El anuncio declara pulgar hidráulico."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2019 KOMATSU PC210 LC-11 | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/247943915/2019-komatsu-pc210-lc-11-crawler-excavators",
+      "unit_key": "machinerytrader:247943915",
+      "observed_at": "2026-10-11",
+      "year": 2019,
+      "hours": 5241,
+      "price": 125000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2019 KOMATSU PC210 LC-11; US$125,000; condición Used; 5,241 horas; ubicación Lubbock, Texas, Estados Unidos; stock K19352X; número de anuncio 247943915."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2019 KOMATSU PC210 LC-11 | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/244573835/2019-komatsu-pc210-lc-11-crawler-excavators",
+      "unit_key": "machinerytrader:244573835",
+      "observed_at": "2026-10-11",
+      "year": 2019,
+      "hours": 5227,
+      "price": 125000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2019 KOMATSU PC210 LC-11; US$125,000; condición Used; 5,227 horas; ubicación Ft. Worth, Texas, Estados Unidos; stock K19900X; número de anuncio 244573835."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2018 KOMATSU PC210 LC-11 | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/243657497/2018-komatsu-pc210-lc-11-crawler-excavators",
+      "unit_key": "machinerytrader:243657497",
+      "observed_at": "2026-10-11",
+      "year": 2018,
+      "hours": 3799,
+      "price": 129500,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2018 KOMATSU PC210 LC-11; US$129,500; condición Used; 3,799 horas; ubicación Ft. Worth, Texas, Estados Unidos; stock K181101X; número de anuncio 243657497."
+    }
+  ]
+}

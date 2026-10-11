@@ -221,6 +221,17 @@ def _brand_aliases(brand):
     return aliases.get(_brand_key(brand), (brand,))
 
 
+def brands_equivalent(left, right):
+    """Compare only the small, curated manufacturer aliases used in research.
+
+    This deliberately does not use substring or fuzzy matching: a model
+    reference can cross the CAT/Caterpillar spelling boundary, but it cannot
+    turn an arbitrary visual brand into a catalogue selection.
+    """
+    left_key, right_key = _brand_key(left), _brand_key(right)
+    return bool(left_key and right_key and left_key == right_key)
+
+
 def _contains_brand(text, brand):
     return any(_contains_identifier(text, alias) for alias in _brand_aliases(brand))
 
@@ -1744,15 +1755,71 @@ def _research_photo_catalog_reference(client, model, result, identity, basis, ph
     return combined, usage
 
 
+def _selected_catalogue_identity(catalogue_reference, snapshot):
+    """Return one signed catalogue identity only when it matches the draft."""
+    local_identity = catalogue_reference.get("identity", {}) if isinstance(catalogue_reference, dict) else {}
+    snapshot_data = (snapshot or {}).get("data", {})
+    snapshot_meta = (snapshot or {}).get("provenance", {})
+    selected = (
+        isinstance(snapshot_data, dict) and isinstance(snapshot_meta, dict)
+        and all(isinstance(snapshot_meta.get(key), dict)
+                and snapshot_meta[key].get("source") == "web_model"
+                and snapshot_meta[key].get("review") == "confirmed"
+                and snapshot_meta[key].get("scope") == "model"
+                and snapshot_meta[key].get("basis") == "catalogue_intake"
+                and identifier_key(snapshot_data.get(key)) == identifier_key(local_identity.get(key))
+                for key in ("brand", "model")))
+    if selected and _verified_local_reference(catalogue_reference, local_identity):
+        return local_identity
+    return None
+
+
+def _visual_identity_compatible_with_catalogue(result, catalogue_identity):
+    """A selection can fill an absent model, never contradict a photo reading."""
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    provenance = result.get("provenance", {}) if isinstance(result, dict) else {}
+    if not isinstance(data, dict) or not isinstance(provenance, dict):
+        return False
+    model_meta = provenance.get("model", {})
+    visual_model = _identifier(data.get("model"))
+    if (visual_model and isinstance(model_meta, dict) and model_meta.get("source") in {"image", "plate"}
+            and model_meta.get("component") == "machine"):
+        return identifier_key(visual_model) == identifier_key(catalogue_identity.get("model"))
+    # A partial or otherwise reviewable model reading must be resolved by the
+    # normal evidence path.  The catalogue only recovers a genuinely absent
+    # model label, never an alternative printed on the photographed unit.
+    if data.get("model") not in (None, ""):
+        return False
+    brand_meta = provenance.get("brand", {})
+    visual_brand = _identifier(data.get("brand"))
+    if (visual_brand and isinstance(brand_meta, dict) and brand_meta.get("source") in {"image", "plate"}
+            and brand_meta.get("component") == "machine"):
+        return identifier_key(visual_brand) in {identifier_key(alias) for alias in _brand_aliases(catalogue_identity.get("brand"))}
+    return visual_brand is None
+
+
 def research_machine(client, model, result, snapshot=None, allowed=None, allowed_categories=None, photo_inputs=None,
                      knowledge_category=None, catalogue_enrichment=False, catalogue_reference=None):
     identity, basis = research_identity(result, snapshot, allowed_categories)
+    selected_catalogue = _selected_catalogue_identity(catalogue_reference, snapshot)
+    catalogue_recovery = False
     if catalogue_enrichment:
         # The catalogue route enriches model references only.  An optional
         # serial already saved in the draft must not turn a no-photo request
         # into an exact-unit lookup.
-        identity["serial"] = None
+        if selected_catalogue:
+            local_identity = selected_catalogue
+            identity = {"serial": None, "brand": local_identity["brand"], "model": local_identity["model"]}
+        else:
+            identity["serial"] = None
         basis = "model" if identity.get("brand") and identity.get("model") else "none"
+    elif (selected_catalogue and not identity.get("serial") and not identity.get("model")
+          and _visual_identity_compatible_with_catalogue(result, selected_catalogue)):
+        # Normal one-photo analysis may read only an abbreviated brand.  The
+        # signed selection supplies the missing model for local references;
+        # an explicit photo model or serial always takes precedence.
+        identity = {"serial": None, "brand": selected_catalogue["brand"], "model": selected_catalogue["model"]}
+        basis, catalogue_recovery = "model", True
     if basis in {"none", "category"}:
         photo_reference = _research_photo_catalog_reference(
             client, model, result, identity, basis, photo_inputs, snapshot, allowed)
@@ -1774,7 +1841,7 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
     # database dependency. The worker passes the actual selected Category.
     if knowledge_category is not None:
         from .knowledge import research_from_knowledge
-        local = catalogue_reference if catalogue_enrichment else None
+        local = catalogue_reference if catalogue_enrichment or catalogue_recovery else None
         if local is None:
             local = research_from_knowledge(result, snapshot or {}, knowledge_category, identity)
         if local is not None and _verified_local_reference(local, identity):
@@ -1783,10 +1850,10 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
                 cancelled["warnings"].append("La autorización de búsqueda ya no está vigente. Se conservó la lectura de las fotos.")
                 return cancelled, UsageTotals()
             profile_category = "Excavadoras" if getattr(knowledge_category, "slug", None) == "excavadoras" else category
-            if _local_reference_is_complete(local, identity, profile_category, result, snapshot) and not catalogue_enrichment:
+            if _local_reference_is_complete(local, identity, profile_category, result, snapshot):
                 return local, UsageTotals()
             seed = _local_pipeline_evidence(local, identity)
-            if catalogue_enrichment:
+            if catalogue_enrichment or catalogue_recovery:
                 # A local technical reference means a broad manual search is
                 # redundant.  The pipeline still checks manufacturer and
                 # independent catalogue sources for genuinely missing fields.

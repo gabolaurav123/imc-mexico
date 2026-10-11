@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-22",
+  "version": "2026-10-11",
   "files": [
     {
       "path": "caterpillar_320d_l_listings_2026-09-22.json",
@@ -12,6 +12,14 @@
     {
       "path": "cat-320d-2026-09.json",
       "sha256": "1a7b029342ac4c41e6d685b905b4130ed89c7c4bd56d876fab0da66ad888d51e"
+    },
+    {
+      "path": "komatsu_pc210lc_11_listings_2026-10-11.json",
+      "sha256": "329b13339deb5bc5587cd3d62c081bd9783bfeac91c8a1a962577f3a3d7a8bac"
+    },
+    {
+      "path": "caterpillar_306_cr_listings_2026-10-11.json",
+      "sha256": "1dae683c1dc1e46b70fced06d40b79aa8ef66f0606e272b921cea8793185df10"
     }
   ]
 }

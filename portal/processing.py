@@ -39,7 +39,7 @@ from .research import (CONSENT_VERSION, RESEARCH_RESERVATION, UsageTotals, compo
 from .research_field_values import is_fuel_name
 from .model_reading import apply_model_label_visibility, allows_model_prefix_hint, partial_model_label
 from .dual_measurements import canonical_dual_measurement
-from .valuation import VALUATION_RESERVATION, estimate_machine, valuation_reservation
+from .valuation import VALUATION_RESERVATION, estimate_machine, is_validated_estimate, valuation_reservation
 from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
@@ -1793,6 +1793,31 @@ def _cached_photo_readings(job, keys):
     return cached
 
 
+def _cached_valuation(job, data):
+    """Reuse a same-day signed price reference when its context still matches.
+
+    Price evidence changes more quickly than an OCR reading, so only a value
+    dated today can be reused.  The signature and the normal identity matcher
+    retain the same condition, market and compatibility safeguards used when
+    publishing an estimate.  This is deliberately scoped to the same draft;
+    it never turns another owner's result into a global price cache.
+    """
+    from .services import _valuation_identity_matches
+
+    today = timezone.localdate().isoformat()
+    previous = AnalysisJob.objects.filter(machine_id=job.machine_id, status="completed").exclude(pk=job.pk).order_by("-created_at")[:8]
+    for prior in previous:
+        valuation = prior.result.get("valuation", {}) if isinstance(prior.result, dict) else {}
+        fields = valuation.get("fields", {}) if isinstance(valuation, dict) else {}
+        if (not is_validated_estimate(valuation)
+                or valuation.get("status") not in {"estimated", "conditional_reference"}
+                or not isinstance(fields, dict) or fields.get("estimate_date") != today
+                or not _valuation_identity_matches(data, valuation)):
+            continue
+        return deepcopy(valuation), str(prior.pk)
+    return None, None
+
+
 def _same_cached_general_photo(entry, prior, asset):
     """Check the exact cached pixel identity, including legacy cache records."""
     if not isinstance(entry, dict) or asset.purpose != "general":
@@ -2015,7 +2040,7 @@ def process_analysis(job):
                     received = False
                     try:
                         visual_options = model_options(visual_model)
-                        if asset.purpose == "plate" and visual_model.startswith(("gpt-5.6-terra", "gpt-6-luna")) and "reasoning" in visual_options:
+                        if asset.purpose == "plate" and visual_model.startswith("gpt-5.6-terra") and "reasoning" in visual_options:
                             visual_options = {**visual_options, "reasoning": {"effort": "medium"}}
                         response = client.responses.parse(model=visual_model, instructions=SYSTEM_PROMPT + PROFILE_INSTRUCTIONS,
                             input=request, text_format=MachineAnalysis,
@@ -2137,6 +2162,13 @@ def process_analysis(job):
             if catalogue_enrichment:
                 from .catalogue_intake import catalogue_selection_research
                 catalogue_reference = catalogue_selection_research(job.machine)
+            elif job.mode == "analysis":
+                # A normal one-photo run can reuse a selected, approved model
+                # only after photo relevance has passed.  ``research_machine``
+                # still rejects it when the image supplies a conflicting model.
+                from .catalogue_intake import catalogue_reference_ready, catalogue_selection_research
+                if catalogue_reference_ready(job.machine):
+                    catalogue_reference = catalogue_selection_research(job.machine)
             research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
                                                        allowed_categories=job.result.get("category_names", []),
                                                        photo_inputs=photo_inputs, knowledge_category=job.machine.category,
@@ -2160,7 +2192,15 @@ def process_analysis(job):
             result["provenance"]["description"] = {"source": "system", "review": "needs_review", "asset_id": None}
         else:
             result["research"] = empty_research()
-        if research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
+        valuation_input = {**result["data"], **declared}
+        cached_valuation, cached_valuation_job_id = (
+            _cached_valuation(job, valuation_input) if research_requested and not image_pipeline_interrupted else (None, None))
+        if cached_valuation is not None:
+            # Keep the original signed object intact.  The separate marker is
+            # an internal trace of a call avoided, not part of its proof.
+            valuation, valuation_usage = cached_valuation, UsageTotals()
+            result["valuation_reuse"] = {"source_job_id": cached_valuation_job_id, "reason": "same_day_signed_identity_match"}
+        elif research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
             _record_progress(job, "valuation", len(image_readings), len(bindings))
             def valuation_allowed():
                 try:
@@ -2176,6 +2216,9 @@ def process_analysis(job):
             usage.add(valuation_usage)
             usage.estimated_tokens += valuation_usage.estimated_tokens
             usage.web_search_calls += valuation_usage.web_search_calls
+        else:
+            valuation, valuation_usage = None, None
+        if valuation is not None:
             result["valuation"] = valuation
             for key, value in valuation.get("fields", {}).items():
                 if value not in (None, ""):
@@ -2195,7 +2238,11 @@ def process_analysis(job):
             family = build_family_reference(result, snapshot, category=job.machine.category)
             if family:
                 merge_family_reference(result, family, snapshot)
-        if research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, completion_reservation(job.model)):
+        completion_missing = missing_fields({**result["data"], **declared}, result.get("category") or snapshot.get("category"),
+                                            {**result["provenance"], **declared_snapshot["provenance"]})
+        if research_requested and not image_pipeline_interrupted and not completion_missing:
+            result["completion_reuse"] = {"reason": "fields_complete"}
+        elif research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, completion_reservation(job.model)):
             _record_progress(job, "completion", len(image_readings), len(bindings))
             # The same revocation/deletion checks apply to the optional final
             # request, including the existing serial-only description route.

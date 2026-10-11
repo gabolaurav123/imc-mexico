@@ -1,9 +1,9 @@
-"""Use the requested GPT-5.6 Luna/Terra policy; retain historical job models."""
+"""Default to GPT-6 Luna; retain explicitly configured historical job models."""
 import re
 
 
-DEFAULT_MODEL = "gpt-5.6-luna"
-VISION_MODEL = "gpt-5.6-terra"
+DEFAULT_MODEL = "gpt-6-luna"
+VISION_MODEL = "gpt-6-luna"
 REASONING_OUTPUT_ALLOWANCE = 3500
 MIN_REASONING_TIMEOUT = 120
 
@@ -13,7 +13,7 @@ def is_reasoning_model(model):
 
 
 def image_model(model):
-    """Route new Luna jobs to Terra for vision, without retrying another model.
+    """Keep historical 5.6 Luna vision routing without fallback model retries.
 
     Other explicitly configured models retain their existing stage policy.
     """
@@ -25,7 +25,7 @@ def model_options(model):
     # The owner explicitly disabled Astra because of its cost. This also blocks
     # historical queued jobs before a provider request can be dispatched.
     if isinstance(model, str) and model.casefold().startswith("gpt-6-astra"):
-        raise ValueError("Astra está deshabilitado. Configura GPT-5.6 Luna o GPT-5.6 Terra.")
+        raise ValueError("Astra está deshabilitado. Configura GPT-6 Luna.")
     return {"reasoning": {"effort": "low"}} if is_reasoning_model(model) else {}
 
 

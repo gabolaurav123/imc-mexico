@@ -1,4 +1,5 @@
 """Optional commercial research shares the queue's limits and consent boundary."""
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -6,13 +7,14 @@ import httpx2
 from openai import APIConnectionError
 from django.test import TestCase, override_settings
 
-from portal.models import Consent, PlatformSettings
+from portal.models import AnalysisJob, Consent, PlatformSettings
 from portal.processing import IMAGE_RESERVATION, _reservation, enqueue_analysis, process_next_job
 from portal.research import RESEARCH_RESERVATION, UsageTotals, empty_research
 from portal.services import _valuation_identity_matches, save_draft
 from portal.tests import test_image_bindings as fixtures
 from portal.tests.test_image_relevance import field, observation, parsed
 from portal.valuation import LABEL, VALUATION_RESERVATION, VALUATION_VERSION, _seal
+from django.utils import timezone
 from portal.ai_completion import COMPLETION_RESERVATION
 
 
@@ -178,6 +180,11 @@ class ValuationPipelineTests(TestCase):
         data["condition"] = "Usada"
         self.assertTrue(_valuation_identity_matches(data, valuation))
 
+    def test_curated_brand_alias_matches_but_a_different_brand_does_not(self):
+        valuation = self.valuation()
+        self.assertTrue(_valuation_identity_matches({"brand": "CAT", "model": "2EC25", "condition": "Usada"}, valuation))
+        self.assertFalse(_valuation_identity_matches({"brand": "Komatsu", "model": "2EC25", "condition": "Usada"}, valuation))
+
     def test_valuation_authorization_rechecks_consent_before_external_work(self):
         self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
         observed = []
@@ -209,3 +216,39 @@ class ValuationPipelineTests(TestCase):
         self.estimate.assert_not_called()
         self.assertEqual(job.result["valuation"], {"status": "not_run", "reason": "budget_unavailable"})
         self.assertEqual((job.input_tokens, job.output_tokens), (800, 400))
+
+    def test_reuses_a_same_day_signed_valuation_without_another_market_search(self):
+        valuation = deepcopy(self.valuation())
+        valuation["fields"]["estimate_date"] = timezone.localdate().isoformat()
+        _seal(valuation)
+        previous = AnalysisJob.objects.create(
+            machine=self.machine, requested_by=self.owner, revision=self.machine.revision,
+            asset_ids=[], mode="description", fingerprint="c" * 64, status="completed",
+            result={"valuation": valuation}, model="gpt-4.1-mini")
+        self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
+
+        job = self.queue()
+        self.assertTrue(process_next_job())
+
+        job.refresh_from_db()
+        self.estimate.assert_not_called()
+        self.assertEqual(job.result["valuation"], valuation)
+        self.assertEqual(job.result["valuation_reuse"], {
+            "source_job_id": str(previous.pk), "reason": "same_day_signed_identity_match"})
+
+    def test_does_not_reuse_a_stale_signed_valuation(self):
+        valuation = deepcopy(self.valuation())
+        valuation["fields"]["estimate_date"] = "2020-01-01"
+        _seal(valuation)
+        AnalysisJob.objects.create(
+            machine=self.machine, requested_by=self.owner, revision=self.machine.revision,
+            asset_ids=[], mode="description", fingerprint="d" * 64, status="completed",
+            result={"valuation": valuation}, model="gpt-4.1-mini")
+        self.provider.return_value.responses.parse.side_effect = [self.photo(), self.photo()]
+
+        job = self.queue()
+        processed = process_next_job()
+        job.refresh_from_db()
+        self.assertTrue(processed, job.error)
+
+        self.estimate.assert_called_once()

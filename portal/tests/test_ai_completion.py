@@ -177,6 +177,8 @@ class AICompletionBoundaryTests(SimpleTestCase):
     def test_new_owner_identity_or_market_invalidates_a_prior_reference(self):
         value = reference()
         self.assertTrue(ai_reference_identity_matches(DATA, value))
+        self.assertTrue(ai_reference_identity_matches({**DATA, "brand": "CAT"}, value))
+        self.assertFalse(ai_reference_identity_matches({**DATA, "brand": "Komatsu"}, value))
         self.assertFalse(ai_reference_identity_matches({**DATA, "model": "320DL"}, value))
         self.assertFalse(ai_reference_identity_matches({**DATA, "location_country": "México"}, value))
         self.assertFalse(ai_reference_identity_matches({**DATA, "condition": "Para reparación"}, value))

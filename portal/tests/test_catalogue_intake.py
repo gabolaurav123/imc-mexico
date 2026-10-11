@@ -1,16 +1,17 @@
 import json
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from portal.catalogue_intake import _period, catalogue_proposal, catalogue_selection_research
 from portal.intake import catalogue_enrichment_needed, has_completed_preparation, preparation_mode, require_prepared_serial
-from portal.models import AnalysisJob, Brand, Category, EquipmentModel, Machine, MarketReference, Submission, TechnicalReference, User
-from portal.processing import enqueue_analysis
-from portal.research import ResearchCandidates, research_machine
+from portal.models import AnalysisJob, Asset, Brand, Category, EquipmentModel, Machine, MarketReference, PlatformSettings, Submission, TechnicalReference, User
+from portal.processing import enqueue_analysis, process_next_job
+from portal.research import ResearchCandidates, UsageTotals, research_machine
 from portal.services import save_draft
 
 
@@ -119,6 +120,106 @@ class CatalogueOnlyIntakeTests(TestCase):
         self.assertIsNone(research["identity"]["serial"])
         self.assertEqual(client.responses.create.call_count, 2)
         self.assertIn("power", {field["key"] for field in research["fields"]})
+
+    def test_complete_approved_catalogue_reference_skips_remote_enrichment(self):
+        self.reference.specs.update({
+            "power": {"value": "121 kW", "evidence": "Caterpillar 320: Net power 121 kW."},
+            "weight": {"value": "21500 kg", "evidence": "Caterpillar 320: Operating weight 21500 kg."},
+            "digging_depth": {"value": "6720 mm", "evidence": "Caterpillar 320: Maximum digging depth 6720 mm."},
+        })
+        self.reference.source = "https://www.cat.com/en_US/products/320.html"
+        self.reference.source_title = "Caterpillar 320 specification sheet"
+        self.reference.save(update_fields=["specs", "source", "source_title"])
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
+            provenance=proposal["provenance"])
+        snapshot = {"data": proposal["data"], "provenance": {**proposal["provenance"],
+            "category": {"source": "user", "review": "confirmed"}}, "category": self.category.name}
+        # The only photo reading is incomplete, but it cannot discard a signed
+        # catalogue selection that already covers the requested model fields.
+        result = {"data": {"brand": "CAT"}, "provenance": {"brand": {
+            "source": "image", "review": "clear", "component": "machine"}},
+            "category": self.category.name, "fields": [], "warnings": []}
+        client = Mock()
+
+        local = catalogue_selection_research(machine)
+        from portal.research import _local_reference_is_complete
+        self.assertTrue(_local_reference_is_complete(local, local["identity"], self.category.name, result, snapshot), local)
+        research, usage = research_machine(client, "gpt-5.6-luna", result, snapshot,
+            allowed_categories=[self.category.name], knowledge_category=self.category,
+            catalogue_enrichment=True, catalogue_reference=local)
+
+        self.assertEqual(usage.as_dict(), {"input_tokens": 0, "output_tokens": 0,
+            "estimated_tokens": 0, "web_search_calls": 0})
+        client.responses.create.assert_not_called()
+        self.assertEqual(research["identity"], {"brand": "Caterpillar", "model": "320", "serial": None})
+        self.assertTrue({"power", "weight", "digging_depth"}.issubset({field["key"] for field in research["fields"]}))
+
+    @override_settings(OPENAI_API_KEY="test-only-no-network", OPENAI_MODEL="gpt-4.1-mini")
+    def test_normal_one_photo_analysis_recovers_selected_catalogue_model_without_remote_research(self):
+        self.reference.specs.update({
+            "power": {"value": "121 kW", "evidence": "Caterpillar 320: Net power 121 kW."},
+            "weight": {"value": "21500 kg", "evidence": "Caterpillar 320: Operating weight 21500 kg."},
+            "digging_depth": {"value": "6720 mm", "evidence": "Caterpillar 320: Maximum digging depth 6720 mm."},
+        })
+        self.reference.source = "https://www.cat.com/en_US/products/320.html"
+        self.reference.source_title = "Caterpillar 320 specification sheet"
+        self.reference.save(update_fields=["specs", "source", "source_title"])
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        # The selected model is retained, while the price and narrative remain
+        # empty at admission so this real photo workflow must safely apply the
+        # signed local valuation and a recomposed descriptor.
+        for key in ("estimate_min", "estimate_max", "estimate_currency", "estimate_date", "estimate_market", "estimate_basis", "description"):
+            proposal["data"].pop(key, None)
+            proposal["provenance"].pop(key, None)
+        machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
+            provenance=proposal["provenance"])
+        asset = Asset.objects.create(machine=machine, kind="image", purpose="general", processing_status="ready",
+            original="test/catalogue-photo.jpg", preview="test/catalogue-photo.jpg", size=1, mime_type="image/jpeg",
+            sha256="c" * 64)
+        PlatformSettings.objects.create(pk=1, ai_enabled=True, ai_daily_token_limit=300000)
+        job = enqueue_analysis(machine, self.owner, asset_ids=[str(asset.pk)], research=True, authorize_ai=True,
+            auto_apply=True, expected_revision=machine.revision)
+        vision = SimpleNamespace(status="completed", usage=SimpleNamespace(input_tokens=100, output_tokens=50),
+            output_parsed=ResearchCandidates)  # Replaced below with the bound image schema.
+        from portal.tests.test_image_relevance import field, observation, parsed
+        vision.output_parsed = parsed([observation("image_001", category="Excavadoras")],
+            [field("brand", "CAT", "image_001")])
+        with patch("openai.OpenAI") as provider, patch("portal.processing._image_input",
+                return_value={"type": "input_image", "image_url": "data:test"}), patch(
+                "portal.processing.complete_machine_reference", return_value=(None, UsageTotals())) as completion:
+            provider.return_value.responses.parse.return_value = vision
+            self.assertTrue(process_next_job())
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, "completed", job.error)
+        self.assertEqual(job.result["research"]["identity"], {"brand": "Caterpillar", "model": "320", "serial": None})
+        self.assertEqual(provider.return_value.responses.parse.call_count, 1)
+        provider.return_value.responses.create.assert_not_called()
+        completion.assert_called_once()
+        self.assertEqual(job.result["valuation"]["diagnostics"]["parser"], "reviewed_market_library")
+        self.assertEqual(job.application_result["status"], "applied")
+        machine.refresh_from_db()
+        self.assertEqual(Decimal(str(machine.data["estimate_min"])), Decimal(job.result["valuation"]["fields"]["estimate_min"]))
+        self.assertEqual(Decimal(str(machine.data["estimate_max"])), Decimal(job.result["valuation"]["fields"]["estimate_max"]))
+        self.assertEqual(machine.data["estimate_currency"], "USD")
+        self.assertEqual(machine.provenance["estimate_min"]["source"], "valuation")
+        self.assertEqual(machine.provenance["estimate_min"]["analysis_id"], str(job.pk))
+        self.assertIn("Caterpillar 320", machine.data["description"])
+        self.assertEqual(machine.provenance["description"]["source"], "system")
+        self.assertEqual(machine.provenance["description"]["analysis_id"], str(job.pk))
+
+    def test_catalogue_recovery_rejects_a_conflicting_visual_model(self):
+        proposal = catalogue_proposal(self.category.pk, self.model.pk)
+        machine = Machine.objects.create(owner=self.owner, category=self.category, data=proposal["data"],
+            provenance=proposal["provenance"])
+        local = catalogue_selection_research(machine)
+        from portal.research import _visual_identity_compatible_with_catalogue
+        result = {"data": {"brand": "CAT", "model": "999"}, "provenance": {
+            "brand": {"source": "image", "review": "clear", "component": "machine"},
+            "model": {"source": "image", "review": "clear", "component": "machine"},
+        }}
+        self.assertFalse(_visual_identity_compatible_with_catalogue(result, local["identity"]))
 
     def test_catalogue_selection_research_rebuilds_only_signed_model_evidence(self):
         self.reference.source = "https://www.cat.com/en_US/products/320.html"

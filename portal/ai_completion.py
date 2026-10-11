@@ -120,12 +120,20 @@ def is_validated_ai_reference(reference):
         return False
 
 
+def _completion_identity_matches(data, identity):
+    """Keep model matching exact while allowing the curated brand aliases."""
+    from .research import brands_equivalent
+    return (bool(identity.get("brand") and identity.get("model"))
+            and brands_equivalent(data.get("brand"), identity["brand"])
+            and identifier_key(data.get("model")) == identifier_key(identity["model"]))
+
+
 def ai_reference_identity_matches(data, reference):
     """A model proposal expires when its identifying/owner context changes."""
     if not is_validated_ai_reference(reference) or not isinstance(data, dict):
         return False
     identity = reference.get("identity", {})
-    if not all(identity.get(key) and identifier_key(data.get(key)) == identifier_key(identity[key]) for key in ("brand", "model")):
+    if not _completion_identity_matches(data, identity):
         return False
     if identity.get("serial") and identifier_key(data.get("serial")) != identifier_key(identity["serial"]):
         return False
@@ -173,8 +181,7 @@ def ai_reference_field_matches(data, reference, key):
     if not is_validated_ai_reference(reference) or not isinstance(data, dict) or key not in COMPLETION_KEYS:
         return False
     identity = reference["identity"]
-    if not all(identity.get(name) and identifier_key(data.get(name)) == identifier_key(identity[name])
-               for name in ("brand", "model")):
+    if not _completion_identity_matches(data, identity):
         return False
     if identity.get("serial") and identifier_key(data.get("serial")) != identifier_key(identity["serial"]):
         return False
@@ -272,13 +279,18 @@ def _technical_literals(key, literal):
     return [literal, *parsed.parts] if parsed else [literal]
 
 
-def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=(), provenance=None):
+def normalize_reference(parsed, identity, data, category, allowed_categories, private_identifiers=(), sources=(), provenance=None, context_data=None):
     identity = deepcopy(identity)
+    # Bind proposals to the persisted draft as well as new accepted facts.
+    # Catalogue values already on the draft must not become null here: that
+    # would reject the price at save time despite no owner edit. Context is
+    # only an invalidation guard; it does not license numeric claims below.
+    context = {**(context_data or {}), **data}
     if data.get("serial"):
         identity["serial"] = data["serial"]
-    identity["technical_context"] = {key: data.get(key) for key in TECHNICAL_KEYS}
-    identity["completion_context"] = {key: data.get(key) for key in COMPATIBILITY_KEYS}
-    identity["location_context"] = {key: data.get(key) for key in ("location_country", "location_region", "location_city")}
+    identity["technical_context"] = {key: context.get(key) for key in TECHNICAL_KEYS}
+    identity["completion_context"] = {key: context.get(key) for key in COMPATIBILITY_KEYS}
+    identity["location_context"] = {key: context.get(key) for key in ("location_country", "location_region", "location_city")}
     private = [identifier_key(value) for value in private_identifiers if value]
     missing = missing_fields(data, category, provenance)
     fields = {}
@@ -464,7 +476,8 @@ def complete_machine_reference(client, model, result, snapshot=None, allowed=Non
         if _get(response, "status") != "completed" or _get(response, "output_parsed") is None or allowed is not None and not allowed():
             return None, usage
         return normalize_reference(response.output_parsed, identity, data, category, allowed_categories, private,
-                                   payload["references"], provenance=provenance), usage
+                                   payload["references"], provenance=provenance,
+                                   context_data=snapshot.get("data", {})), usage
     except Exception as exc:
         configuration_failure = provider_configuration_failure(exc)
         if configuration_failure == "billing_unavailable":

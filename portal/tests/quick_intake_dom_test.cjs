@@ -125,7 +125,7 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
 
  let uploadFinish,uploadState,uploadAnalyzed=0;
  const upload=setup(async(url,o)=>{if(url.endsWith('analizar/')){uploadAnalyzed++;const body=JSON.parse(o.body);assert.ok(body.asset_ids.includes('new'));assert.equal(body.revision,2);return response(200,{id:'job',status:'running'});}if(url.includes('/api/analisis/'))return response(200,{id:'job',status:'failed',error:'Manual available'});throw Error(url);},{before(w){w.XMLHttpRequest=class extends w.EventTarget{constructor(){super();this.upload=new w.EventTarget();}open(){}setRequestHeader(){}send(){uploadFinish=()=>{this.status=200;this.responseText=JSON.stringify({id:'new',kind:'image',purpose:'general',revision:2,is_cover:false});this.dispatchEvent(new w.Event('load'));};}};}});
- const gallery=upload.doc.querySelector('#gallery-input');Object.defineProperty(gallery,'files',{value:[new upload.w.File(['sample'],'sample.jpg',{type:'image/jpeg'})]});gallery.dispatchEvent(new upload.w.Event('change'));click(upload,'analyze-button');click(upload,'analyze-button');await pause(20);assert.equal(uploadAnalyzed,0);assert.equal(typeof uploadFinish,'function');uploadFinish();await pause(50);assert.equal(uploadAnalyzed,1);upload.close();pass('preparation waits queued uploads and uses uploaded asset with latest revision');
+ const gallery=upload.doc.querySelector('#gallery-input');Object.defineProperty(gallery,'files',{value:[new upload.w.File(['sample'],'sample.jpg',{type:'image/jpeg'})]});gallery.dispatchEvent(new upload.w.Event('change'));await pause(20);assert.equal(uploadAnalyzed,0);assert.equal(upload.doc.querySelector('#analyze-button').disabled,true);assert.equal(upload.doc.querySelector('#analyze-button').textContent,'Subiendo foto…');assert.equal(typeof uploadFinish,'function');uploadFinish();await pause(50);assert.equal(upload.doc.querySelector('#analyze-button').disabled,false);click(upload,'analyze-button');await pause(50);assert.equal(uploadAnalyzed,1);upload.close();pass('photo upload alone does not start analysis; the visible button enables as soon as the upload finishes');
 
  let resumeRelease,resumeCalls=0,resumeState;
  const resume=setup(async(url)=>{resumeCalls++;assert.ok(url.includes('/api/analisis/'));await new Promise(resolve=>resumeRelease=resolve);return response(200,completed(resumeState,{}));},{job:{id:'old',status:'completed'}});resumeState=resume.state;
@@ -193,7 +193,7 @@ function completed(state,extra={},metadata={}){return {id:'job',status:'complete
    job.completion={missing_fields:['price_range','year_range'],message:'Agrega una foto nítida de la placa y vuelve a generar la ficha.'};
    return response(200,job);
  },{job:{id:'incomplete-sheet',status:'completed'}});
- await pause(40);assert.equal(incompleteSheet.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');assert.match(incompleteSheet.doc.querySelector('#wizard-errors').textContent,/foto nítida/);assert.doesNotMatch(incompleteSheet.doc.querySelector('#analysis-status').textContent,/Ficha preparada|lista/);assert.equal(incompleteSheet.doc.querySelector('#ready-estimate').hidden,true);incompleteSheet.close();pass('incomplete AI essentials give an actionable editor error instead of announcing a completed sheet');
+ await pause(40);assert.equal(incompleteSheet.doc.querySelector('#ready-heading').textContent,'Ficha lista para compartir');assert.equal(incompleteSheet.doc.querySelector('#wizard-errors').hidden,true);assert.match(incompleteSheet.doc.querySelector('#analysis-status').textContent,/foto nítida/);assert.match(incompleteSheet.doc.querySelector('#ready-intro').textContent,/Puedes compartir/);assert.equal(incompleteSheet.doc.querySelector('#ready-estimate').hidden,true);incompleteSheet.close();pass('incomplete AI essentials stay advisory and the sheet remains ready to share');
 
  let categoryContext;
  categoryContext=setup(async()=>{await pause(1);const job=completed(categoryContext.state,{description:'Se observa maquinaria en la fotografía.'});job.result.research={status:'general_context',basis:'category',match:'category',fields:[],context:{category:'Excavadora',label:'Referencias generales; no identifican esta unidad'},sources:[{url:'https://manufacturer.example/equipment/excavators',title:'Información general de excavadoras'}],warnings:[]};return response(200,job);},{job:{id:'job',status:'completed'}});
@@ -312,6 +312,22 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.equal(mixed.doc.querySelector('[data-asset-id="1"] .asset-relevance'),null);mixed.close();
  pass('mixed photos stay pending with visible removal guidance before preparing the fiche');
 
+ let correctedIdentity,identityStarts=0;
+ correctedIdentity=setup(async(url,o)=>{
+   if(url.endsWith('guardar/')){const body=JSON.parse(o.body);return response(200,{revision:body.revision+1});}
+   if(url.endsWith('analizar/')){identityStarts++;return response(200,{id:identityStarts===1?'identity-conflict':'identity-retry',status:identityStarts===1?'running':'failed'});}
+   if(url.includes('/api/analisis/identity-conflict/')){const job=completed(correctedIdentity.state,{});job.result.relevance={status:'relevant',accepted_asset_ids:['1','2']};job.result.blocking_reason='identity_conflict';job.result.consistency={status:'contradiction',explanation:'La marca no coincide con las fotos.'};return response(200,job);}
+   if(url.includes('/api/analisis/identity-retry/'))return response(200,{id:'identity-retry',status:'failed',error:'Lectura de prueba'});
+   throw Error(url);
+ });
+ click(correctedIdentity,'analyze-button');await pause(50);assert.match(correctedIdentity.doc.querySelector('#photo-validation').textContent,/marca no coincide/);assert.equal(correctedIdentity.doc.querySelector('#analyze-button').disabled,true);
+ input(correctedIdentity,'brand','Marca corregida');await pause(30);
+ assert.equal(identityStarts,1,'editing identity never starts work automatically');
+ assert.equal(correctedIdentity.doc.querySelector('#analyze-button').disabled,false,'an identity correction unlocks a new generation');
+ assert.match(correctedIdentity.doc.querySelector('#photo-validation').textContent,/Genera de nuevo la ficha/);
+ click(correctedIdentity,'analyze-button');await pause(30);assert.equal(identityStarts,2);correctedIdentity.close();
+ pass('an identity correction unlocks retry after a photo contradiction without automatic analysis');
+
  for(const relevance of [undefined,{status:'unassessed',excluded_asset_ids:['1']},{status:'invalid'}]){
    let compatible;let applies=0;
    compatible=setup(async(url)=>{await pause(1);if(url.includes('/api/analisis/')){const job=completed(compatible.state,{});job.result.relevance=relevance;job.auto_apply={requested:false,status:'disabled'};return response(200,job);}if(url.endsWith('aplicar/')){applies++;const job=completed(compatible.state,{model:'Legacy conservado'});return response(200,{machine:job.machine,auto_apply:job.auto_apply});}throw Error(url);},{job:{id:'legacy-relevance',status:'completed'}});
@@ -394,7 +410,7 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.match(priceProposal.doc.querySelector('#ready-estimate').textContent,/1,000.25–1,500.75 USD/);
  priceProposal.close();pass('price and documented range remain editable without exposing research details in the intake');
  const guidanceCalls=[];
- const guidance=setup(async(url,o)=>{guidanceCalls.push({url,o});throw Error('Showing estimate guidance must not start work');},{before(w){
+ const guidance=setup(async(url,o)=>{guidanceCalls.push({url,o});throw Error('Showing estimate guidance must not start work');},{data:{hours:'',location_country:'',location_region:'',location_city:''},before(w){
    w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_fields:['price_range','year_range'],missing_details:[
      {field:'price_range',code:'second_comparable_missing',action:'Añade un comparable <img src=x onerror=alert(1)> con moneda explícita.'},
      {field:'year_range',code:'documented_model_period_missing',action:'Sube la placa legible para documentar el periodo del modelo.'},
@@ -406,8 +422,21 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.match(priceHelp.textContent,/Añade un comparable <img src=x onerror=alert\(1\)> con moneda explícita\./);
  assert.equal(priceHelp.querySelector('img'),null,'guidance is inserted through textContent, never HTML');
  assert.match(yearHelp.textContent,/Sube la placa legible/);
+ assert.equal(guidance.doc.querySelector('#auto-valuation-section').classList.contains('needs-information'),true);
+ assert.equal(guidance.doc.querySelector('#auto-age-section').classList.contains('needs-information'),true);
+ assert.equal(guidance.doc.querySelector('#hours').closest('.form-field').classList.contains('needs-information'),true);
+ assert.equal(guidance.doc.querySelector('#location_country').closest('.form-field').classList.contains('needs-information'),true);
+ assert.match(guidance.doc.querySelector('#pending-fields-summary').textContent,/Puedes compartir la ficha mientras completas/);
+ assert.equal(guidance.doc.querySelector('[data-share-machine]').disabled,false,'pending optional values never disable sharing');
  assert.equal(guidanceCalls.length,0,'initial completion guidance never triggers analysis or a save');
- guidance.close();pass('initial missing_details hydrates field-specific estimate guidance as safe text without automatic work');
+ input(guidance,'hours','0');input(guidance,'location_country','México');input(guidance,'location_region','Jalisco');input(guidance,'location_city','Guadalajara');
+ assert.equal(guidance.doc.querySelector('#hours').closest('.form-field').classList.contains('needs-information'),false,'zero is a valid declared hour value');
+ for(const id of ['location_country','location_region','location_city'])assert.equal(guidance.doc.querySelector(`#${id}`).closest('.form-field').classList.contains('needs-information'),false,`${id} clears when declared`);
+ guidance.close();pass('initial missing details and owner fields are red, clear when completed and never block sharing or start work');
+ const exactPrice=setup(async()=>{throw Error('Exact declared price needs no request');},{query:'?paso=2',data:{price:'45000',estimate_min:'',estimate_max:'',estimate_currency:''},before(w){w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_fields:['price_range']});}});
+ assert.equal(exactPrice.doc.querySelector('#auto-valuation-section').classList.contains('needs-information'),false);
+ assert.equal(exactPrice.doc.querySelector('#estimate-price-help').hidden,true);
+ exactPrice.close();pass('a declared exact price satisfies the price advisory without an estimated range');
  const manualEstimateCalls=[];
  const manualEstimate=setup(async(url,o)=>{manualEstimateCalls.push(url);if(url.endsWith('guardar/'))return response(200,{revision:2});throw Error('Manual range edits must not trigger research automatically');},{before(w){
    w.document.querySelector('#preparation-completion').textContent=JSON.stringify({missing_fields:['price_range','year_range'],missing_details:[
@@ -469,35 +498,32 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  assert.equal(familyHydrated.doc.querySelector('#condition').selectedOptions[0].textContent,'Usada (aparente)');
  familyHydrated.close();pass('completed family analysis hydrates editable estimates without inventing exact model, year, price or condition');
 
- let preflightCtx;const preflightCalls=[];
- preflightCtx=setup(async(url,o)=>{
+ let fastEntry;const fastEntryCalls=[];
+ fastEntry=setup(async(url,o)=>{
    if(url==='/api/archivos/2/accion/')return response(200,{revision:2});
-   if(url.endsWith('analizar/')){const body=JSON.parse(o.body);preflightCalls.push(body);return response(200,{id:body.preflight?'pre-check':'full-check',status:'running',preflight:!!body.preflight});}
-   if(url.includes('/api/analisis/')){await pause(1);const preflight=url.includes('pre-check');return response(200,{...completed(preflightCtx.state,preflight?{}:{model:'Modelo comprobado'}),preflight,input_category:701,input_assets:[{id:'1',purpose:'general'}],result:{preflight,relevance:{status:'relevant',accepted_asset_ids:['1']}}});}
+   if(url.endsWith('analizar/')){const body=JSON.parse(o.body);fastEntryCalls.push(body);return response(200,{id:'full-check',status:'running'});}
+   if(url.includes('/api/analisis/')){await pause(1);return response(200,{...completed(fastEntry.state,{model:'Modelo comprobado'}),input_category:701,input_assets:[{id:'1',purpose:'general'}],result:{relevance:{status:'relevant',accepted_asset_ids:['1']}}});}
    throw Error(url);
  },{query:'?paso=2'});
- const directRemove=preflightCtx.doc.querySelector('.ready-photo-remove');assert.ok(directRemove);assert.equal(preflightCtx.doc.querySelector('[data-asset-action="delete"]').closest('.asset-info'),null);
- preflightCtx.doc.querySelector('[data-asset-id="2"] [data-asset-action="delete"]').click();await pause(820);
- assert.equal(preflightCalls.length,1);assert.equal(preflightCalls[0].preflight,true);assert.equal(preflightCalls[0].auto_apply,false);assert.equal(preflightCalls[0].research,false);
- assert.equal(preflightCtx.doc.querySelector('#analyze-button').disabled,false);assert.match(preflightCtx.doc.querySelector('#photo-validation').textContent,/Fotografías comprobadas/);
- click(preflightCtx,'analyze-button');await pause(50);assert.equal(preflightCalls.length,2);assert.equal(preflightCalls[1].auto_apply,true);assert.equal(preflightCtx.doc.querySelector('#model').value,'Modelo comprobado');preflightCtx.close();pass('visible delete triggers preflight only; accepted photo checks enable full preparation without copying suggestions');
- let resumedCheck;
- resumedCheck=setup(async()=>{await pause(1);return response(200,{...completed(resumedCheck.state,{}),preflight:true,input_category:701,input_assets:[{id:'1',purpose:'general'},{id:'2',purpose:'plate'}],result:{preflight:true,relevance:{status:'relevant',accepted_asset_ids:['1','2']}}});},{job:{id:'resumed-check',status:'running'},query:'?paso=1'});
- await pause(40);assert.equal(resumedCheck.doc.querySelector('#analyze-button').disabled,false);assert.equal(resumedCheck.doc.querySelector('[data-step-panel="1"]').hidden,false);assert.equal(resumedCheck.doc.querySelector('#model').value,'');resumedCheck.close();pass('reloading a running preflight restores generate without marking the fiche ready or applying fields');
+ const directRemove=fastEntry.doc.querySelector('.ready-photo-remove');assert.ok(directRemove);assert.equal(fastEntry.doc.querySelector('[data-asset-action="delete"]').closest('.asset-info'),null);
+ fastEntry.doc.querySelector('[data-asset-id="2"] [data-asset-action="delete"]').click();await pause(820);
+ assert.equal(fastEntryCalls.length,0,'editing photos does not enqueue a separate preflight job');
+ assert.equal(fastEntry.doc.querySelector('#analyze-button').disabled,false);
+ click(fastEntry,'analyze-button');await pause(50);assert.equal(fastEntryCalls.length,1);assert.equal(fastEntryCalls[0].preflight,undefined);assert.equal(fastEntryCalls[0].auto_apply,true);assert.equal(fastEntry.doc.querySelector('#model').value,'Modelo comprobado');fastEntry.close();pass('photo edits do not enqueue preflight; one generate action starts the full protected preparation');
+ let resumedCheckCalls=0;
+ const resumedCheck=setup(async()=>{resumedCheckCalls++;throw Error('historical preflight stays nonblocking and is not polled');},{job:{id:'resumed-check',status:'running',preflight:true},query:'?paso=1'});
+ await pause(40);assert.equal(resumedCheckCalls,0);assert.equal(resumedCheck.doc.querySelector('#analyze-button').disabled,false);assert.equal(resumedCheck.doc.querySelector('[data-step-panel="1"]').hidden,false);assert.equal(resumedCheck.doc.querySelector('#model').value,'');resumedCheck.close();pass('a historical preflight never blocks a new full preparation');
  const incompleteHtml=execFileSync(process.env.PYTHON || 'python',[path.join(__dirname,'render_quick_fixture.py'),'--incomplete'],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8',maxBuffer:4*1024*1024,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
- let incompleteReload,releasePreflight;
- incompleteReload=setup(async()=>{
-   await new Promise(resolve=>releasePreflight=resolve);
-   return response(200,{...completed(incompleteReload.state,{}),preflight:true,input_category:701,input_assets:[{id:'1',purpose:'general'},{id:'2',purpose:'plate'}],result:{preflight:true,relevance:{status:'relevant',accepted_asset_ids:['1','2']}}});
- },{html:incompleteHtml,job:{id:'incomplete-preflight',status:'completed'},query:'?paso=2'});
- assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');
+ let incompleteReloadCalls=0;
+ const incompleteReload=setup(async()=>{incompleteReloadCalls++;throw Error('historical preflight stays nonblocking and is not polled');},{html:incompleteHtml,job:{id:'incomplete-preflight',status:'completed',preflight:true},query:'?paso=2'});
+ assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Ficha lista para compartir');
  assert.equal(incompleteReload.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
- releasePreflight();await pause(40);
- assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Completa la identificación del equipo');
+ await pause(40);
+ assert.equal(incompleteReloadCalls,0);
+ assert.equal(incompleteReload.doc.querySelector('#ready-heading').textContent,'Ficha lista para compartir');
  assert.equal(incompleteReload.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
- assert.match(incompleteReload.doc.querySelector('#photo-validation').textContent,/Fotografías comprobadas/);
  assert.equal(incompleteReload.doc.querySelector('#analyze-button').disabled,false);
- incompleteReload.close();pass('incomplete saved sheet stays visibly incomplete before and after a resumed photo check');
+ incompleteReload.close();pass('incomplete saved sheet stays visibly incomplete while a historical photo check remains nonblocking');
  let staleCheck;const staleCalls=[];
  staleCheck=setup(async(url)=>{staleCalls.push(url);await pause(1);return response(200,{...completed(staleCheck.state,{model:'Modelo obsoleto'}),input_category:701,input_assets:[{id:'removed',purpose:'general'}]});},{job:{id:'old-photos',status:'completed'}});
  await pause(40);assert.equal(staleCheck.doc.querySelector('#model').value,'');assert.equal(staleCheck.doc.querySelector('#ready-heading').textContent,'Fotos actualizadas');assert.equal(staleCalls.length,1);staleCheck.close();pass('an older analysis with replaced photos cannot relabel the fiche as ready');
@@ -549,8 +575,7 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  pausedGuidance.close();pass('estimate guidance retains the add-evidence route but hides research retry while service is paused');
 
  for(const [label,job] of [
-   ['regular',{id:'billing-regular',status:'failed',failure_code:'billing_unavailable',result:null}],
-   ['preflight',{id:'billing-preflight',status:'failed',failure_code:'billing_unavailable',preflight:true,result:null}]
+   ['regular',{id:'billing-regular',status:'failed',failure_code:'billing_unavailable',result:null}]
  ]){
    let paused,analysisStarts=0,polls=0,saves=0;
    paused=setup(async(url,o)=>{
@@ -577,6 +602,6 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    assert.equal(paused.doc.querySelector('#brand').value,`Corrección ${label}`,'retry does not lose manual edits');
    paused.close();
  }
- pass('billing-unavailable regular and preflight jobs pause automation, preserve edits and retry only explicitly');
+ pass('a billing-unavailable full preparation pauses automation, preserves edits and retries only explicitly');
  console.log(JSON.stringify({suite:'quick-intake-dom',checks,passed:checks,uncaughtErrors:0}));
 })().catch(e=>{console.error(e);process.exitCode=1;});

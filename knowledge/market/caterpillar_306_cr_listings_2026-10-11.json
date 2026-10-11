@@ -1,0 +1,57 @@
+{
+  "subject": {
+    "brand": "Caterpillar",
+    "model": "306 CR",
+    "category_slug": "excavadoras"
+  },
+  "listings": [
+    {
+      "source": "MachineryTrader",
+      "title": "2021 CATERPILLAR 306CR | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/259330939/2021-caterpillar-306cr-crawler-excavators",
+      "unit_key": "machinerytrader:259330939",
+      "observed_at": "2026-10-11",
+      "year": 2021,
+      "hours": 2754,
+      "price": 38999,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2021 CATERPILLAR 306CR; US$38,999; condición Used; 2,754 horas; ubicación York, Pennsylvania, Estados Unidos; stock E26-03; número de anuncio 259330939. El anuncio declara cabina abierta, hoja y líneas hidráulicas auxiliares."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2024 CATERPILLAR 306CR | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/251300337/2024-caterpillar-306cr-crawler-excavators",
+      "unit_key": "machinerytrader:251300337",
+      "observed_at": "2026-10-11",
+      "year": 2024,
+      "hours": "792.1",
+      "price": 65500,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2024 CATERPILLAR 306CR; US$65,500; condición Used; 792.1 horas; ubicación Orlando, Florida, Estados Unidos; número de anuncio 251300337. El anuncio declara orugas de goma, brazo largo y hoja estándar."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2020 CATERPILLAR 306CR | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/260224483/2020-caterpillar-306cr-crawler-excavators",
+      "unit_key": "machinerytrader:260224483",
+      "observed_at": "2026-10-11",
+      "year": 2020,
+      "hours": 4258,
+      "price": 55000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-11: 2020 CATERPILLAR 306CR; US$55,000; condición Used; 4,258 horas; ubicación Murfreesboro, Tennessee, Estados Unidos; número de anuncio 260224483. El anuncio declara hidráulica auxiliar y acople rápido."
+    }
+  ]
+}

@@ -70,3 +70,17 @@ Para regenerar sin duplicar una URL ya aprobada:
 ```powershell
 python tools/import_komatsu_current_specs.py --output knowledge/new_komatsu_current_specs_2026-10-06.json --retrieved-at 2026-10-06 --exclude-source-file knowledge/excavadoras/catalogo_tecnico_us_2026-09-18.json
 ```
+
+## Observaciones de mercado, Estados Unidos
+
+`knowledge/market/caterpillar_306_cr_listings_2026-10-11.json` y
+`knowledge/market/komatsu_pc210lc_11_listings_2026-10-11.json` contienen
+anuncios individuales publicados por MachineryTrader y consultados el
+2026-10-11. Cada fila conserva su URL estable de anuncio, identificador de
+unidad, fecha observada, año, horas cuando se publicaron, moneda, mercado,
+condición y el precio de oferta literal. Son anuncios, no ventas cerradas.
+
+Los rangos sólo reúnen al menos dos unidades distintas del mismo modelo,
+mercado, moneda, tipo de precio y condición. No convierten moneda ni ajustan
+por año, horas, accesorios o estado mecánico. Las características de una
+unidad citadas en la evidencia no se transfieren al modelo ni a otra unidad.

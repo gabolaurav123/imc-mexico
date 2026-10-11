@@ -106,7 +106,13 @@ def install_bundled_market(root=None):
 
 
 def valuation_from_library(identity, category):
-    """Use exact, active model references for 30 days; never infer an identity."""
+    """Reuse exact, active model references for 30 days; never infer identity.
+
+    Resolve the normalized model once, then read only its observations.  The
+    catalogue can contain thousands of technical identities while only a
+    small, reviewed subset has market evidence; scanning all market rows for a
+    brand on every photo lookup makes that local fast path needlessly costly.
+    """
     from .valuation import _configuration_key, range_from_comparables, _seal, _MARKET_NAMES
     from .market_observations import latest_market_observations, market_unit_key
     if not isinstance(identity, dict) or not category or not identity.get('brand') or not identity.get('model'):
@@ -117,11 +123,16 @@ def valuation_from_library(identity, category):
         return None
     brand_query = Q()
     for alias in _brand_aliases(identity['brand']):
-        brand_query |= Q(equipment_model__brand__name__iexact=alias)
+        brand_query |= Q(brand__name__iexact=alias)
     today = timezone.localdate()
     oldest_allowed = today - timedelta(days=MAX_REFERENCE_AGE_DAYS)
-    rows = MarketReference.objects.filter(brand_query, equipment_model__category=category,
-        equipment_model__active=True, equipment_model__brand__active=True,
+    model_key = identifier_key(identity['model'])
+    model_ids = [model.pk for model in EquipmentModel.objects.filter(
+        brand_query, category=category, active=True, brand__active=True
+    ).only('pk', 'name') if identifier_key(model.name) == model_key]
+    if not model_ids:
+        return None
+    rows = MarketReference.objects.filter(equipment_model_id__in=model_ids,
         review='approved', active=True).select_related('equipment_model__brand')
     comparable = []
     # Choose the latest observation for each unit before checking age, state or
@@ -129,8 +140,6 @@ def valuation_from_library(identity, category):
     # omitted a detail or changed its documented condition.
     for row in latest_market_observations(rows, today=today):
         if row.retrieved_at < oldest_allowed:
-            continue
-        if identifier_key(row.equipment_model.name) != identifier_key(identity['model']):
             continue
         if (row.market not in _MARKET_NAMES or row.currency not in {'USD', 'MXN', 'EUR'}
                 or row.price_type not in {'asking', 'sold'}

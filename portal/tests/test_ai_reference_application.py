@@ -2,11 +2,13 @@
 from copy import deepcopy
 import json
 import uuid
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from django.core.exceptions import ValidationError
 from django.test import Client, TestCase, override_settings
 
-from portal.ai_completion import merge_machine_reference, normalize_reference
+from portal.ai_completion import complete_machine_reference, merge_machine_reference, normalize_reference
 from portal.intake import preparation_completeness
 from portal.models import AnalysisJob, Category, Consent, Machine, PreparedShare, User
 from portal.services import apply_analysis_automatically, automatic_application_snapshot, save_draft
@@ -95,15 +97,18 @@ class AIReferenceApplicationTests(TestCase):
         self.assertEqual(self.machine.data['description'], 'Descripción del propietario.')
         self.assertEqual(self.machine.provenance['description']['source'], 'user')
 
-    def test_new_identity_retires_estimates_and_cannot_share_incomplete_sheet(self):
+    def test_owner_identity_edit_retires_estimates_but_can_share_remaining_data(self):
         self.apply(self.job())
         self.edit(model='320DL')
         self.assertNotIn('estimate_min', self.machine.data)
         self.assertNotIn('estimated_year_from', self.machine.data)
         response = self.client.post(f'/api/maquinarias/{self.machine.pk}/compartir/',
             json.dumps({'revision': self.machine.revision}), content_type='application/json')
-        self.assertEqual(response.status_code, 400)
-        self.assertFalse(PreparedShare.objects.exists())
+        self.assertEqual(response.status_code, 200, response.content)
+        shared = PreparedShare.objects.get().snapshot['data']
+        self.assertEqual(shared['model'], '320DL')
+        self.assertNotIn('estimate_min', shared)
+        self.assertNotIn('estimated_year_from', shared)
 
     def test_forged_manifest_never_applies_ranges(self):
         job = self.job()
@@ -112,3 +117,32 @@ class AIReferenceApplicationTests(TestCase):
         self.apply(job)
         self.assertNotIn('estimate_min', self.machine.data)
         self.assertNotIn('estimated_year_from', self.machine.data)
+
+    def test_existing_catalogue_specs_do_not_discard_generated_price_and_description(self):
+        self.machine.category = self.category
+        for key, value in {'power': '41.7 kW', 'weight': '7150 kg', 'digging_depth': '4110 mm'}.items():
+            self.machine.data[key] = value
+            self.machine.provenance[key] = {'source': 'web_model', 'review': 'needs_review', 'basis': 'catalogue_intake'}
+        self.machine.save()
+        job = self.job()
+        result = {'data': {}, 'provenance': {}, 'category': self.category.name, 'fields': [], 'plates': []}
+        client = Mock()
+        client.responses.parse.return_value = SimpleNamespace(status='completed', output_parsed=proposal(),
+            usage=SimpleNamespace(input_tokens=100, output_tokens=100))
+        snapshot = {'data': deepcopy(self.machine.data), 'provenance': deepcopy(self.machine.provenance)}
+        reference, _ = complete_machine_reference(client, 'gpt-6-luna', result, snapshot,
+            allowed_categories=[self.category.name])
+        self.assertEqual(reference['identity']['technical_context']['weight'], '7150 kg')
+        # Snapshot context prevents stale application; it does not promote an
+        # unvalidated draft specification into provider-accepted evidence.
+        payload = json.loads(client.responses.parse.call_args.kwargs['input'])
+        self.assertNotIn('weight', payload['accepted_data'])
+        merge_machine_reference(result, reference, snapshot)
+        job.result = result
+        job.save(update_fields=['result'])
+        self.apply(job)
+        self.assertEqual(self.machine.data['estimate_min'], 45000)
+        self.assertEqual(self.machine.data['estimate_max'], 90000)
+        self.assertEqual(len(self.machine.data['description'].splitlines()), 4)
+        self.edit(weight='8000 kg')
+        self.assertNotIn('estimate_min', self.machine.data)

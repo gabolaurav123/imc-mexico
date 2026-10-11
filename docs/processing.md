@@ -81,10 +81,11 @@ el contenido de la solicitud ni URLs privadas. Las pruebas reales deben comproba
 también lotes mixtos y ambos órdenes de carga.
 
 `OPENAI_API_KEY` solo vive en el servidor. `OPENAI_MODEL` es configurable; el valor
-inicial es `gpt-5.6-luna`, con entrada de imagen, Responses, búsqueda web y Structured
-Outputs. Desde v31, los trabajos nuevos con Luna fijan Terra como modelo de la
-etapa visual, con una llamada por foto; las demás etapas conservan Luna. El modelo
-solicitado y el devuelto se registran por imagen. Los trabajos anteriores no cambian.
+inicial es `gpt-6-luna`, con entrada de imagen, Responses, búsqueda web y Structured
+Outputs. GPT-6 Luna procesa todas las etapas, con una llamada visual por foto.
+La política histórica de GPT-5.6 Luna conserva Terra para esa etapa cuando quedó
+registrada en el trabajo. El modelo solicitado y el devuelto se registran por
+imagen. Los trabajos anteriores no cambian.
 El perfil usa `reasoning.effort=low` y `medium` al leer placas con Terra en la
 misma llamada, sin una segunda consulta. Añade 3.500 tokens al límite de salida
 y a la reserva de cada llamada y permite al menos 120 segundos por llamada.
@@ -102,8 +103,8 @@ Referencias verificadas durante implementación:
 
 - [Imágenes y visión](https://developers.openai.com/api/docs/guides/images-vision)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
-- [Modelo GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna)
-- [Migración y parámetros compatibles](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+- [Modelo GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)
+- [Migración y parámetros compatibles](https://developers.openai.com/api/docs/guides/latest-model)
 
 El modelo queda fijado al encolar cada `AnalysisJob`. En una instalación existente,
 hay que cambiar también `OPENAI_MODEL` en el servidor y reiniciar web/worker; cambiar

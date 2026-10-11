@@ -35,9 +35,9 @@ Detalles y fuentes: [ampliación del catálogo](catalogue-expansion-2026-09-25.m
 
 ## IA y precisión
 
-La política predeterminada vigente usa **`gpt-5.6-luna`** para investigación y texto, y **`gpt-5.6-terra`** para la lectura visual, conforme a la elección del propietario. Se conserva Responses API con salida estructurada, razonamiento bajo —medio en lectura de placa con Terra—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay reintento con otro modelo si falla una etapa. Los trabajos antiguos conservan su política registrada, incluidos los ejecutados previamente con GPT-6 Luna. Configurar también `OPENAI_MODEL=gpt-5.6-luna` en web y worker: una variable existente tiene prioridad sobre el default.
+La política aplicada el 25 de septiembre usaba **`gpt-5.6-luna`** para investigación y texto, y **`gpt-5.6-terra`** para la lectura visual, conforme a la elección del propietario. Se conserva Responses API con salida estructurada, razonamiento bajo —medio en lectura de placa con Terra—, límites de consumo y `store=false`. Astra permanece bloqueado; no hay reintento con otro modelo si falla una etapa. Los trabajos antiguos conservan su política registrada, incluidos los ejecutados previamente con GPT-6 Luna. Configurar también `OPENAI_MODEL=gpt-5.6-luna` en web y worker: una variable existente tiene prioridad sobre el default.
 
-La política actual se verificó con la documentación de [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) y [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra). Las pruebas históricas descritas a continuación no acreditan una ejecución real de la política actual.
+Esa política histórica se verificó con la documentación de [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) y [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra). Las pruebas históricas descritas a continuación no acreditan una ejecución real de la política actual.
 
 En una configuración anterior, se verificó la documentación oficial del modelo: <https://developers.openai.com/api/docs/models/gpt-6-luna>. La disponibilidad efectiva con las credenciales del proyecto también se comprobó en producción: la prueba real registró `gpt-6-luna` tanto como modelo solicitado como modelo respondido. Esto acredita acceso al proveedor; no garantiza una lectura perfecta de cada imagen.
 
@@ -97,3 +97,7 @@ La segunda prueba real, ya con `2d1f457`, recuperó neumáticos delanteros **21 
 **Límite observado:** la segunda lectura propuso `2EC2` como modelo y lo etiquetó como lectura clara, mientras que la revisión de la foto permite considerar `2EC25`. La aplicación no detectó automáticamente esa ambigüedad: el propietario debe corregir o confirmar el modelo, conservando la procedencia «lectura de placa» y la edición disponible. La investigación externa terminó sin resultados útiles para completar ese modelo. No se logró identificación exacta ni se obtuvo año o precio estimado con esta foto. La mejora recupera más datos legibles, pero no demuestra que baste una sola placa para completar todos los campos. No se añadió un decodificador supuesto ni un cambio de modelo para ocultar esta limitación. El resultado detallado se conserva como evidencia QA privada, sin incluir la serie ni los enlaces privados en este informe.
 
 Las pruebas visuales se realizaron en el servidor local con navegador real, incluyendo compartir enlace, carrusel y navegación al catálogo. Brave bloqueó la navegación al dominio público con `ERR_BLOCKED_BY_CLIENT`; no se cambió su protección. La comprobación de producción se hizo como prueba de API, no se presenta como recorrido visual remoto completado.
+
+## Actualización del 11 de octubre
+
+La política vigente y el uso del catálogo antes de búsquedas remotas se documentan en [model-upgrade.md](model-upgrade.md). El default actual es GPT-6 Luna.
