@@ -45,6 +45,25 @@ class GuestDraftTests(TestCase):
         Image.new("RGB", (48, 48), (self.image_index * 50, 0, 180)).save(raw, format="JPEG")
         return SimpleUploadedFile("machine.jpg", raw.getvalue(), content_type="image/jpeg")
 
+    def test_guest_category_only_photo_start_creates_one_empty_draft_and_reuses_it(self):
+        body = {"category": self.category.pk, "entry_mode": "photos"}
+        first = self.client.post("/api/invitados/", data=json.dumps(body), content_type="application/json")
+        self.assertEqual(first.status_code, 201, first.content)
+        payload = first.json()
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        self.assertEqual(payload["url"], f"/invitados/{draft.pk}/?entrada=photos")
+        self.assertEqual(draft.machine.category_id, self.category.pk)
+        self.assertEqual(draft.machine.data, {"currency": "USD"})
+        self.assertEqual(draft.machine.provenance, {
+            "currency": {"source": "system", "review": "needs_review"},
+            "category": {"source": "user", "review": "confirmed", "confidence": "owner_declared"},
+        })
+        reused = self.client.post("/api/invitados/", data=json.dumps(body), content_type="application/json")
+        self.assertEqual(reused.status_code, 200, reused.content)
+        self.assertEqual(reused.json()["id"], payload["id"])
+        self.assertEqual(GuestDraft.objects.count(), 1)
+        self.assertEqual(Machine.objects.count(), 1)
+
     def test_guest_upload_rechecks_the_locked_four_photo_limit(self):
         payload = self.start()
         draft = GuestDraft.objects.get(pk=payload["id"])

@@ -57,8 +57,8 @@ class PreparedShareContentTests(TestCase):
     def test_fallback_pages_follow_same_sharing_contract(self):
         self.assert_copy_matches_flow()
         how = self.client.get('/como-funciona/')
-        self.assertContains(how, 'tipo, la marca y el modelo')
-        self.assertContains(how, 'Si no encuentras el modelo o no lo conoces')
+        self.assertContains(how, 'tipo de máquina y confirma la unidad')
+        self.assertContains(how, 'identificamos la marca y el modelo')
         self.assertContains(how, 'enlace corto')
         self.assertContains(how, 'autoriza por separado')
 

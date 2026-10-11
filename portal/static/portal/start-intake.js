@@ -2,47 +2,16 @@
 (() => {
   const root=document.querySelector('[data-intake-start]'), form=document.getElementById('start-machine-form');
   if (!root || !form) return;
-  const $=id=>document.getElementById(id), category=$('start-category'), model=$('catalogue-model');
-  const sections={category:$('type-question'),brand:$('brand-question'),model:$('model-question'),identify:$('identify-question')};
-  let categories=[]; try { categories=JSON.parse($('category-data').textContent); } catch { /* Photo entry remains available. */ }
-  let stage='category', selectedCategory=null, selectedBrand=null, selectedModel=null, allCategories=false, submitting=false;
-  const cache=new Map(), requests={brand:0,model:0}, controllers={}, timers={}, pages={brand:1,model:1};
-  const submitLabels=new Map([...form.querySelectorAll('[data-entry-route]')].map(button=>[button,[...button.childNodes].map(node=>node.cloneNode(true))]));
-  const error=message=>{ $('intake-error').textContent=message||''; $('intake-error').hidden=!message; };
-  function show(next,focus=false) {
-    root.dataset.stage=next;
-    stage=next; Object.entries(sections).forEach(([name,node])=>{node.hidden=name!==next;});
-    $('catalogue-fallback').hidden=next==='identify'; $('catalogue-continue').hidden=next!=='model';
-    document.querySelectorAll('[data-browse-back]').forEach(button=>{
-      const name=button.dataset.browseBack; button.disabled=name==='brand'?!selectedCategory:name==='model'?!selectedBrand:false;
-      if(name===next)button.setAttribute('aria-current','step');else button.removeAttribute('aria-current');
-    });
-    if(focus) sections[next].querySelector('h2')?.focus({preventScroll:true});
-  }
-  function resetModel() {
-    selectedModel=null; model.value=''; $('known-model').value=''; $('path-model').textContent='Modelo';
-    $('catalogue-selection').hidden=true; $('catalogue-generate').disabled=true; $('selection-summary').textContent='Selecciona el modelo para preparar tu ficha.';
-  }
+  const $=id=>document.getElementById(id), category=$('start-category');
+  let categories=[];
+  try { const data=JSON.parse($('category-data').textContent); if(Array.isArray(data))categories=data; } catch { /* Keep the form available. */ }
+  let allCategories=false, submitting=false;
+  function error(message) { $('intake-error').textContent=message; $('intake-error').hidden=!message; }
   function chooseCategory(item) {
-    for(const kind of ['brand','model']){++requests[kind];controllers[kind]?.abort();clearTimeout(timers[kind]);}
-    selectedCategory=item; selectedBrand=null; resetModel(); category.value=String(item.id); $('known-brand').value='';
-    $('start-category-search').value=item.name; $('path-category').textContent=item.name; $('path-brand').textContent='Marca';
-    $('catalogue-brand-search').value=''; $('catalogue-model-search').value=''; $('brand-title').textContent=`Marcas de ${item.name.toLocaleLowerCase('es')}`;
-    $('fallback-title').textContent='¿No encuentras la marca?'; error(''); show('brand',true); load('brand');
-  }
-  function chooseBrand(item) {
-    selectedBrand=item; resetModel(); $('known-brand').value=item.label; $('path-brand').textContent=item.label;
-    $('catalogue-model-search').value=''; $('model-title').textContent=`Elige el modelo ${item.label}`;
-    $('fallback-title').textContent='¿No encuentras el modelo?'; error(''); show('model',true); load('model');
-  }
-  function chooseModel(item,button) {
-    selectedModel=item; model.value=String(item.id); $('known-model').value=item.label; $('path-model').textContent=item.label;
-    $('catalogue-selected-name').textContent=`${selectedBrand.label} ${item.label}`;
-    $('catalogue-selection-help').textContent='El catálogo sólo orienta la identidad del modelo. Continúa para añadir una foto de la máquina, una foto de la placa o el número de serie.';
-    $('catalogue-selection').hidden=false; $('catalogue-generate').disabled=false;
-    $('selection-summary').textContent=`${selectedCategory.name} · ${selectedBrand.label} · ${item.label}. Falta añadir una foto o serie para generar la ficha.`;
-    $('catalogue-model-results').querySelectorAll('button[data-model-id]').forEach(node=>node.setAttribute('aria-pressed',String(node===button)));
-    error('');
+    if(submitting || !categories.some(value=>String(value.id)===String(item?.id)))return;
+    category.value=String(item.id); $('start-category-search').value=item.name;
+    $('start-category-selection').textContent=`Seleccionaste: ${item.name}.`;
+    error(''); form.requestSubmit($('start-continue'));
   }
   function renderCategories() {
     const priority=['excavadoras','retroexcavadoras','compactadores','cargadores','minicargadores','gruas','montacargas','plataformas-elevadoras'];
@@ -52,7 +21,7 @@
       const button=document.createElement('button'); button.type='button'; button.className='catalogue-option'; button.textContent=item.name;
       if(root.dataset.iconsUrl){
         const icons={'excavadoras':'excavator','retroexcavadoras':'backhoe','compactadores':'compactor','cargadores':'loader','minicargadores':'skidsteer','gruas':'crane','montacargas':'forklift','plataformas-elevadoras':'platform'};
-        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'), use=document.createElementNS('http://www.w3.org/2000/svg','use');
+        const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');
         svg.setAttribute('viewBox','0 0 64 48');svg.setAttribute('aria-hidden','true');svg.setAttribute('class','category-option-icon');
         use.setAttribute('href',root.dataset.iconsUrl+'#'+(icons[item.slug]||'generic'));svg.append(use);button.prepend(svg);
       }
@@ -60,82 +29,31 @@
     }
     $('show-all-categories').hidden=sorted.length<=8; $('show-all-categories').textContent=allCategories?'Ver tipos principales ↑':`Ver los ${sorted.length} tipos ↓`;
   }
-  async function load(kind,append=false) {
-    const input=$(`catalogue-${kind}-search`), list=$(`catalogue-${kind}-results`), status=$(`${kind}-status`), more=$(kind==='brand'?'more-brands':'more-models');
-    const ticket=++requests[kind]; controllers[kind]?.abort(); controllers[kind]=new AbortController();
-    if(!append){pages[kind]=1;list.replaceChildren();}
-    more.hidden=true; list.setAttribute('aria-busy','true'); status.textContent=kind==='brand'?'Buscando marcas…':'Buscando modelos…';
-    const query=new URLSearchParams({stage:kind==='brand'?'brands':'models',category:category.value,q:input.value.trim(),page:String(pages[kind])});
-    if(kind==='model')query.set('brand',String(selectedBrand.id));
-    const key=query.toString();
-    try {
-      let data=cache.get(key);
-      if(!data){
-        const response=await fetch(`${root.dataset.catalogueUrl}?${key}`,{credentials:'same-origin',signal:controllers[kind].signal,headers:{Accept:'application/json'}});
-        if(!response.ok || !response.headers.get('content-type')?.includes('application/json'))throw new Error('No pudimos cargar el catálogo. Intenta de nuevo o continúa con fotografías.');
-        data=await response.json(); if(!Array.isArray(data.items))throw new Error('El catálogo no respondió correctamente. Vuelve a intentarlo.');
-        if(cache.size>=30)cache.delete(cache.keys().next().value);cache.set(key,data);
-      }
-      if(ticket!==requests[kind])return;
-      for(const item of data.items){
-        if(!item || !item.id || typeof item.label!=='string')continue;
-        const button=document.createElement('button');button.type='button';button.className='catalogue-option';
-        const label=document.createElement('strong');label.textContent=item.label;button.append(label);
-        if(kind==='model'){
-          button.dataset.modelId=String(item.id);button.setAttribute('aria-pressed',String(String(item.id)===model.value));
-          const hint=document.createElement('span');hint.textContent=item.has_specs?'Características disponibles':'Identificación en catálogo';button.append(hint);
-          button.addEventListener('click',()=>chooseModel(item,button));
-        }else button.addEventListener('click',()=>chooseBrand(item));
-        list.append(button);
-      }
-      const count=list.querySelectorAll('button').length;
-      status.textContent=count?`${data.total||count} ${kind==='brand'?'marcas':'modelos'}${input.value.trim()?' encontrados':''}. ${kind==='brand'?'Selecciona una marca.':'Elige el modelo que coincide con tu equipo.'}`:'No encontramos coincidencias. Prueba otro nombre o usa fotografías.';
-      more.hidden=!data.has_more;
-    } catch(exc) {
-      if(ticket!==requests[kind]||exc.name==='AbortError')return;
-      status.textContent=exc.message;const retry=document.createElement('button');retry.type='button';retry.className='link-button';retry.textContent='Reintentar';retry.addEventListener('click',()=>{retry.remove();load(kind,append);});list.append(retry);
-    } finally {if(ticket===requests[kind])list.setAttribute('aria-busy','false');}
-  }
-  root.addEventListener('categoryselected',event=>{if(event.detail?.category)chooseCategory(event.detail.category);});
-  $('start-category-search').addEventListener('input',()=>{
-    if(!category.value){
-      selectedCategory=null;selectedBrand=null;resetModel();$('known-brand').value='';
-      $('path-category').textContent='Tipo de máquina';$('path-brand').textContent='Marca';
-      for(const kind of ['brand','model']){++requests[kind];controllers[kind]?.abort();clearTimeout(timers[kind]);}
-      show('category');
-    }
-  });
-  $('show-all-categories').addEventListener('click',()=>{allCategories=!allCategories;renderCategories();});
-  for(const kind of ['brand','model']){
-    $(`catalogue-${kind}-search`).addEventListener('input',()=>{clearTimeout(timers[kind]);++requests[kind];controllers[kind]?.abort();timers[kind]=setTimeout(()=>load(kind),180);});
-    $(`catalogue-${kind}-search`).addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(timers[kind]);load(kind);}if(event.key==='ArrowDown'){event.preventDefault();$(`catalogue-${kind}-results`).querySelector('button')?.focus();}});
-    $(kind==='brand'?'more-brands':'more-models').addEventListener('click',()=>{pages[kind]++;load(kind,true);});
-  }
-  document.querySelectorAll('[data-browse-back]').forEach(button=>button.addEventListener('click',()=>show(button.dataset.browseBack,true)));
-  $('identify-with-photos').addEventListener('click',()=>{error('');show('identify',true);});
-  root.querySelectorAll('[data-quick-entry]').forEach(button=>button.addEventListener('click',()=>{
-    if(submitting)return;error('');show('identify');
-    form.requestSubmit(form.querySelector('[data-entry-route="photos"]'));
-  }));
-  $('return-catalogue').addEventListener('click',()=>{error('');show(selectedBrand?'model':selectedCategory?'brand':'category',true);});
-  $('typed-serial').addEventListener('input',()=>{$('typed-serial').setCustomValidity('');error('');});
+  root.addEventListener('categoryselected',event=>chooseCategory(event.detail?.category));
+  $('show-all-categories').addEventListener('click',()=>{if(!submitting){allCategories=!allCategories;renderCategories();}});
   form.addEventListener('submit',event=>{
-    const route=event.submitter?.dataset.entryRoute;
-    if(submitting||!route){event.preventDefault();return;}
-    if(route==='catalogue'&&(!selectedCategory||!selectedBrand||!selectedModel||!model.value||stage!=='model')){event.preventDefault();error('Selecciona el tipo, la marca y el modelo.');return;}
-    if(route!=='catalogue'&&stage!=='identify'){event.preventDefault();return;}
-    const serial=route==='serial'?$('typed-serial').value.trim():'';
-    if(route==='serial'&&serial.replace(/[^a-z0-9]/gi,'').length<3){event.preventDefault();error('Escribe el número de serie o continúa con fotografías.');$('typed-serial').focus();return;}
-    $('start-entry-mode').value=route;$('start-serial').value=serial;
-    if(route!=='catalogue')model.value='';
-    submitting=true;form.setAttribute('aria-busy','true');event.submitter.textContent=route==='catalogue'?'Abriendo tu ficha…':'Abriendo tu ficha…';
+    if(submitting){event.preventDefault();return;}
+    if(!categories.some(item=>String(item.id)===category.value)){
+      event.preventDefault();error('Selecciona el tipo de máquina para continuar.');$('start-category-search').focus();return;
+    }
+    $('start-entry-mode').value='photos';
+    submitting=true;form.setAttribute('aria-busy','true');$('intake-progress').hidden=false;
   });
-  addEventListener('pageshow',event=>{if(event.persisted){
-    submitting=false;form.removeAttribute('aria-busy');
-    for(const [button,nodes] of submitLabels)button.replaceChildren(...nodes.map(node=>node.cloneNode(true)));
-    if(selectedModel)model.value=String(selectedModel.id);
-  }});
-  renderCategories();show('category');
+  addEventListener('pageshow',event=>{
+    if(!event.persisted)return;
+    submitting=false;form.removeAttribute('aria-busy');$('intake-progress').hidden=true;
+    // Back returns to the selector; it must never create another draft by itself.
+    $('start-continue').hidden=!categories.some(item=>String(item.id)===category.value);
+  });
+  renderCategories();
   const initial=categories.find(item=>item.slug===root.dataset.initialCategory);
-  if(initial)chooseCategory(initial);
+  if(initial){
+    const navigation=performance.getEntriesByType?.('navigation')?.[0]?.type;
+    const initialError=form.querySelector('.notice.error:not([hidden])')?.textContent.trim();
+    if(navigation==='back_forward' || navigation==='reload' || initialError){
+      category.value=String(initial.id);$('start-category-search').value=initial.name;
+      $('start-category-selection').textContent=`Seleccionaste: ${initial.name}.`;
+      $('start-continue').hidden=false;
+    }else chooseCategory(initial);
+  }
 })();

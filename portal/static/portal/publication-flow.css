@@ -35,3 +35,13 @@
 @media(max-width:600px){.ready-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.ready-actions .button{min-width:0;font-size:12px;padding:11px 5px;line-height:1.4;text-align:center}.focused-intake .ready-gallery .preview-cover img,.finished-gallery .virtual-gallery[data-sheet-carousel] .virtual-photo img{height:230px}.ready-photo-remove{right:6px;top:6px;padding:8px;font-size:12px}.focused-intake .prepare-action{bottom:5px;padding:8px}.focused-intake .asset-actions button{font-size:12px}}
 
 .finished-technical-summary p{margin:0 0 .35em}.finished-technical-summary p:last-child{margin-bottom:0}
+
+/* The publication entrance asks only for the machine type. */
+.simple-intake-steps{display:flex;gap:24px;list-style:none;padding:0 0 22px;margin:0 0 26px;border-bottom:1px solid var(--line)}
+.simple-intake-steps li{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--muted)}
+.simple-intake-steps li span{display:grid;place-items:center;flex:0 0 28px;height:28px;border-radius:50%;background:#edf1f5;font-weight:700}
+.simple-intake-steps li[aria-current=step]{color:var(--navy);font-weight:700}
+.simple-intake-steps li[aria-current=step] span{background:var(--navy);color:#fff}
+.intake-progress{padding:16px;background:#edf6fc;color:var(--navy);border-radius:7px;font-weight:600}
+.type-first form[aria-busy=true] .catalogue-options{pointer-events:none;opacity:.65}
+@media(max-width:600px){.simple-intake-steps{gap:14px}.simple-intake-steps li{font-size:12px;gap:6px}}

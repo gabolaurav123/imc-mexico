@@ -107,28 +107,25 @@ class QuickIntakeTests(TestCase):
         self.assertFalse(AnalysisJob.objects.exists())
         self.assertFalse(Submission.objects.exists())
 
-    def test_catalogue_first_intake_keeps_serial_and_photo_alternatives(self):
+    def test_type_first_intake_posts_only_category_then_opens_photo_or_serial_wizard(self):
+        for number in range(44):
+            Category.objects.create(name=f'Tipo {number}',slug=f'quick-type-{number}')
         response=self.client.get('/panel/maquinarias/nueva/')
-        self.assertContains(response,'¿Qué máquina quieres anunciar?')
-        self.assertContains(response,'Tengo el número de serie')
-        self.assertContains(response,'id="catalogue-brand-search"')
-        self.assertContains(response,'id="catalogue-model-search"')
-        self.assertNotContains(response,'id="photos-yes"')
-        self.assertContains(response,'data-entry-route="photos"')
-        self.assertContains(response,'data-entry-route="plate"')
-        self.assertNotContains(response,'catalogue-intake-data')
-        self.assertContains(response,'id="typed-serial"')
+        self.assertContains(response,'¿Qué tipo de máquina es?')
+        self.assertContains(response,'id="start-category"')
+        self.assertNotContains(response,'catalogue-brand-search')
+        self.assertNotContains(response,'catalogue-model-search')
+        self.assertNotContains(response,'typed-serial')
+        self.assertEqual(response.content.decode().count('<option value="'),46)
         self.assertContains(response,'portal/start-intake.js')
-        response=self.client.post('/panel/maquinarias/nueva/',{'category':self.category.pk,'serial':'SERIE-PRUEBA-01','entry_mode':'serial'})
+        response=self.client.post('/panel/maquinarias/nueva/',{'category':self.category.pk,'entry_mode':'photos'})
         self.assertEqual(response.status_code,302)
         created=Machine.objects.filter(owner=self.owner).order_by('-created_at').first()
-        self.assertEqual(created.data['serial'],'SERIE-PRUEBA-01')
-        self.assertEqual(created.provenance['serial'],{'source':'user','review':'confirmed'})
-        self.assertEqual(response.url, f'/panel/maquinarias/{created.pk}/?entrada=serial')
+        self.assertEqual(created.data,{'currency':'USD'})
+        self.assertEqual(response.url, f'/panel/maquinarias/{created.pk}/?entrada=photos')
         response=self.client.get(f'/panel/maquinarias/{created.pk}/')
-        self.assertContains(response,'id="analysis-loading"')
-        self.assertNotContains(response,'¿Tienes una foto de la placa de identificación o conoces el número de serie?')
-        self.assertContains(response,'Añadir una placa')
+        self.assertContains(response,'type="file" id="gallery-input"')
+        self.assertContains(response,'id="serial" data-field="serial"')
 
     def test_photo_choice_opens_existing_upload_wizard_with_optional_category(self):
         for category in (str(self.category.pk),''):
@@ -145,6 +142,24 @@ class QuickIntakeTests(TestCase):
                 self.assertFalse(created.assets.exists())
                 self.assertFalse(AnalysisJob.objects.exists())
                 self.assertFalse(Submission.objects.exists())
+
+    def test_category_only_photo_start_defers_identity_and_generation(self):
+        response=self.client.post('/panel/maquinarias/nueva/',{
+            'category':self.category.pk,'entry_mode':'photos'})
+        self.assertEqual(response.status_code,302)
+        created=Machine.objects.filter(owner=self.owner).order_by('-created_at').first()
+        self.assertRedirects(response,f'/panel/maquinarias/{created.pk}/?entrada=photos')
+        self.assertEqual(created.category_id,self.category.pk)
+        self.assertEqual(created.data,{'currency':'USD'})
+        self.assertEqual(created.provenance,{
+            'currency':{'source':'system','review':'needs_review'},
+            'category':{'source':'user','review':'confirmed'},
+        })
+        blocked=self.post(f'/api/maquinarias/{created.pk}/analizar/',{
+            'consent':True,'auto_apply':True,'revision':created.revision})
+        self.assertEqual(blocked.status_code,400)
+        self.assertIn('fotograf',blocked.json()['error'].lower())
+        self.assertFalse(AnalysisJob.objects.filter(machine=created).exists())
 
     def test_editable_commercial_estimator_stays_inside_the_single_preview_sheet(self):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')
@@ -275,7 +290,7 @@ class QuickIntakeContentSeedTests(TestCase):
         content.refresh_from_db();legal.refresh_from_db()
         expected=(content.title,content.body,content.active)
         self.assertIn('ficha compartible',content.title)
-        self.assertIn('01 · Elige el tipo, la marca y el modelo',content.body)
+        self.assertIn('01 · Elige el tipo y aporta una foto o serie',content.body)
         self.assertIn('02 · Edita, comparte o envía tu ficha',content.body)
         self.assertNotIn('Revisa cada dato propuesto',content.body)
         self.assertEqual((legal.title,legal.body,legal.active),('Aviso revisado por el equipo','Texto legal propio.',True))
@@ -285,7 +300,7 @@ class QuickIntakeContentSeedTests(TestCase):
         self.assertEqual(SiteContent.objects.filter(key='como-funciona').count(),1)
         self.assertFalse(Machine.objects.exists())
         response=self.client.get('/como-funciona/')
-        self.assertContains(response,'01 · Elige el tipo, la marca y el modelo')
+        self.assertContains(response,'01 · Elige el tipo y aporta una foto o serie')
         self.assertContains(response,'02 · Edita, comparte o envía tu ficha')
         content.delete()
         self.seed()

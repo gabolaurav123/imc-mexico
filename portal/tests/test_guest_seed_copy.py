@@ -60,7 +60,7 @@ class GuestSeedCopyTests(TestCase):
         self.seed()
         how = SiteContent.objects.get(key="como-funciona")
         faq = SiteContent.objects.get(key="preguntas-frecuentes")
-        self.assertIn("01 · Elige el tipo, la marca y el modelo", how.body)
+        self.assertIn("01 · Elige el tipo y aporta una foto o serie", how.body)
         self.assertIn("crear una cuenta", how.body)
         self.assertIn("marca de prueba", how.body)
         self.assertIn("¿Puedo probar una ficha sin crear cuenta?", faq.body)
