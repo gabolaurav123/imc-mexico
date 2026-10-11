@@ -48,6 +48,7 @@ class User(AbstractUser):
     contact_preference = models.CharField("contacto preferido", max_length=12, choices=[("whatsapp", "WhatsApp"), ("call", "Llamada"), ("email", "Correo")], default="email")
     advertiser_status = models.CharField("permiso de anunciante", max_length=16, choices=AdvertiserStatus.choices, default=AdvertiserStatus.PENDING)
     email_verified = models.BooleanField("correo verificado", default=False)
+    management_mfa_required = models.BooleanField("autenticador administrativo obligatorio", default=True, db_default=True, editable=False)
     company = models.CharField("empresa", max_length=180, blank=True)
     marketing_consent = models.BooleanField("comunicaciones comerciales", default=False)
     is_test = models.BooleanField("cuenta de prueba", default=False)

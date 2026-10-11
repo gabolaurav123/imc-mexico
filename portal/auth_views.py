@@ -21,7 +21,7 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings, Category
-from .security import throttle, login_destination, safe_next_url, management_home, is_management_user
+from .security import throttle, login_destination, safe_next_url, management_home, is_management_user, management_mfa_required
 from .services import audit
 from .analytics import attach_consent_to_account,record_event
 
@@ -176,8 +176,9 @@ def security(request):
     next_url=safe_next_url(request,request.GET.get('next'))
     if next_url.split('?',1)[0].split('#',1)[0] in {'/panel/seguridad/','/iniciar-sesion/'}:
         next_url=management_home(request.user)
-    device=TOTPDevice.objects.filter(user=request.user,name='IMC').first()
-    if request.user.is_staff and device is None:device=TOTPDevice.objects.create(user=request.user,name='IMC',confirmed=False)
+    mfa_required=management_mfa_required(request.user)
+    device=TOTPDevice.objects.filter(user=request.user,name='IMC').first() if mfa_required else None
+    if mfa_required and device is None:device=TOTPDevice.objects.create(user=request.user,name='IMC',confirmed=False)
     action=request.POST.get('action','otp')
     otp_form=OTPForm(request.POST if request.method=='POST' and action=='otp' else None)
     password_form=PasswordChangeForm(request.user,request.POST if request.method=='POST' and action=='password' else None)
@@ -227,4 +228,4 @@ def security(request):
     qr=None
     if device and not device.confirmed:
         buffer=BytesIO();qrcode.make(device.config_url).save(buffer,format='PNG');qr=base64.b64encode(buffer.getvalue()).decode()
-    return render(request,'portal/security.html',{'form':otp_form,'otp_form':otp_form,'password_form':password_form,'account_form':account_form,'device':device,'qr':qr,'verified':request.user.is_verified(),'next_url':next_url})
+    return render(request,'portal/security.html',{'form':otp_form,'otp_form':otp_form,'password_form':password_form,'account_form':account_form,'device':device,'qr':qr,'verified':request.user.is_verified(),'mfa_required':mfa_required,'next_url':next_url})

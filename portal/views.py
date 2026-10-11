@@ -18,7 +18,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST, require_GET, require_http_methods
 from .models import *
 from .forms import ContactForm
-from .security import operator_required, staff_authorized, throttle, is_management_user, login_destination
+from .security import operator_required, staff_authorized, throttle, is_management_user, login_destination, needs_management_mfa
 from . import services
 from .analytics import capture_context,record_event
 from .backup_status import get_backup_status
@@ -33,7 +33,7 @@ def can_export_machine(request):
     """Template hint only; export views enforce the same rule server-side."""
     return bool(request.user.is_authenticated and request.user.is_staff
                 and request.user.has_perm('portal.publish_machine')
-                and (not settings.STAFF_MFA_REQUIRED or request.user.is_verified()))
+                and not needs_management_mfa(request.user))
 
 def payload(request,allowed=None):
     try:

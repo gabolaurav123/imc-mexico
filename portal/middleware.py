@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
-from .security import login_destination
+from .security import login_destination, needs_management_mfa
 
 
 class GuestPrincipalMiddleware:
@@ -32,7 +32,7 @@ class StaffMFAMiddleware:
     def __init__(self, get_response): self.get_response = get_response
     def __call__(self, request):
         protected = request.path.startswith(('/admin/', '/operaciones/'))
-        if protected and request.user.is_authenticated and request.user.is_staff and settings.STAFF_MFA_REQUIRED and not request.user.is_verified():
+        if protected and needs_management_mfa(request.user):
             return redirect(login_destination(request, request.get_full_path()))
         return self.get_response(request)
 

@@ -22,9 +22,14 @@ def management_home(user):
     return '/operaciones/' if user.has_perm('portal.operate_platform') else '/admin/'
 
 
+def management_mfa_required(user):
+    return (is_management_user(user) and settings.STAFF_MFA_REQUIRED
+            and getattr(user, 'management_mfa_required', True))
+
+
 def needs_management_mfa(user):
     # A freshly authenticated User has not yet passed through OTPMiddleware.
-    return (is_management_user(user) and settings.STAFF_MFA_REQUIRED
+    return (management_mfa_required(user)
             and not getattr(user, 'is_verified', lambda: False)())
 
 
@@ -91,10 +96,10 @@ def operator_required(permission='portal.operate_platform'):
         @wraps(fn)
         def wrapped(request,*args,**kwargs):
             if not request.user.is_authenticated or not request.user.is_staff or not request.user.has_perm(permission):raise PermissionDenied
-            if settings.STAFF_MFA_REQUIRED and not request.user.is_verified():raise PermissionDenied
+            if needs_management_mfa(request.user):raise PermissionDenied
             return fn(request,*args,**kwargs)
         return wrapped
     return decorator
 
 def staff_authorized(user):
-    return user.is_authenticated and user.is_staff and user.has_perm('portal.operate_platform') and (not settings.STAFF_MFA_REQUIRED or user.is_verified())
+    return is_management_user(user) and user.has_perm('portal.operate_platform') and not needs_management_mfa(user)

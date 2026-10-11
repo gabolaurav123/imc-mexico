@@ -9,6 +9,7 @@ from django.db import transaction
 
 from .models import AuditEvent, Machine, Message, User
 from .services import _notify, audit, require_operator
+from .security import needs_management_mfa
 
 COMPOSE_SALT = "portal.manual-notification.v1"
 
@@ -20,7 +21,7 @@ def can_compose_notifications(user):
 
 def _staff_permission(actor, permission):
     require_operator(actor, permission)
-    if settings.STAFF_MFA_REQUIRED and not getattr(actor, "is_verified", lambda: False)():
+    if needs_management_mfa(actor):
         raise PermissionDenied("Verifica el segundo factor para enviar comunicaciones.")
 
 

@@ -122,11 +122,11 @@ class UserAdmin(BaseUserAdmin):
     list_per_page = 30
     action_form = ReasonActionForm
     actions = ("approve_advertisers", "reject_advertisers", "suspend_advertisers")
-    readonly_fields = ("username", "advertiser_status", "email_verified", "last_login", "date_joined")
+    readonly_fields = ("username", "advertiser_status", "email_verified", "last_login", "date_joined", "management_mfa_required")
     fieldsets = (
         ("Identidad", {"fields": ("email", "username", "password", "first_name", "last_name", "phone", "company", "contact_preference")}),
         ("Cuenta y anuncio", {"fields": ("is_active", "advertiser_status", "email_verified", "marketing_consent", "is_test")}),
-        ("Permisos", {"fields": ("is_staff", "is_superuser", "groups", "user_permissions")}),
+        ("Permisos", {"fields": ("is_staff", "is_superuser", "groups", "user_permissions", "management_mfa_required")}),
         ("Actividad", {"fields": ("last_login", "date_joined")}),
     )
     add_fieldsets = ((None, {"classes": ("wide",), "fields": ("email", "first_name", "last_name", "password1", "password2")}),)
