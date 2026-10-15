@@ -38,6 +38,27 @@ siendo la fuente de verdad y ningún trabajo se descarta por perder una señal.
 Variables principales: `SECRET_KEY`, `DATABASE_URL`, `DIRECT_URL`, `PUBLIC_URL`,
 `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `MEDIA_ROOT`, credenciales SMTP y OpenAI.
 Se almacenan en secretos del proveedor, nunca en Git ni en documentación pública.
+
+### Recuperación en otro proyecto PostgreSQL
+
+`python scripts/recovery_inventory.py` inspecciona `BACKUP_DIR` y `MEDIA_ROOT`
+sin conectar a PostgreSQL. Emite fechas, tamaños y conteos agregados, y verifica
+los hashes del respaldo más reciente sin publicar sus datos.
+
+Para recuperar una copia seleccionada en una base nueva y vacía, configurar
+temporalmente `RECOVERY_TARGET_URL` como secreto y `RECOVERY_BACKUP_SHA256` con el
+hash completo de esa copia. Ejecutar `python scripts/recover_neon_backup.py` desde
+el contenedor que tiene el volumen. Se comprueba la integridad antes de restaurar;
+un bloqueo serializa recuperaciones, `pg_restore` usa una única transacción y se
+comparan los conteos de todas las tablas. Los medios existentes no se sobrescriben.
+
+La recuperación y el arranque normal son dos pasos distintos. Tras verificar el
+resultado, cambiar **ambas** conexiones `DATABASE_URL` y `DIRECT_URL` al destino,
+conservar `SECRET_KEY` y el volumen, retirar las variables de recuperación y volver
+al comando `python start.py`. No dejar el restaurador en el comando de inicio:
+después de migraciones y nuevas escrituras los conteos ya no serán los del respaldo.
+Conservar el origen y la copia; registrar la fecha recuperada y cualquier intervalo
+de datos que el origen aún inaccesible impida comprobar.
 `DIRECT_URL` debe apuntar al endpoint directo, no al pooler, para migraciones y backups.
 
 ## Entrada del administrador
