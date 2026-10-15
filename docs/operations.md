@@ -376,3 +376,17 @@ conexiones puede conservar el entorno anterior: iniciar una nueva revisión desp
 del cambio y verificar migraciones, `/salud/`, portada, accesos y medios antes de
 considerar terminado el cambio. Las credenciales y la evidencia privada quedan
 fuera de Git.
+
+Comprobación posterior al cambio: SeeNode confirmó activa la revisión `640b90a`.
+La base tiene aplicada `0026_guest_prepared_share`; conserva 23 usuarios, 101
+maquinarias, 153 registros de medios y 8 solicitudes. La carga de referencias
+actualizó el catálogo a 11.065 referencias técnicas, 10.812 modelos y 20 referencias
+de mercado. Portada, salud, inicio de sesión, acceso administrativo, catálogo y API
+de descubrimiento devolvieron HTTP 200. En la sesión existente se abrió el panel,
+el formulario de publicación y una ficha recuperada con sus fotografías.
+
+El daemon verificó una nueva copia contra la base recuperada el 15 de octubre a
+las 19:17 UTC, todavía con alcance `local_only` en el volumen de SeeNode. El
+despliegue automático, activado temporalmente para usar la integración de GitHub,
+volvió a su valor anterior desactivado. No se cambiaron contraseñas ni otros
+proyectos. Esta comprobación de recuperación no incluye una llamada nueva a la IA.
