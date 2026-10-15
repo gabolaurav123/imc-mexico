@@ -11,11 +11,12 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from . import services
 from .intake import assessed_photo_states, has_completed_preparation, preparation_mode, require_consistent_photos
-from .models import Asset, Machine, PreparedShare, prepared_share_code
+from .models import Asset, GuestDraft, Machine, PreparedShare, prepared_share_code
 from .public_data import public_json
 from .security import throttle
 from .views import api, payload
@@ -49,7 +50,7 @@ def _legacy_token(code):
 
 def current_share(machine):
     return PreparedShare.objects.filter(machine=machine, enabled=True, revision=machine.revision,
-        authorized_by_id=machine.owner_id).first()
+        authorized_by_id=machine.owner_id, guest_share=False).first()
 
 
 def _locked_machine_query():
@@ -177,6 +178,7 @@ def manage(request, pk):
             share.code = prepared_share_code()
         share.authorized_by = request.user
         share.enabled, share.revision, share.snapshot, share.include_serial = True, machine.revision, snapshot, include_serial
+        share.guest_share, share.guest_expires_at = False, None
         share.save()
         services.audit(request.user, "prepared_share.enabled", machine,
             {"revision": machine.revision, "asset_ids": ids, "include_serial": include_serial,
@@ -185,10 +187,31 @@ def manage(request, pk):
                          "include_serial": include_serial, "include_contact": include_contact})
 
 
+def _active_guest_share(share, machine):
+    """A public visitor link is valid only for its unclaimed live draft."""
+    if not share.guest_share or not share.guest_expires_at or share.guest_expires_at <= timezone.now():
+        return False
+    try:
+        draft = machine.guest_draft
+    except GuestDraft.DoesNotExist:
+        return False
+    return (not draft.claimed_by_id and not draft.expired and draft.owner_id == machine.owner_id
+            and machine.owner.is_guest and machine.owner.is_active)
+
+
 def record(code):
-    share = get_object_or_404(PreparedShare.objects.select_related("machine", "machine__owner", "machine__category"),
+    share = get_object_or_404(PreparedShare.objects.select_related("machine", "machine__owner", "machine__category", "machine__guest_draft"),
         code=code, enabled=True, machine__deleted_at__isnull=True)
     machine = share.machine
+    if share.guest_share:
+        if (not _active_guest_share(share, machine) or share.authorized_by_id != machine.owner_id
+                or share.revision != machine.revision):
+            raise Http404
+        try:
+            require_consistent_photos(machine)
+        except ValidationError:
+            raise Http404
+        return share
     if (share.authorized_by_id != machine.owner_id or share.revision != machine.revision
             or not machine.owner.is_active or machine.owner.is_guest
             or machine.owner.advertiser_status in {"suspended", "rejected"}
@@ -221,7 +244,20 @@ def sheet(request, code):
         "asset_base_url": f"/s/{code}/archivo/", "share_url": share_url(share),
         "catalog_back": "https://www.imcmexico.com.mx/catalogo-de-maquinaria", "can_export": False,
         "share_contact_url": f"/contacto/?maquinaria={share.machine_id}&share={code}",
-        "prepared_share": True, "public_serial_authorized": share.include_serial})
+        "prepared_share": True, "guest_prepared_share": share.guest_share,
+        "guest_share_expires_at": share.guest_expires_at if share.guest_share else None,
+        "public_serial_authorized": share.include_serial})
+    if share.guest_share:
+        # The public URL remains public, but only its capability holder gets a
+        # way back to the editable temporary draft. Other viewers never see a
+        # control that suggests they can alter somebody else's equipment.
+        try:
+            from .guest import _draft_for_request
+            draft = _draft_for_request(request)
+            if draft.machine_id == share.machine_id:
+                context["sheet_editor_url"] = f"/invitados/{draft.pk}/?paso=2"
+        except (PermissionDenied, ValidationError):
+            pass
     if share.include_serial and share.snapshot.get("data", {}).get("serial"):
         context["data"]["serial"] = share.snapshot["data"]["serial"]
     if share.snapshot.get("contact_authorized") and share.snapshot.get("data", {}).get("contact_public"):

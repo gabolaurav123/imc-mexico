@@ -10,7 +10,11 @@
     <summary>Herramientas administrativas</summary>
     <nav class="management-nav" aria-label="Administración">
       <a href="{{ management_url }}" {% if request.path == '/operaciones/' %}aria-current="page"{% endif %}><span aria-hidden="true">▦</span> Panel administrativo</a>
-      {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/" {% if '/operaciones/base-tecnica/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▤</span> Base técnica</a>{% endif %}
+      {% if perms.portal.view_user or perms.portal.change_user or perms.portal.manage_advertisers %}<a href="/operaciones/personas/" {% if '/operaciones/personas/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">♙</span> Solicitudes por persona</a>{% endif %}
+      {% if perms.portal.view_machine or perms.portal.change_machine %}<a href="/operaciones/maquinaria/" {% if '/operaciones/maquinaria/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▱</span> Maquinaria</a>{% endif %}
+      {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/" {% if '/operaciones/base-tecnica/' in request.path or '/operaciones/catalogo-modelos/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▤</span> Base técnica y modelos</a>{% endif %}
+      {% if perms.portal.view_equipmentmodel or perms.portal.change_equipmentmodel %}<a href="/operaciones/catalogo-modelos/" {% if '/operaciones/catalogo-modelos/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">▤</span> Catálogo de modelos</a>{% endif %}
+      {% if perms.portal.view_accountaccess %}<a href="/operaciones/conexiones/" {% if '/operaciones/conexiones/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">◌</span> Conexiones</a>{% endif %}
       {% if perms.portal.publish_machine %}<a href="/operaciones/integracion/" {% if '/operaciones/integracion/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Integración IMC</a>{% endif %}
       {% if perms.portal.operate_platform %}{% if perms.portal.view_submission or perms.portal.change_submission or perms.portal.review_submission %}<a href="/operaciones/#solicitudes" {% if '/operaciones/solicitudes/' in request.path %}aria-current="page"{% endif %}><span aria-hidden="true">↗</span> Solicitudes</a>{% endif %}{% endif %}
       {% if perms.portal.view_lead or perms.portal.change_lead %}<a href="/admin/portal/lead/"><span aria-hidden="true">◎</span> Leads y seguimiento</a>{% endif %}
@@ -45,7 +49,11 @@
     <nav aria-label="Navegación del panel en dispositivos móviles">
       {% if is_management_user %}<a href="{{ management_url }}">Panel administrativo</a>{% endif %}
       {% if is_management_user and not is_advertiser_mode %}
-        {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/">Base técnica</a>{% endif %}
+        {% if perms.portal.view_user or perms.portal.change_user or perms.portal.manage_advertisers %}<a href="/operaciones/personas/">Solicitudes por persona</a>{% endif %}
+        {% if perms.portal.view_machine or perms.portal.change_machine %}<a href="/operaciones/maquinaria/">Maquinaria</a>{% endif %}
+        {% if perms.portal.view_technicalreference %}<a href="/operaciones/base-tecnica/">Base técnica y modelos</a>{% endif %}
+        {% if perms.portal.view_equipmentmodel or perms.portal.change_equipmentmodel %}<a href="/operaciones/catalogo-modelos/">Catálogo de modelos</a>{% endif %}
+        {% if perms.portal.view_accountaccess %}<a href="/operaciones/conexiones/">Conexiones</a>{% endif %}
         {% if perms.portal.view_lead or perms.portal.change_lead %}<a href="/admin/portal/lead/">Leads y seguimiento</a>{% endif %}
         {% if perms.portal.view_user or perms.portal.change_user %}<a href="/admin/portal/user/">Usuarios</a>{% endif %}
         <a href="/panel/?modo=anunciante">Vista de anunciante</a>

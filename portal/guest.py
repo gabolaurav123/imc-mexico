@@ -23,10 +23,10 @@ from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 
 from . import services
-from .models import AnalysisJob, Asset, Brand, Category, EquipmentModel, GuestDraft, GuestTrial, Machine, PlatformSettings, User
+from .models import AnalysisJob, Asset, Brand, Category, EquipmentModel, GuestDraft, GuestTrial, Machine, PlatformSettings, PreparedShare, User, prepared_share_code
 from .security import throttle
 
 SESSION_KEY = "guest_draft_capability"
@@ -172,6 +172,10 @@ def purge_expired_guest_drafts(*, limit=100):
             # erasure is the one lifecycle exception and avoids retaining a
             # technical principal solely through a temporary AI consent.
             Consent.objects.filter(machine=machine)._raw_delete(using=machine._state.db)
+            # A visitor shortlink is temporary capability-derived output, not
+            # a historical publication. Remove it before deleting the Machine
+            # which PreparedShare otherwise protects.
+            PreparedShare.objects.filter(machine=machine, guest_share=True).delete()
             draft.delete()
             machine.delete()
             guest_owner.is_active = False
@@ -280,6 +284,10 @@ def _initial_values(body):
 def guest_state(draft):
     machine = draft.machine
     from .technical_description import description_projection
+    share = PreparedShare.objects.filter(
+        machine=machine, enabled=True, guest_share=True, authorized_by_id=draft.owner_id,
+        revision=machine.revision, guest_expires_at__gt=timezone.now(),
+    ).first()
     return {
         "id": str(draft.pk),
         "machine_id": str(machine.pk),
@@ -293,6 +301,8 @@ def guest_state(draft):
         "limits": {"max_images": MAX_GUEST_IMAGES, "max_analysis_jobs": MAX_GUEST_JOBS,
                    "max_service_retries": MAX_GUEST_SERVICE_RETRIES},
         "analysis_used": _guest_analysis_used(machine),
+        "share": {"enabled": bool(share),
+                  "url": f"{settings.PUBLIC_URL.rstrip('/')}/s/{share.code}/" if share else ""},
     }
 
 
@@ -373,6 +383,9 @@ def wizard(request, pk):
             "provenance": machine.provenance, "machine_json": state,
             "preparation_completion": preparation_completeness(machine),
             "guest_draft": guest_state(draft), "guest_api_base": f"/api/invitados/{draft.pk}/",
+            # ``guest_state`` is JSON-facing and uses ISO strings; keep a
+            # real datetime alongside it for date formatting in the template.
+            "guest_expires_at": draft.expires_at,
             # The shared wizard reads this context for its client-side upload
             # guard.  Keep the visitor display limit aligned with the server,
             # while retaining the platform's file-size validation values.
@@ -381,6 +394,43 @@ def wizard(request, pk):
                                  "max_video_mb": PlatformSettings.load().max_video_mb,
                                  "max_video_seconds": PlatformSettings.load().max_video_seconds},
         })
+    except (ValidationError, PermissionDenied):
+        raise Http404
+
+
+@require_GET
+def preview(request, pk):
+    """Private virtual-sheet preview for the visitor who holds the capability."""
+    try:
+        from .intake import preparation_completeness
+        from .sharing import share_url
+        from .views import sheet_context
+        draft = _draft_for_request(request, pk)
+        machine = draft.machine
+        context = sheet_context(machine)
+        active_share = PreparedShare.objects.filter(
+            machine=machine, authorized_by_id=draft.owner_id, enabled=True, guest_share=True,
+            revision=machine.revision, guest_expires_at__gt=timezone.now(),
+        ).first()
+        # Never use the normal owner asset URL here: the temporary principal
+        # cannot log in, and the capability route is the only read authority.
+        context.update({
+            "assets": machine.assets.all(),
+            "asset_base_url": f"/api/invitados/{draft.pk}/archivos/",
+            "guest_preview": True,
+            "guest_draft": guest_state(draft),
+            "sheet_completion_data": {key: machine.data.get(key) for key in
+                                      ("location", "location_country", "location_city", "hours")},
+            "sheet_editor_url": f"/invitados/{draft.pk}/?paso=2",
+            "sheet_share_endpoint": f"/api/invitados/{draft.pk}/compartir/",
+            "share_url": share_url(active_share) if active_share else "",
+            "guest_share_expires_at": draft.expires_at,
+            "include_serial": bool(active_share and active_share.include_serial),
+            "include_contact": False,
+            "can_export": False,
+            "preparation_completion": preparation_completeness(machine),
+        })
+        return render(request, "portal/sheet.html", context)
     except (ValidationError, PermissionDenied):
         raise Http404
 
@@ -489,6 +539,93 @@ def save(request, pk):
         draft.machine.refresh_from_db()
         return JsonResponse({"revision": machine.revision, "saved_at": machine.updated_at.isoformat(),
                              "machine": guest_state(draft)})
+    except (ValidationError, PermissionDenied) as exc:
+        return _response_error(exc)
+
+
+@require_http_methods(["GET", "POST"])
+def share(request, pk):
+    """Prepare or revoke a short-lived, non-catalogue visitor link.
+
+    This route accepts the same session capability as the private draft. It
+    intentionally has no path to submit, publish, choose a contact channel,
+    or mark media public. A fresh account can prepare its own owner link only
+    after it claims the draft.
+    """
+    try:
+        draft = _draft_for_request(request, pk)
+        if request.method == "GET":
+            share = PreparedShare.objects.filter(
+                machine=draft.machine, authorized_by_id=draft.owner_id, guest_share=True,
+            ).first()
+            active = bool(share and share.enabled and share.revision == draft.machine.revision
+                          and share.guest_expires_at and share.guest_expires_at > timezone.now())
+            return JsonResponse({"url": f"{settings.PUBLIC_URL.rstrip('/')}/s/{share.code}/" if active else "",
+                                 "enabled": active, "revision": draft.machine.revision,
+                                 "include_serial": bool(active and share.include_serial),
+                                 "include_contact": False, "expires_at": draft.expires_at.isoformat()})
+        body = _json(request, {"revision", "action", "include_serial", "include_contact", "asset_ids"})
+        if body.get("action", "enable") not in {"enable", "disable"}:
+            raise ValidationError("Acción de compartir no válida.")
+        if "include_serial" in body and type(body["include_serial"]) is not bool:
+            raise ValidationError("Indica si autorizas mostrar el número de serie.")
+        # A technical guest principal has no verified contact channel. Do not
+        # accept contact data or an asset selection from the browser, even if
+        # it was forged; plate images and contact never reach this snapshot.
+        if body.get("include_contact") not in (None, False) or body.get("asset_ids") not in (None, []):
+            raise ValidationError("La vista temporal no permite compartir contacto ni seleccionar archivos privados.")
+        if not throttle(request, "guest-prepared-share", 20, 3600, str(draft.pk)):
+            raise ValidationError("Espera un momento antes de volver a preparar el enlace.")
+        with transaction.atomic():
+            draft = _draft_for_request(request, pk, lock=True)
+            machine = Machine.objects.select_for_update().select_related("category").get(pk=draft.machine_id)
+            if type(body.get("revision")) is not int or machine.revision != body["revision"]:
+                raise services.DraftRevisionConflict("La ficha cambió. Guarda los cambios antes de compartirla.")
+            share = PreparedShare.objects.select_for_update().filter(machine=machine).first()
+            if body.get("action") == "disable":
+                if share and share.guest_share and share.authorized_by_id == draft.owner_id:
+                    share.enabled = False
+                    share.code = prepared_share_code()
+                    share.save(update_fields=["enabled", "code", "updated_at"])
+                    services.audit(draft.owner, "guest_prepared_share.disabled", machine)
+                return JsonResponse({"url": "", "enabled": False, "revision": machine.revision})
+            if not machine.category_id or not any(machine.data.get(key) for key in ("brand", "model", "description")):
+                raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
+            from .intake import has_completed_preparation, require_consistent_photos
+            from .sharing import _safe_assets
+            if not has_completed_preparation(machine):
+                raise ValidationError("Genera la ficha de maquinaria antes de compartirla.")
+            require_consistent_photos(machine)
+            from .public_data import public_json
+            projected = public_json({"data": machine.data, "provenance": machine.provenance,
+                                     "title": machine.title, "category_name": machine.category.name},
+                                    title=machine.title)
+            safe_data = projected["data"]
+            include_serial = body.get("include_serial", False)
+            if include_serial and machine.data.get("serial"):
+                safe_data["serial"] = str(machine.data["serial"])[:150]
+            # _safe_assets already excludes detected plates. Keep the explicit
+            # purpose filter as a second boundary for a future classifier bug.
+            asset_ids = [str(asset.pk) for asset in _safe_assets(machine) if asset.purpose in {"general", "detail"}]
+            snapshot = {"title": projected["title"] or "Maquinaria", "category": machine.category_id,
+                        "category_name": machine.category.name, "data": safe_data, "provenance": {},
+                        "public_asset_ids": asset_ids, "asset_ids": asset_ids, "private_plate_asset_ids": [],
+                        "contact_authorized": False, "revision": machine.revision}
+            if share is None:
+                share = PreparedShare(machine=machine, authorized_by=draft.owner, revision=machine.revision)
+            elif not share.enabled or not share.guest_share or share.authorized_by_id != draft.owner_id:
+                share.code = prepared_share_code()
+            share.authorized_by = draft.owner
+            share.enabled, share.revision, share.snapshot = True, machine.revision, snapshot
+            share.include_serial, share.guest_share, share.guest_expires_at = include_serial, True, draft.expires_at
+            share.save()
+            services.audit(draft.owner, "guest_prepared_share.enabled", machine,
+                           {"revision": machine.revision, "asset_ids": asset_ids, "include_serial": include_serial})
+        return JsonResponse({"url": f"{settings.PUBLIC_URL.rstrip('/')}/s/{share.code}/", "enabled": True,
+                             "revision": machine.revision, "include_serial": include_serial,
+                             "include_contact": False, "expires_at": draft.expires_at.isoformat()})
+    except services.DraftRevisionConflict as exc:
+        return JsonResponse({"error": " ".join(exc.messages)}, status=409)
     except (ValidationError, PermissionDenied) as exc:
         return _response_error(exc)
 
@@ -674,6 +811,14 @@ def claim_after_authentication(request, user):
         if machine.owner_id != draft.owner_id or not draft.owner.is_guest:
             _clear_capability(request)
             return None
+        # A visitor authorization belongs to the short-lived technical
+        # principal. Claiming starts an account-owned lifecycle, so an old
+        # visitor URL must never silently become that account's public link.
+        share = PreparedShare.objects.select_for_update().filter(machine=machine, guest_share=True).first()
+        if share:
+            share.enabled = False
+            share.code = prepared_share_code()
+            share.save(update_fields=["enabled", "code", "updated_at"])
         machine.owner = user
         machine.save(update_fields=["owner", "updated_at"])
         draft.claimed_by = user

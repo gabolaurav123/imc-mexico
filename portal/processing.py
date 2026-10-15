@@ -993,11 +993,24 @@ def _original_analysis_png(asset):
         return None
 
 
-def _image_input(asset):
-    original_png = _original_analysis_png(asset)
-    if original_png is not None:
-        return {'type': 'input_image', 'detail': 'high',
-                'image_url': 'data:image/png;base64,' + base64.b64encode(original_png).decode('ascii')}
+_ORIGINAL_INPUT_UNPREPARED = object()
+
+
+def _image_input(asset, *, original_input=_ORIGINAL_INPUT_UNPREPARED):
+    """Build a provider image input, optionally reusing one prepared original.
+
+    ``process_analysis`` prepares a full image and its crops from one decoded
+    original. The sentinel distinguishes an unavailable prepared original from
+    an ordinary standalone caller that still needs the legacy original attempt
+    before falling back to the stored preview.
+    """
+    if original_input is _ORIGINAL_INPUT_UNPREPARED:
+        original_png = _original_analysis_png(asset)
+        if original_png is not None:
+            original_input = {'type': 'input_image', 'detail': 'high',
+                              'image_url': 'data:image/png;base64,' + base64.b64encode(original_png).decode('ascii')}
+    if original_input is not _ORIGINAL_INPUT_UNPREPARED and original_input is not None:
+        return original_input
     if not asset.preview:
         raise ValidationError("Una fotografía no tiene vista previa disponible.")
     with asset.preview.open("rb") as stream:
@@ -1115,6 +1128,59 @@ def _original_image_detail_inputs(asset, purpose, alias="image_001"):
     except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError,
             Image.DecompressionBombWarning, BotoCoreError, ClientError):
         return []
+
+
+def _prepared_original_inputs(asset, purpose, alias="image_001"):
+    """Create the old full-image payload and detail crops from one file read.
+
+    Crops render before ``thumbnail`` mutates the image for the full provider
+    payload. This keeps the prior full-resolution crop pixels while removing a
+    second storage read and Pillow decode for each general or plate photo.
+    """
+    if purpose not in {"general", "plate"} or not getattr(asset, "original", None):
+        return None, []
+    try:
+        with asset.original.open("rb") as stream:
+            raw = stream.read(MAX_ANALYSIS_IMAGE_BYTES + 1)
+        if len(raw) > MAX_ANALYSIS_IMAGE_BYTES:
+            return None, []
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(raw)) as source:
+                if source.width * source.height > MAX_PIXELS or min(source.size) < 32:
+                    raise ValidationError("La fotografía excede las dimensiones permitidas para análisis.")
+                if getattr(source, "n_frames", 1) > 1:
+                    raise ValidationError("El análisis requiere una fotografía fija.")
+                if source.format not in {"JPEG", "PNG", "WEBP", "HEIF"}:
+                    return None, []
+                source.load()
+                original = ImageOps.exif_transpose(source)
+                details = (_plate_detail_inputs_from_image(original, alias) if purpose == "plate"
+                           else _detail_inputs_from_image(original, alias))
+                original.thumbnail((3200, 3200) if purpose == "plate" else (2400, 2400))
+                fresh = Image.new("RGB", original.size, "white")
+                if original.mode in {"RGBA", "LA"} or "transparency" in original.info:
+                    rgba = original.convert("RGBA")
+                    fresh.paste(rgba, mask=rgba.getchannel("A"))
+                else:
+                    fresh.paste(original.convert("RGB"))
+                edge = max(fresh.size)
+                if edge < MIN_ANALYSIS_IMAGE_EDGE:
+                    size = tuple(max(1, round(length * MIN_ANALYSIS_IMAGE_EDGE / edge)) for length in fresh.size)
+                    fresh = fresh.resize(size, Image.Resampling.LANCZOS)
+                output = io.BytesIO()
+                fresh.save(output, format="PNG")
+                payload = output.getvalue()
+                if len(payload) > MAX_ANALYSIS_IMAGE_BYTES:
+                    return None, details
+                return ({"type": "input_image", "detail": "high",
+                         "image_url": "data:image/png;base64," + base64.b64encode(payload).decode("ascii")}, details)
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValidationError("La fotografía excede las dimensiones permitidas para análisis.") from exc
+    except (UnidentifiedImageError, OSError, ValueError, BotoCoreError, ClientError):
+        return None, []
 
 
 def _image_detail_inputs(full_image, purpose, alias="image_001"):
@@ -1939,8 +2005,14 @@ def process_analysis(job):
     image_work = []
     for _, (binding, asset) in execution:
         alias = binding["alias"]
-        full_image = _image_input(asset)
-        details = _original_image_detail_inputs(asset, asset.purpose, alias) or _image_detail_inputs(full_image, asset.purpose, alias)
+        prepared_original, prepared_details = _prepared_original_inputs(asset, asset.purpose, alias)
+        # Keep the one-argument path for unavailable originals. It preserves
+        # the preview fallback and compatibility with the established request
+        # builder contract; normal original-backed photos use the prepared
+        # payload and avoid the second read/decode.
+        full_image = (_image_input(asset, original_input=prepared_original)
+                      if prepared_original is not None else _image_input(asset))
+        details = prepared_details or _image_detail_inputs(full_image, asset.purpose, alias)
         plate_instruction = ([{"type": "input_text", "text":
             f"LECTURA DE PLACA {alias}: revisa renglón por renglón y transcribe TODOS los textos legibles. "
             "Devuelve cada campo admitido que se lea, incluidos llantas delantera/trasera, inclinación y tread; "

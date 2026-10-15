@@ -1,0 +1,41 @@
+{
+  "subject": {
+    "brand": "Manitou",
+    "model": "MT-625-H",
+    "category_slug": "manipuladores-telescopicos"
+  },
+  "listings": [
+    {
+      "source": "MachineryTrader",
+      "title": "2023 MANITOU MT625H | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/260585873/2023-manitou-mt625h-telehandlers-lifts",
+      "unit_key": "machinerytrader:260585873",
+      "observed_at": "2026-10-15",
+      "year": 2023,
+      "hours": 1819,
+      "price": 59900,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-15: 2023 MANITOU MT625H; US$59,900; condición Used; 1,819 horas; ubicación Hopkinsville, Kentucky, Estados Unidos; número de anuncio 260585873."
+    },
+    {
+      "source": "MachineryTrader",
+      "title": "2024 MANITOU MT625H COMFORT | MachineryTrader",
+      "url": "https://www.machinerytrader.com/listing/for-sale/256400749/2024-manitou-mt625h-comfort-telehandlers-lifts",
+      "unit_key": "machinerytrader:256400749",
+      "observed_at": "2026-10-15",
+      "year": 2024,
+      "hours": 995,
+      "price": 71900,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MachineryTrader consultado el 2026-10-15: 2024 MANITOU MT625H COMFORT; US$71,900; condición Used; 995 horas; ubicación Dothan, Alabama, Estados Unidos; número de anuncio 256400749. El título declara la variante Comfort; la valoración la conserva como comparable de MT 625 H sin afirmar que todas las unidades tengan esa variante."
+    }
+  ]
+}

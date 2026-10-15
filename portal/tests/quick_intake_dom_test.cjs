@@ -4,6 +4,7 @@ const path=require('node:path'),{execFileSync}=require('node:child_process');
 const html=execFileSync(process.env.PYTHON || 'python',[path.join(__dirname,'render_quick_fixture.py')],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8',maxBuffer:4*1024*1024,env:{...process.env,PYTHONIOENCODING:'utf-8'}});
 const script=fs.readFileSync(path.join(__dirname,'../static/portal/app.js'),'utf8');
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(predicate){const deadline=Date.now()+2000;while(!predicate()){assert.ok(Date.now()<deadline,'Expected UI state did not arrive');await pause(10);}}
 const response=(status,result)=>({ok:status>=200&&status<300,status,headers:{get:()=> 'application/json'},json:async()=>result});
 let checks=0;
 function pass(name){checks++;console.log('PASS '+name);}
@@ -346,7 +347,7 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
  },{job:{id:'rejected',status:'completed'},before(w){w.XMLHttpRequest=class extends w.EventTarget{constructor(){super();this.upload=new w.EventTarget();}open(){}setRequestHeader(){}send(){finishReplacement=()=>{this.status=200;this.responseText=JSON.stringify({id:'replacement',kind:'image',purpose:'general',revision:3});this.dispatchEvent(new w.Event('load'));};}};}});
  await pause(30);retryPhotos.doc.querySelector('[data-asset-id="2"] [data-asset-action="delete"]').click();await pause(25);
  const replacementInput=retryPhotos.doc.querySelector('#gallery-input');Object.defineProperty(replacementInput,'files',{value:[new retryPhotos.w.File(['photo'],'replacement.jpg',{type:'image/jpeg'})]});replacementInput.dispatchEvent(new retryPhotos.w.Event('change'));await pause(10);finishReplacement();await pause(25);
-  click(retryPhotos,'analyze-button');await pause(50);assert.equal(retryBodies.length,1);assert.equal(retryPhotos.doc.querySelector('#model').value,'Equipo de nueva foto');assert.equal(retryPhotos.doc.querySelector('[data-step-panel="2"]').hidden,false);assert.equal(retryPhotos.doc.querySelector('.asset-relevance'),null);assert.equal(retryPhotos.doc.querySelectorAll('#contact-consent').length,1,'reanalyzing does not add another consent');retryPhotos.close();
+  click(retryPhotos,'analyze-button');await until(()=>retryPhotos.doc.querySelector('#model').value==='Equipo de nueva foto');assert.equal(retryBodies.length,1);assert.equal(retryPhotos.doc.querySelector('#model').value,'Equipo de nueva foto');assert.equal(retryPhotos.doc.querySelector('[data-step-panel="2"]').hidden,false);assert.equal(retryPhotos.doc.querySelector('.asset-relevance'),null);assert.equal(retryPhotos.doc.querySelectorAll('#contact-consent').length,1,'reanalyzing does not add another consent');retryPhotos.close();
  pass('rejected photos can be removed/replaced and reanalyzed without another consent control; success clears old photo notices');
  for(const readingStatus of ['failed','not_run','budget_unavailable']){
    let interrupted,finishRead;const calls=[];

@@ -1,0 +1,6 @@
+.sheet-completeness{width:min(540px,calc(100% - 32px));max-height:calc(100dvh - 40px);border:0;border-radius:12px;padding:28px;color:#18354d;box-shadow:0 24px 90px #081b3a40}
+.sheet-completeness::backdrop{background:#10243bb3}
+.completion-dialog-heading{display:flex;justify-content:space-between;align-items:center}.completion-dialog-heading>button{border:0;background:#eef2f5;color:#18354d;border-radius:50%;width:36px;height:36px;font-size:23px;cursor:pointer}
+.sheet-completeness h2{font-size:25px;line-height:1.2;margin:18px 0 12px}.sheet-completeness p{font-size:14px;line-height:1.65}.sheet-completeness ul{list-style:none;margin:22px 0;padding:0;border-top:1px solid #dce4eb}.sheet-completeness li{padding:13px 0;border-bottom:1px solid #dce4eb}.sheet-completeness li strong,.sheet-completeness li span{display:block}.sheet-completeness li strong{font-size:14px}.sheet-completeness li span{font-size:12px;margin-top:5px;color:#536a7d}
+.completion-dialog-actions{display:flex;flex-wrap:wrap;gap:10px}.completion-dialog-actions .button{flex:1;min-width:180px;justify-content:center;font-size:12px;padding:13px 10px}
+@media(max-width:500px){.sheet-completeness{padding:22px}.completion-dialog-actions{flex-direction:column}}

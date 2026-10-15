@@ -33,9 +33,12 @@ w.fetch=async(url,options={})=>{
   if(String(url).endsWith('/guardar/')) return response(200,{revision:2,saved_at:'2026-09-25T00:00:00Z',machine:{...state,revision:2}});
   if(String(url).endsWith('/analizar/')) return response(200,{id:'job-guest',status:'queued'});
   if(String(url).endsWith('/analisis/job-guest/')) return response(200,completed);
+  if(String(url).endsWith('/compartir/')) return response(200,{url:'https://test.invalid/s/guest-short-link/',enabled:true,revision:2,include_serial:false,include_contact:false,expires_at:'2026-09-26T00:00:00Z'});
   throw Error(String(url));
 };
 w.eval(script);
+let openedShare='';
+w.imcShareModal={loading(){},open(url){openedShare=url;return url;},close(){},fail(message){throw Error(message);}};
 
 (async()=>{
   const wizard=doc.querySelector('#wizard');
@@ -43,7 +46,7 @@ w.eval(script);
   assert.equal(wizard.dataset.apiBase,'/api/invitados/guest-draft-fixture/');
   assert.equal(wizard.dataset.maxImages,'4');
   assert.equal(doc.querySelector('#download-draft-pdf'),null,'temporary draft cannot export a PDF');
-  assert.equal(doc.querySelector('[data-open-sheet]'),null,'temporary draft cannot open a normal internal sheet');
+  assert.equal(doc.querySelector('[data-open-sheet]').getAttribute('href'),'/invitados/guest-draft-fixture/ficha/','guest can open its private virtual-sheet preview');
   assert.ok(doc.querySelector('#guest-save-result'),'claim CTA is present');
   assert.ok(doc.querySelector('.guest-watermark'),'trial result has a visible watermark');
   assert.ok(doc.querySelector('#guest-account-modal'),'registration gate has its own accessible dialog');
@@ -60,10 +63,11 @@ w.eval(script);
   assert.equal(doc.querySelector('[data-step-panel="2"]').hidden,false,'completed polling displays the result');
   doc.querySelector('[data-share-machine]').click();
   await wait(25);
-  assert.ok(doc.querySelector('#guest-account-modal').open,'sharing opens account dialog without navigating to another editor');
-  assert.equal(calls.filter(call=>call.url.includes('/compartir/')).length,0,'guest never creates a public share link');
-  doc.querySelector('[data-close-guest-account]').click();
-  assert.equal(doc.querySelector('#guest-account-modal').open,false,'account gate can be dismissed');
+  const share=calls.find(call=>call.url.endsWith('/compartir/'));
+  assert.ok(share,'guest creates a capability-scoped temporary share link');
+  assert.equal(share.body.include_contact,false,'guest never sends private contact consent');
+  assert.equal(openedShare,'https://test.invalid/s/guest-short-link/','share modal receives the temporary shortlink');
+  assert.equal(doc.querySelector('#guest-account-modal').open,false,'sharing no longer requires an account');
   const jobsBefore=calls.filter(call=>call.url.endsWith('/analizar/')).length;
   doc.querySelector('#analyze-button').click();
   await wait(10);

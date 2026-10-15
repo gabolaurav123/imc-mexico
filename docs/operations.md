@@ -288,3 +288,38 @@ Referencias técnicas: [pg_dump y snapshots sincronizados](https://www.postgresq
 [variables y credenciales de libpq](https://www.postgresql.org/docs/current/libpq-envars.html),
 [repositorio APT oficial PostgreSQL](https://www.postgresql.org/download/linux/debian/),
 [límites de recuperación de Neon](https://neon.com/pricing).
+
+## Actualización preparada el 15 de octubre de 2026
+
+- La migración `0026_guest_prepared_share` distingue enlaces temporales de visitantes
+  de enlaces autorizados por cuentas. El visitante puede previsualizar y compartir
+  su primera ficha; conservarla, crear otras o solicitar publicación requiere cuenta.
+  Consulte [el ciclo de vida de visitantes](guest-drafts.md) para caducidad y privacidad.
+- Los espacios de operaciones separan personas, maquinaria, conexiones y catálogo
+  de modelos. Cada persona tiene historiales paginados de fichas, revisiones,
+  consultas y solicitudes de cuenta, sujetos a los permisos de cada operador.
+- La distribución técnica contiene 11.065 referencias: 591 con especificaciones,
+  2.000 campos y 414 registros con períodos de fabricación. Incluye 31 nuevas
+  referencias de fabricante con 100 campos documentados de siete familias.
+  Esto no significa que cada identidad del catálogo tenga datos técnicos completos.
+- Las referencias de mercado pasan a 20 observaciones de ocho modelos, con fecha,
+  moneda, mercado y evidencia. Son anuncios, no ventas certificadas. El motor sólo
+  reutiliza comparables compatibles y vigentes; no aplica un precio universal.
+- La preparación de imágenes generales y placas reutiliza una lectura del original
+  para la imagen completa y los recortes. Las pruebas verifican el mismo contenido
+  y una lectura en vez de dos; no equivalen a una medición de latencia del proveedor.
+
+### Bloqueo observado en producción
+
+La conexión PostgreSQL de IMC fue rechazada por Neon con el mensaje de cuota
+agotada. La portada devolvió HTTP 500 y SeeNode mostró errores operativos repetidos
+del worker. El crédito de SeeNode no repone la cuota de Neon. La sesión de Neon
+disponible en este equipo no mostraba el proyecto de IMC.
+
+Las migraciones, la carga inicial y las pruebas de esta actualización se ejecutaron
+en SQLite aislado, sin escrituras en producción. No se confirmó una llamada real a
+OpenAI: no había clave local disponible y la base remota impedía comprobar la
+configuración de la aplicación. El despliegue requiere restablecer primero la cuota
+del proyecto Neon correspondiente; después, ejecutar el arranque normal para aplicar
+la migración y el catálogo, y verificar una generación real y un enlace compartido.
+No reemplazar la base por una vacía ni usar SQLite en producción para sortear este bloqueo.

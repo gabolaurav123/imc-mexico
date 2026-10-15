@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-11-catalogue-first",
+  "version": "2026-10-15-catalogue-depth",
   "files": [
     {
       "path": "excavadoras/caterpillar_320.json",
@@ -60,6 +60,26 @@
     {
       "path": "excavadoras/caterpillar_306_cr_period_2026-10-11.json",
       "sha256": "ca643d33a161f34adaff9fe097aa599a7d3d353d73a05124100a800da25c916b"
+    },
+    {
+      "path": "catalogue_official_multicategory_2026-10-15.json",
+      "sha256": "41662125bf7e305e5ffa7a0fdd32b754fec29b29157c6b8116dfadecd0c15e78"
+    },
+    {
+      "path": "genie_electric_scissors_family_2026-10-15.json",
+      "sha256": "2a0951f856111b3104a3df7641da0c05d7789273143c3af0b20543546fce75f4"
+    },
+    {
+      "path": "genie_articulated_boom_pair_2026-10-15.json",
+      "sha256": "38193470651c4a842407dc67bcca0c03bb0c71d10366ba231e78b7a2abf3e300"
+    },
+    {
+      "path": "bobcat_skid_steer_official_specs_2026-10-15.json",
+      "sha256": "53e2125b0a6232f2bbf300141f864d8158360ae726ae62514269a59374926d7f"
+    },
+    {
+      "path": "cat_compactors_bobcat_excavator_2026-10-15.json",
+      "sha256": "fa9c3fd082bd5153e8f526336ffe130ffe49a94d0f41d2201606d93f6fafe8cb"
     }
   ]
 }

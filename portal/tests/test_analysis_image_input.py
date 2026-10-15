@@ -11,7 +11,8 @@ from django.test import SimpleTestCase
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image
 
-from portal.processing import (_image_input, _plate_detail_inputs_from_image,
+from portal.processing import (_image_input, _original_image_detail_inputs,
+                               _plate_detail_inputs_from_image, _prepared_original_inputs,
                                MAX_ANALYSIS_IMAGE_BYTES, MAX_DETAIL_INPUT_BYTES,
                                PLATE_DETAIL_EDGE)
 
@@ -65,6 +66,33 @@ class AnalysisImageInputTests(SimpleTestCase):
         _, image = self.decoded(_image_input(asset))
         self.assertGreater(image.getpixel((image.width // 2, image.height // 2))[2], 180)
         self.assertLess(image.getpixel((image.width // 2, image.height // 2))[0], 80)
+
+    def test_prepared_original_uses_one_read_and_keeps_existing_full_and_crop_payloads(self):
+        """The request builder no longer decodes the same stored original twice."""
+        class CountingFile:
+            def __init__(self, path):
+                self.path = path
+                self.opens = 0
+
+            def open(self, mode):
+                self.opens += 1
+                return self.path.open(mode)
+
+        source = self.asset((1500, 900))
+        before_counter = CountingFile(source.original)
+        before = SimpleNamespace(original=before_counter, preview=source.preview)
+        before_full = _image_input(before)
+        before_details = _original_image_detail_inputs(before, "general", "image_001")
+        self.assertEqual(before_counter.opens, 2)
+
+        after_counter = CountingFile(source.original)
+        after = SimpleNamespace(original=after_counter, preview=source.preview)
+        prepared, after_details = _prepared_original_inputs(after, "general", "image_001")
+        after_full = _image_input(after, original_input=prepared)
+
+        self.assertEqual(after_counter.opens, 1)
+        self.assertEqual(after_full, before_full)
+        self.assertEqual(after_details, before_details)
 
     def test_original_is_orientation_corrected_and_metadata_is_stripped(self):
         asset = self.asset((80, 40))

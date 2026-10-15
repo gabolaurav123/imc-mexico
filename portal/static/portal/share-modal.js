@@ -63,7 +63,8 @@
     setState('ready');show();return sharedUrl;
   };
   const api=async(button)=>{
-    const response=await fetch(`/api/maquinarias/${button.dataset.shareMachineId}/compartir/`,{
+    const endpoint=button.dataset.shareEndpoint||`/api/maquinarias/${button.dataset.shareMachineId}/compartir/`;
+    const response=await fetch(endpoint,{
       method:'POST',credentials:'same-origin',headers:{'Accept':'application/json','Content-Type':'application/json','X-CSRFToken':csrf()},
       body:JSON.stringify({revision:Number(button.dataset.shareRevision),action:'enable',include_serial:button.dataset.shareIncludeSerial==='true',include_contact:button.dataset.shareIncludeContact==='true'})
     });
@@ -92,11 +93,18 @@
     if (navigator.share) { try { await navigator.share({title:sharedTitle,url:sharedUrl}); } catch (error) { if (error.name!=='AbortError') await copy(); } }
     else await copy();
   });
-  document.querySelectorAll('[data-share-sheet], [data-share-machine-id]').forEach(button=>button.addEventListener('click',async()=>{
+  document.querySelectorAll('[data-share-sheet], [data-share-machine-id], [data-share-endpoint]').forEach(button=>button.addEventListener('click',async()=>{
+    // The guest wizard uses its capability-scoped endpoint from app.js. Do
+    // not also make this account endpoint request for the same click.
+    if(button.closest('#wizard')?.dataset.guest) return;
+    if (button.disabled||modal.dataset.state==='loading') return;
+    if(window.imcSheetCompleteness && !(await window.imcSheetCompleteness.confirm()))return;
+    // A modal can be opened or a second click can happen while the async
+    // completeness prompt is active. Recheck before changing its state.
     if (button.disabled||modal.dataset.state==='loading') return;
     const label=button.textContent; button.disabled=true;
     const existing=button.dataset.shareSheet;
-    loading(defaultTitle(),button.dataset.shareMachineId?`/panel/maquinarias/${encodeURIComponent(button.dataset.shareMachineId)}/?paso=2`:'');
+    loading(defaultTitle(),button.dataset.shareEditorUrl || (button.dataset.shareEndpoint ? '' : button.dataset.shareMachineId?`/panel/maquinarias/${encodeURIComponent(button.dataset.shareMachineId)}/?paso=2`:''));
     try { open(existing||await api(button)); }
     catch (error) { fail(error.message); }
     finally { button.disabled=false; button.textContent=label; }

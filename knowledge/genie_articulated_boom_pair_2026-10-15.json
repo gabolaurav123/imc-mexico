@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "references": [
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "Genie",
+      "model": "Z30-20N",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.genielift.com/docs/default-source/product-specifications/articulated-boom-lift/en/2022/zboomspec_z30_20n_z30_20n_rj_en-us_na_lrec42dc61-4a3d-4937-a372-497615db2242.pdf?sfvrsn=6db84fd1_3",
+      "source_title": "Genie Z-30/20N & Z-30/20N RJ specifications",
+      "source_version": "2022 ANSI/CSA product specifications",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {"authority":"manufacturer","scope":"model","market_scope":"US product specification","note":"Las alturas y alcances son especificaciones publicadas del modelo, no prueba de autorización de uso ni configuración de una unidad."},
+      "specs": {
+        "platform_height":{"value":"9.14 m","evidence":"Genie Z30-20N: Platform height max. 9.14 m."},
+        "horizontal_outreach":{"value":"6.53 m","evidence":"Genie Z30-20N: Horizontal reach max. 6.53 m."}
+      }
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "Genie",
+      "model": "Z30-20NRJ",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://www.genielift.com/docs/default-source/product-specifications/articulated-boom-lift/en/2022/zboomspec_z30_20n_z30_20n_rj_en-us_na_lrec42dc61-4a3d-4937-a372-497615db2242.pdf?sfvrsn=6db84fd1_3",
+      "source_title": "Genie Z-30/20N & Z-30/20N RJ specifications",
+      "source_version": "2022 ANSI/CSA product specifications",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {"authority":"manufacturer","scope":"model","market_scope":"US product specification","note":"Las alturas y alcances son especificaciones publicadas del modelo, no prueba de autorización de uso ni configuración de una unidad."},
+      "specs": {
+        "platform_height":{"value":"8.89 m","evidence":"Genie Z30-20NRJ: Platform height max. 8.89 m."},
+        "horizontal_outreach":{"value":"6.25 m","evidence":"Genie Z30-20NRJ: Horizontal reach max. 6.25 m."}
+      }
+    }
+  ]
+}

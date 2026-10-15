@@ -20,10 +20,9 @@
     for(const item of allCategories?sorted:sorted.slice(0,8)){
       const button=document.createElement('button'); button.type='button'; button.className='catalogue-option'; button.textContent=item.name;
       if(root.dataset.iconsUrl){
-        const icons={'excavadoras':'excavator','retroexcavadoras':'backhoe','compactadores':'compactor','cargadores':'loader','minicargadores':'skidsteer','gruas':'crane','montacargas':'forklift','plataformas-elevadoras':'platform'};
         const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');
         svg.setAttribute('viewBox','0 0 64 48');svg.setAttribute('aria-hidden','true');svg.setAttribute('class','category-option-icon');
-        use.setAttribute('href',root.dataset.iconsUrl+'#'+(icons[item.slug]||'generic'));svg.append(use);button.prepend(svg);
+        use.setAttribute('href',root.dataset.iconsUrl+'#'+(item.icon||'otros'));svg.append(use);button.prepend(svg);
       }
       button.dataset.categoryId=String(item.id); button.addEventListener('click',()=>chooseCategory(item)); $('popular-categories').append(button);
     }

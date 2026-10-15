@@ -11,7 +11,7 @@ from PIL import Image
 from unittest.mock import patch
 
 from portal.guest import purge_expired_guest_drafts
-from portal.models import AnalysisJob, Asset, Category, Consent, GuestDraft, GuestTrial, Machine, PlatformSettings, User
+from portal.models import AnalysisJob, Asset, Category, Consent, GuestDraft, GuestTrial, Machine, PlatformSettings, PreparedShare, Publication, User
 from portal.processing import _check_image_execution
 
 
@@ -132,9 +132,12 @@ class GuestDraftTests(TestCase):
         wizard = self.client.get(f"/invitados/{draft.pk}/")
         self.assertEqual(wizard.status_code, 200)
         self.assertEqual(wizard.context["guest_api_base"], f"/api/invitados/{draft.pk}/")
+        self.assertEqual(wizard.context["guest_expires_at"], draft.expires_at)
         self.assertContains(wizard, 'data-max-images="4"')
         self.assertContains(wizard, 'id="guest-save-result"')
-        self.assertNotContains(wizard, 'data-open-sheet')
+        self.assertContains(wizard, "FICHA DE PRUEBA · PUEDES COMPARTIR ESTE ENLACE TEMPORAL")
+        self.assertNotContains(wizard, "CREA TU CUENTA PARA COMPARTIR")
+        self.assertContains(wizard, f'data-open-sheet class="button button-outline" href="/invitados/{draft.pk}/ficha/"')
         self.assertNotContains(wizard, 'id="download-draft-pdf"')
         self.client.force_login(draft.owner)
         self.assertEqual(self.client.get(f"/api/maquinarias/{draft.machine_id}/").status_code, 403)
@@ -156,6 +159,19 @@ class GuestDraftTests(TestCase):
         self.assertEqual(Asset.objects.get(pk=asset_id).machine_id, machine.pk)
         self.assertEqual(self.client.get(f"/api/maquinarias/{machine.pk}/").status_code, 200)
 
+        # A browser that still has the old capability cannot overwrite the
+        # newly claimed account-owned machine after the ownership switch.
+        stale_editor = Client()
+        session = stale_editor.session
+        session["guest_draft_capability"] = capability
+        session.save()
+        stale_save = stale_editor.post(f"/api/invitados/{draft.pk}/guardar/", data=json.dumps({
+            "title": "Stale guest edit", "category": draft.machine.category_id,
+            "data": {"brand": "CAT", "model": "320"}, "provenance": {},
+            "revision": machine.revision,
+        }), content_type="application/json")
+        self.assertEqual(stale_save.status_code, 403)
+
         replay = Client()
         session = replay.session
         session["guest_draft_capability"] = capability
@@ -164,6 +180,78 @@ class GuestDraftTests(TestCase):
         self.assertEqual(replay.get("/iniciar-sesion/").status_code, 302)
         machine.refresh_from_db()
         self.assertEqual(machine.owner_id, self.real_user.pk)
+
+    def test_guest_can_share_one_temporary_safe_snapshot_then_claim_or_expiry_revokes_it(self):
+        payload = self.start(serial="GUEST-PRIVATE-SERIAL")
+        draft = GuestDraft.objects.get(pk=payload["id"])
+        general = self.client.post(f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "general"})
+        plate = self.client.post(f"/api/invitados/{draft.pk}/archivos/", {"file": self.image(), "purpose": "plate"})
+        self.assertEqual(general.status_code, 201, general.content)
+        self.assertEqual(plate.status_code, 201, plate.content)
+        draft.machine.refresh_from_db()
+        draft.machine.data["contact_public"] = "private@example.invalid"
+        draft.machine.save(update_fields=["data"])
+        AnalysisJob.objects.create(
+            machine=draft.machine, requested_by=draft.owner, revision=draft.machine.revision,
+            fingerprint="g" * 64, status="completed", mode="analysis",
+            asset_ids=[general.json()["id"], plate.json()["id"]],
+            result={"relevance": {"status": "relevant", "accepted_asset_ids": [general.json()["id"], plate.json()["id"]]}},
+        )
+
+        preview = self.client.get(f"/invitados/{draft.pk}/ficha/")
+        self.assertEqual(preview.status_code, 200)
+        self.assertTrue(preview.context["guest_preview"])
+        self.assertEqual(preview.context["sheet_editor_url"], f"/invitados/{draft.pk}/?paso=2")
+        self.assertEqual(preview.context["asset_base_url"], f"/api/invitados/{draft.pk}/archivos/")
+        self.assertContains(preview, f"/api/invitados/{draft.pk}/archivos/{general.json()['id']}/")
+        self.assertContains(preview, f'data-share-editor-url="/invitados/{draft.pk}/?paso=2"')
+        self.assertEqual(Client().get(f"/invitados/{draft.pk}/ficha/").status_code, 404)
+
+        url = f"/api/invitados/{draft.pk}/compartir/"
+        rejected_contact = self.client.post(url, data=json.dumps({"revision": draft.machine.revision,
+            "include_contact": True}), content_type="application/json")
+        self.assertEqual(rejected_contact.status_code, 400)
+        shared = self.client.post(url, data=json.dumps({"revision": draft.machine.revision,
+            "include_serial": False}), content_type="application/json")
+        self.assertEqual(shared.status_code, 200, shared.content)
+        share = PreparedShare.objects.get(machine=draft.machine)
+        self.assertTrue(share.guest_share)
+        self.assertEqual(share.guest_expires_at, draft.expires_at)
+        self.assertFalse(share.snapshot["contact_authorized"])
+        self.assertNotIn("contact_public", share.snapshot["data"])
+        self.assertNotIn("serial", share.snapshot["data"])
+        self.assertEqual(share.snapshot["public_asset_ids"], [general.json()["id"]])
+        self.assertFalse(Publication.objects.filter(machine=draft.machine).exists())
+        path = shared.json()["url"].removeprefix("https://example.invalid")
+        page = Client().get(path)
+        self.assertEqual(page.status_code, 200)
+        self.assertIsNone(page.context.get("sheet_editor_url"), "a copied public link never grants an editor route")
+        self.assertNotContains(page, "private@example.invalid")
+        self.assertNotContains(page, "GUEST-PRIVATE-SERIAL")
+        self.assertNotContains(page, "Solicitar información")
+        owner_view = self.client.get(path)
+        self.assertEqual(owner_view.context["sheet_editor_url"], f"/invitados/{draft.pk}/?paso=2")
+        public_asset = Client().get(f"/s/{share.code}/archivo/{general.json()['id']}/")
+        self.assertEqual(public_asset.status_code, 200)
+        public_asset.close()
+        self.assertEqual(Client().get(f"/s/{share.code}/archivo/{plate.json()['id']}/").status_code, 404)
+        self.assertEqual(Client().get(url).status_code, 403)
+
+        old_code = share.code
+        self.client.force_login(self.real_user)
+        self.client.get("/iniciar-sesion/")
+        share.refresh_from_db()
+        self.assertFalse(share.enabled)
+        self.assertNotEqual(share.code, old_code)
+        self.assertEqual(Client().get(path).status_code, 404)
+
+        # A separate unclaimed draft expires at the public resolver before the
+        # scheduled cleanup has a chance to remove its storage records.
+        second = self.start(Client(), remote_addr="198.51.100.91")
+        expired = GuestDraft.objects.get(pk=second["id"])
+        PreparedShare.objects.create(machine=expired.machine, authorized_by=expired.owner, revision=expired.machine.revision,
+            enabled=True, guest_share=True, guest_expires_at=timezone.now() - timedelta(seconds=1), snapshot={"data": {}})
+        self.assertEqual(Client().get(f"/s/{PreparedShare.objects.get(machine=expired.machine).code}/").status_code, 404)
 
     def test_claim_does_not_cancel_the_already_authorized_guest_analysis(self):
         payload = self.start()

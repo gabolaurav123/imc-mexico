@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "references": [
+    {
+      "category_slug": "cargadores",
+      "brand": "Caterpillar",
+      "model": "950 GC",
+      "variant": "",
+      "generation": "",
+      "market": "MX",
+      "source": "https://www.cat.com/en_MX/products/new/equipment/wheel-loaders/medium-wheel-loaders/18548328.html",
+      "source_title": "950 GC Wheel Loader | Cat México",
+      "source_version": "MX public product page",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "market_scope": "Mexico public product page",
+        "note": "Las cifras corresponden a la configuración de producto publicada por el fabricante; no acreditan opciones ni el estado de una unidad concreta."
+      },
+      "specs": {
+        "power": {"value": "151 kW", "evidence": "Caterpillar 950 GC: Net Power - ISO 9249, 151 kW."},
+        "weight": {"value": "18 676 kg", "evidence": "Caterpillar 950 GC: Operating Weight, 18 676 kg."},
+        "capacity": {"value": "2.5–4.4 m³", "evidence": "Caterpillar 950 GC: Bucket Capacities, 2.5–4.4 m³."}
+      }
+    },
+    {
+      "category_slug": "manipuladores-telescopicos",
+      "brand": "Manitou",
+      "model": "MT-625-H",
+      "variant": "",
+      "generation": "",
+      "market": "",
+      "source": "https://www.manitou.com/es-ES/nuestras-maquinas/manipuladores-telescopicos/mt-625-h",
+      "source_title": "MT 625 H | Manitou",
+      "source_version": "ES public product page",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "market_scope": "global",
+        "note": "Las cifras corresponden a la configuración con horquillas publicada por el fabricante; los implementos y la configuración de cada unidad pueden variar."
+      },
+      "specs": {
+        "capacity": {"value": "2500 kg", "evidence": "Manitou MT-625-H (publicado como MT 625 H): Capacidad de elevación máx., 2500 kg."},
+        "lift_height": {"value": "5.85 m", "evidence": "Manitou MT-625-H (publicado como MT 625 H): Altura de elevación máx., 5.85 m."},
+        "horizontal_outreach": {"value": "3.40 m", "evidence": "Manitou MT-625-H (publicado como MT 625 H): Alcance máx., 3.40 m."},
+        "power": {"value": "55.40 kW", "evidence": "Manitou MT-625-H (publicado como MT 625 H): Potencia del motor, 55.40 kW."},
+        "weight": {"value": "4 800 kg", "evidence": "Manitou MT-625-H (publicado como MT 625 H): Peso, 4800 kg."}
+      }
+    },
+    {
+      "category_slug": "montacargas",
+      "brand": "Toyota",
+      "model": "8FGCU25",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://cdn.toyotaforklift.com/wp-content/uploads/2018/03/15131633/2020_Core-IC-Cushion_Spec-Sheet_Digital-1.pdf",
+      "source_title": "Toyota Core IC Cushion Tire 8FGCU25 specification sheet",
+      "source_version": "2020 specification sheet",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "market_scope": "US specification sheet",
+        "note": "La capacidad declarada está asociada a la configuración y al centro de carga del fabricante; no confirma la capacidad residual de una unidad."
+      },
+      "specs": {
+        "capacity": {"value": "2250 kg", "evidence": "Toyota 8FGCU25: Load Capacity, 5000 lb (2250 kg)."}
+      }
+    },
+    {
+      "category_slug": "plataformas-elevadoras",
+      "brand": "Genie",
+      "model": "GS-1930",
+      "variant": "",
+      "generation": "",
+      "market": "US",
+      "source": "https://manuals.genielift.com/operators/english/1307634.pdf",
+      "source_title": "Genie GS-1930 Operator's Manual — Specifications",
+      "source_version": "Ninth Edition, Third Printing",
+      "retrieved_at": "2026-10-15",
+      "period_from": null,
+      "period_to": null,
+      "provenance": {
+        "authority": "manufacturer",
+        "scope": "model",
+        "market_scope": "US operator manual",
+        "note": "Las alturas publicadas distinguen uso interior y exterior; no se presentan como una autorización de uso de una unidad concreta."
+      },
+      "specs": {
+        "platform_height": {"value": "5.85 m", "evidence": "Genie GS-1930: Height, platform indoor 5.85 m."},
+        "capacity": {"value": "227 kg", "evidence": "Genie GS-1930: Maximum load capacity, 227 kg."}
+      }
+    }
+  ]
+}

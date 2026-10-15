@@ -1,0 +1,42 @@
+{
+  "subject": {
+    "brand": "Caterpillar",
+    "model": "950 GC",
+    "category_slug": "cargadores"
+  },
+  "listings": [
+    {
+      "source": "Ohio CAT",
+      "title": "2020 CAT 950GC | Ohio CAT",
+      "url": "https://www.ohiocat.com/buy-used-equipment/used-equipment/wheel-loader/2020-cat-950gc/",
+      "unit_key": "ohiocat:M5T03798",
+      "observed_at": "2026-10-15",
+      "year": 2020,
+      "hours": 2554,
+      "price": 199000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de Ohio CAT consultado el 2026-10-15: 2020 CAT 950GC; precio publicado US$199,000; condición Used; 2,554 horas; serie M5T03798; unidad U31879; ubicación declarada Richwood, Kentucky, Estados Unidos. Es un precio de oferta, no acredita una venta cerrada."
+    },
+    {
+      "source": "Ohio CAT",
+      "title": "2024 CAT 950GC | Ohio CAT",
+      "url": "https://www.ohiocat.com/buy-used-equipment/used-equipment/wheel-loader/2024-cat-950gc/",
+      "unit_key": "ohiocat:M5T07499",
+      "observed_at": "2026-10-15",
+      "year": 2024,
+      "hours": 937,
+      "price": 239000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de Ohio CAT consultado el 2026-10-15: 2024 CAT 950GC; precio publicado US$239,000; condición Used; 937 horas; serie M5T07499; unidad U61527; ubicación declarada Cadiz, Ohio, Estados Unidos. El anuncio identifica la configuración 01B de esta unidad; se conserva como evidencia de anuncio y no se generaliza al modelo. Es un precio de oferta, no acredita una venta cerrada."
+    }
+  ],
+  "limitations": "Dos anuncios individuales de Ohio CAT para el modelo exacto Caterpillar 950 GC, condición usada, mercado estadounidense y moneda USD, observados el 2026-10-15. Los precios son de oferta. Las ubicaciones declaradas establecen el mercado de los anuncios, no el país de fabricación. La configuración 01B se declara solo para la unidad 2024 y no se usa para inferir una configuración de otras unidades."
+}

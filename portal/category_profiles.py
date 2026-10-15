@@ -266,6 +266,7 @@ def category_catalog(categories):
         profile = profile_for_category(category)
         aliases = [category.name, category.slug, *profile.get("aliases", [])]
         records.append({"id": category.pk, "name": category.name, "slug": category.slug,
+                        "icon": category.slug if category.slug in IMC_TYPES_BY_CATEGORY else "otros",
                         "aliases": list(dict.fromkeys(aliases)),
                         "fields": list(category.fields or []), "profile": profile})
     return records

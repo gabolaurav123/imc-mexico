@@ -318,18 +318,15 @@
   $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
   let sharedUrl='',sharing=false;
   $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
-    if(guest){
-      if(preparing||jobPending||polling||submitting||deleting)return problem('Espera a que termine la preparación antes de compartir.');
-      try{await uploadsReady();await save();keepGuestResult();}catch(error){problem(error.message);}
-      return;
-    }
     if(sharing)return;
     if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
+    if(window.imcSheetCompleteness && !(await window.imcSheetCompleteness.confirm()))return;
+    if(sharing||preparing||jobPending||polling||submitting||deleting)return;
     sharing=true;$$('[data-share-machine]',wizard).forEach(item=>{item.disabled=true;});clearProblem();
     try{
       window.imcShareModal?.loading?.(collect().title,'#wizard-errors');
       await uploadsReady();await save();
-      const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:Boolean($('#contact-consent')?.checked)});
+      const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:!guest&&Boolean($('#contact-consent')?.checked)});
       updateRevision(result);
       if(!window.imcShareModal?.open) throw new Error('No se pudo abrir las opciones para compartir. Recarga la página e inténtalo de nuevo.');
       sharedUrl=window.imcShareModal.open(result.url,collect().title);
@@ -518,6 +515,8 @@
     if (downloading) return;
     if (submitting || preparing || jobPending || polling || deleting) return problem('Espera a que termine la operación en curso para consultar la ficha.');
     const destination = event.currentTarget.href;
+    if(mode==='screen' && window.imcSheetCompleteness && !(await window.imcSheetCompleteness.confirm()))return;
+    if(downloading||submitting||preparing||jobPending||polling||deleting)return;
     documentMode = mode; downloading = true; clearProblem(); prepareLabel();
     pdfStatus.hidden = false; pdfStatus.textContent = 'Terminando cargas y guardando tus cambios…';
     try {

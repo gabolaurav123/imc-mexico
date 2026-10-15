@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-11",
+  "version": "2026-10-15",
   "files": [
     {
       "path": "caterpillar_320d_l_listings_2026-09-22.json",
@@ -20,6 +20,18 @@
     {
       "path": "caterpillar_306_cr_listings_2026-10-11.json",
       "sha256": "1dae683c1dc1e46b70fced06d40b79aa8ef66f0606e272b921cea8793185df10"
+    },
+    {
+      "path": "manitou_mt625h_listings_2026-10-15.json",
+      "sha256": "32c76fa9f25fccd54200cbe5df76d4abe0eb3434bb84a9e6d6a4c565deeb7cb9"
+    },
+    {
+      "path": "caterpillar_950_gc_listings_2026-10-15.json",
+      "sha256": "623dfdd990b5ba2b8723c876a54921f408bef522e574658e1a20e37d21d53225"
+    },
+    {
+      "path": "john_deere_310sl_listings_2026-10-15.json",
+      "sha256": "f1ffc7a2ea9503b355866f6d6100588a82353bce4ba30a89426a51a4b9c326f1"
     }
   ]
 }

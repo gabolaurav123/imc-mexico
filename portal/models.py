@@ -575,6 +575,11 @@ class PreparedShare(models.Model):
     revision = models.PositiveIntegerField()
     snapshot = models.JSONField(default=dict)
     include_serial = models.BooleanField(default=False)
+    # A visitor link is deliberately distinguishable from a link authorized
+    # by a real account.  It inherits the draft lifetime and is revoked as
+    # soon as that draft is claimed; it can never become a catalogue record.
+    guest_share = models.BooleanField(default=False, editable=False)
+    guest_expires_at = models.DateTimeField(null=True, blank=True, db_index=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

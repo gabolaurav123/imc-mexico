@@ -5,7 +5,7 @@
 <div class="publication-start catalogue-first type-first" data-intake-start data-icons-url="{% static 'portal/equipment-icons.svg' %}" data-initial-category="{{ initial_category_slug|default:'' }}">
   <header class="publication-intro"><div><p class="eyebrow">PUBLICAR MAQUINARIA</p><h1>Publica tu maquinaria.</h1><p>Elige el tipo de máquina. Después, sube una foto o escribe su número de serie para generar tu ficha.</p></div><span class="studio-step-tag">01 / TIPO DE MÁQUINA</span></header>
   <div class="studio-layout">
-    {% if guest_mode %}<div class="guest-trial-banner"><strong>Prueba una ficha sin crear cuenta.</strong><span>Una preparación gratuita por conexión y navegador. Al compartirla te pediremos registrarte.</span><a href="/iniciar-sesion/?next=/panel/maquinarias/nueva/">Ya tengo cuenta →</a></div>{% endif %}
+    {% if guest_mode %}<div class="guest-trial-banner"><strong>Prueba una ficha sin crear cuenta.</strong><span>Una preparación y un enlace temporal por conexión y navegador. Regístrate para conservarla, preparar más fichas o solicitar publicación en el catálogo.</span><a href="/iniciar-sesion/?next=/panel/maquinarias/nueva/">Ya tengo cuenta →</a></div>{% endif %}
     <form method="post" id="start-machine-form" class="intake-card">{% csrf_token %}
       <input id="start-entry-mode" name="entry_mode" type="hidden" value="photos">
       {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}

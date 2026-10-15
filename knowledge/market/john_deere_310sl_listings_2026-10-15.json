@@ -1,0 +1,42 @@
+{
+  "subject": {
+    "brand": "John Deere",
+    "model": "310SL",
+    "category_slug": "retroexcavadoras"
+  },
+  "listings": [
+    {
+      "source": "MarketBook",
+      "title": "2022 DEERE 310SL | MarketBook",
+      "url": "https://www.marketbook.hn/listado/para-la-venta/259987095/2022-deere-310sl-retroexcavadoras",
+      "unit_key": "marketbook:1T0310SLANF417662",
+      "observed_at": "2026-10-15",
+      "year": 2022,
+      "hours": 2350,
+      "price": 59500,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Anuncio individual de MarketBook consultado el 2026-10-15: 2022 DEERE 310SL; precio publicado US$59,500; condición Used; 2,350 horas; serie 1T0310SLANF417662; stock 016001; ubicación declarada Hudsonville, Michigan, Estados Unidos; vendedor Grand Equipment. Es un precio de oferta, no acredita una venta cerrada."
+    },
+    {
+      "source": "MarketBook",
+      "title": "2019 DEERE 310SL | MarketBook",
+      "url": "https://www.marketbook.gt/listado/para-la-venta/256861669/2019-deere-310sl-retroexcavadoras",
+      "unit_key": "marketbook:1T0310SLTKF359457",
+      "observed_at": "2026-10-15",
+      "year": 2019,
+      "hours": 3956,
+      "price": 59000,
+      "currency": "USD",
+      "market": "US",
+      "price_type": "asking",
+      "country": "United States",
+      "condition": "used",
+      "evidence": "Resultado de búsqueda de MarketBook consultado el 2026-10-15 para este anuncio individual: 2019 DEERE 310SL; precio publicado US$59,000; condición Used; 3,956 horas; serie 1T0310SLTKF359457; stock 26783; ubicación declarada Oklahoma, Estados Unidos; vendedor CL Boyd. La apertura directa del anuncio no estuvo disponible durante la comprobación, por lo que estos datos se conservan como contenido del resultado de búsqueda. Es un precio de oferta, no acredita una venta cerrada."
+    }
+  ],
+  "limitations": "Dos anuncios individuales para el modelo exacto John Deere 310SL, condición usada, mercado estadounidense y moneda USD, observados el 2026-10-15. El segundo se conserva con la limitación explícita de que sus datos proceden del resultado de búsqueda de MarketBook porque la apertura directa no estuvo disponible. Los precios son de oferta; no acreditan ventas cerradas."
+}

@@ -161,17 +161,26 @@ class BundledMarketCoverageTests(TestCase):
     def setUp(self):
         excavators = Category.objects.create(name="Excavadoras", slug="excavadoras")
         forklifts = Category.objects.create(name="Montacargas", slug="montacargas")
+        loaders = Category.objects.create(name="Cargadores", slug="cargadores")
+        backhoes = Category.objects.create(name="Retroexcavadoras", slug="retroexcavadoras")
         cat = Brand.objects.create(name="Caterpillar")
         toyota = Brand.objects.create(name="Toyota")
         komatsu = Brand.objects.create(name="Komatsu")
+        manitou = Brand.objects.create(name="Manitou")
+        deere = Brand.objects.create(name="John Deere")
         for brand, name, category in ((cat, "320D L", excavators), (cat, "320D", excavators),
                                       (cat, "306 CR", excavators), (toyota, "50-8FGCU25", forklifts),
-                                      (komatsu, "PC210LC-11", excavators)):
+                                      (komatsu, "PC210LC-11", excavators),
+                                      (manitou, "MT-625-H", Category.objects.create(
+                                          name="Manipuladores telescópicos", slug="manipuladores-telescopicos")),
+                                      (cat, "950 GC", loaders), (deere, "310SL", backhoes)):
             EquipmentModel.objects.create(brand=brand, name=name, category=category)
         self.category = excavators
+        self.loaders = loaders
+        self.backhoes = backhoes
 
     def test_bundle_imports_dated_individual_ads_and_reuses_306_cr_range(self):
-        self.assertEqual(install_bundled_market(ROOT), 14)
+        self.assertEqual(install_bundled_market(ROOT), 20)
         rows = MarketReference.objects.filter(equipment_model__name="306 CR")
         self.assertEqual(rows.count(), 3)
         self.assertEqual(set(rows.values_list("market", flat=True)), {"US"})
@@ -184,3 +193,28 @@ class BundledMarketCoverageTests(TestCase):
         self.assertEqual(value["fields"]["estimate_min"], "38999.00")
         self.assertEqual(value["fields"]["estimate_max"], "65500.00")
         self.assertTrue(all(item["price_type"] == "asking" for item in value["comparables"]))
+
+    def test_new_loader_and_backhoe_ranges_are_reused_locally_without_provider(self):
+        self.assertEqual(install_bundled_market(ROOT), 20)
+        loader = valuation_from_library({"brand": "Caterpillar", "model": "950GC", "condition": "used",
+                                         "configurations": {}, "compatibility": {}, "market_hint": None}, self.loaders)
+        backhoe = valuation_from_library({"brand": "John Deere", "model": "310SL", "condition": "used",
+                                          "configurations": {}, "compatibility": {}, "market_hint": None}, self.backhoes)
+
+        self.assertEqual((loader["status"], loader["fields"]["estimate_min"], loader["fields"]["estimate_max"]),
+                         ("estimated", "199000.00", "239000.00"))
+        self.assertEqual((backhoe["status"], backhoe["fields"]["estimate_min"], backhoe["fields"]["estimate_max"]),
+                         ("estimated", "59000.00", "59500.00"))
+        self.assertEqual(loader["diagnostics"]["parser"], "reviewed_market_library")
+        self.assertEqual(backhoe["diagnostics"]["parser"], "reviewed_market_library")
+        self.assertTrue(any("configuración 01B" in item["evidence"] for item in loader["comparables"]))
+
+        client = Mock()
+        reading = {"data": {"brand": "Caterpillar", "model": "950GC", "condition": "used"},
+                   "provenance": {key: {"source": "user", "review": "confirmed"}
+                                  for key in ("brand", "model", "condition")}}
+        via_pipeline, usage = estimate_machine(client, "test-model", reading, reading, category=self.loaders)
+        self.assertEqual((via_pipeline["fields"]["estimate_min"], via_pipeline["fields"]["estimate_max"]),
+                         ("199000.00", "239000.00"))
+        self.assertEqual(usage.web_search_calls, 0)
+        client.responses.create.assert_not_called()

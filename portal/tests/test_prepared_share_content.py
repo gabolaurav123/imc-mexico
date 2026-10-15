@@ -44,11 +44,11 @@ class PreparedShareContentTests(TestCase):
 
     def assert_copy_matches_flow(self):
         faq = self.client.get('/preguntas-frecuentes/')
-        self.assertContains(faq, 'antes de la aprobación')
-        self.assertContains(faq, 'enlace corto')
+        self.assertContains(faq, 'sin cuenta')
+        self.assertContains(faq, 'enlace temporal')
         self.assertContains(faq, 'La descarga PDF está reservada al personal autorizado')
-        self.assertContains(faq, 'serie escrita y el contacto')
-        self.assertContains(faq, 'Las imágenes de placas')
+        self.assertContains(faq, 'La serie escrita sólo aparece con autorización expresa')
+        self.assertContains(faq, 'Las placas y documentos quedan privados')
         privacy = self.client.get('/privacidad/')
         self.assertContains(privacy, 'Generar ficha de maquinaria')
         self.assertContains(privacy, 'autorización expresa')

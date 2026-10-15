@@ -19,7 +19,7 @@ class ResearchContentTests(TestCase):
         self.assertIn('tipo de máquina',how.body)
         self.assertIn('Elige el tipo y aporta una foto o serie',how.body)
         self.assertIn('identificamos la marca y el modelo cuando sea posible',how.body)
-        self.assertIn('añade horas y ubicación si los conoces',how.body)
+        self.assertIn('horas y ubicación si los conoces',how.body)
         self.assertIn('Puedes probar una ficha sin cuenta',how.body)
         self.assertNotIn('indica la ubicación',how.body)
         self.assertIn('se comparten con el servicio de búsqueda',privacy.body)
