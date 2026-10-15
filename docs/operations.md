@@ -355,3 +355,24 @@ configuración de la aplicación. El despliegue requiere restablecer primero la 
 del proyecto Neon correspondiente; después, ejecutar el arranque normal para aplicar
 la migración y el catálogo, y verificar una generación real y un enlace compartido.
 No reemplazar la base por una vacía ni usar SQLite en producción para sortear este bloqueo.
+
+### Recuperación en otro proyecto Neon — 15 de octubre de 2026
+
+Por autorización del propietario se creó `imc-mexico-production`, PostgreSQL 18.6
+en Frankfurt, y se restauró en su base vacía el último respaldo íntegro del volumen:
+`imc-private-20261013T234141Z-aa6734.tar.gz`, creado el 13 de octubre a las 23:41 UTC.
+La restauración verificó 41 tablas, 24.208 filas y 306 archivos mediante los hashes
+del manifiesto. Se conservaron 23 usuarios, 101 fichas y los permisos administrativos.
+Los archivos existentes coincidieron; no fue necesario sobrescribir ninguno.
+
+El origen permanece intacto y bloqueado por cuota. Los cambios posteriores al
+respaldo no se han podido comparar y requieren reconciliación cuando vuelva a
+estar disponible. No afirmar que el respaldo contiene cambios posteriores.
+
+Las conexiones de SeeNode se cambiaron al nuevo proyecto, conservando las demás
+variables. El comando definitivo vuelve a ser `python start.py`; las dos variables
+temporales `RECOVERY_*` se retiraron. Un despliegue iniciado antes de guardar las
+conexiones puede conservar el entorno anterior: iniciar una nueva revisión después
+del cambio y verificar migraciones, `/salud/`, portada, accesos y medios antes de
+considerar terminado el cambio. Las credenciales y la evidencia privada quedan
+fuera de Git.
