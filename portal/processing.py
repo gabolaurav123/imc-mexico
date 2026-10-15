@@ -44,6 +44,7 @@ from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consi
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
+from .worker_wake import wake_worker_after_commit
 
 PROMPT_VERSION = "imc-excavators-2026-09-v47"
 RETRIABLE_SERVICE_FAILURE_CODES = frozenset({
@@ -886,6 +887,11 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                     if existing.status == "completed":
                         apply_analysis_automatically(machine, user, existing, expected_revision)
                         existing.refresh_from_db()
+                # A prior commit can have left durable work while this worker
+                # was unavailable. Re-signal a queued duplicate; the queue's
+                # fingerprint still prevents duplicate provider work.
+                if existing.status == "queued":
+                    wake_worker_after_commit()
                 return existing
         now = timezone.now()
         jobs = daily_quota_jobs(limits, now)
@@ -936,6 +942,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                                          if k in AI_KEYS | {"description", "condition", "attachments", "location_country"}}}})
         audit(user, "analysis.queued", job, {"images": len(assets), "mode": mode,
                                               **({"retry_of": str(retry_of.pk)} if retry_of else {})})
+        wake_worker_after_commit()
         return job
 
 

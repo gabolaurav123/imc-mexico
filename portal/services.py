@@ -1155,6 +1155,9 @@ def _notify(user, machine, kind, subject, body, template_key=None, context=None)
     Notification.objects.create(user=user, machine=machine, kind=kind, subject=subject, body=body,
                                 channel="in_app", status="sent", sent_at=timezone.now())
     Notification.objects.create(user=user, machine=machine, kind=kind, subject=subject, body=body, channel="email")
+    # The email outbox row is durable only when the caller's transaction commits.
+    from .worker_wake import wake_worker_after_commit
+    wake_worker_after_commit()
 
 
 def _validate_payload(machine, payload, trusted_provenance=False):

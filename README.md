@@ -154,6 +154,10 @@ No subas `.env`, claves, cadenas de conexión, medios privados ni copias de base
 | `DIRECT_URL` | Conexión directa PostgreSQL para el bloqueo de despliegue y las migraciones; si falta, se usa `DATABASE_URL` |
 | `PORT` | Puerto del proceso, igual al campo Port de Seenode; por defecto `8000` |
 | `WEB_WORKERS`, `WEB_THREADS` | Procesos/hilos de Gunicorn; inicialmente uno de cada uno, ajustables al recurso contratado |
+| `WORKER_WAKE_FILE` | Archivo local compartido que despierta `runworker` tras confirmar una cola; vacío usa `MEDIA_ROOT/.imc-worker-wake` |
+| `WORKER_IDLE_BACKOFF_INITIAL`, `WORKER_IDLE_BACKOFF_MAX` | Sondeo de respaldo cuando no llega señal (3 segundos iniciales, máximo 900) |
+| `WORKER_WAKE_CHECK_SECONDS` | Frecuencia local de observación de la señal mientras el worker está inactivo; se limita a un segundo (0.5 por defecto) |
+| `WORKER_RETRY_POLL_MAX` | Máximo sondeo durante cinco minutos después de procesar un análisis, para recuperar reintentos próximos (15 segundos por defecto) |
 | `MEDIA_ROOT` | Carpeta privada persistente; valor actual en Seenode: `/data/media` |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | Credencial de servidor y modelo de imagen/salida estructurada |
 | `OPENAI_TIMEOUT` | Tiempo máximo de la llamada a OpenAI; inicialmente 90 segundos |
@@ -222,6 +226,8 @@ Configuración del servicio:
 `build.sh` instala ffmpeg, fuentes y herramientas PostgreSQL, instala dependencias Python, recoge estáticos y ejecuta comprobaciones de producción. La conversión real de HEIC/MOV y la generación de PDF se comprobaron en el servicio publicado.
 
 `start.py` ejecuta una migración serializada y después supervisa Gunicorn escuchando en `0.0.0.0:PORT`, `runworker` y el daemon `backup_private`. Comparten el volumen del mismo contenedor. Si un proceso esencial termina inesperadamente, el supervisor termina el contenedor para que el hosting lo reinicie. No se depende de la computadora del desarrollador. No crear otro worker con una carpeta local aislada: no compartiría esos archivos.
+
+Cuando la cola está vacía, `runworker` cierra explícitamente sus conexiones y amplía el sondeo de respaldo hasta 15 minutos; esto permite que Neon quede inactivo entre solicitudes. Una inserción de análisis o correo confirmada por Gunicorn actualiza una señal en el volumen y el worker la observa en hasta un segundo. Esa rapidez requiere una sola réplica con el mismo volumen: un productor externo, otra réplica o un volumen no compartido no emite una señal utilizable y se recupera mediante el sondeo de respaldo. La cola, leases y reintentos siguen siendo PostgreSQL; la señal no sustituye ni confirma trabajos.
 
 `deploy.py` utiliza `DIRECT_URL`, obtiene un bloqueo asesor de PostgreSQL, ejecuta `migrate --noinput` y `seed`, y libera el bloqueo. Así dos arranques coincidentes no migran a la vez. No borra tablas ni reinicia datos. La conexión debe conservar SSL y las opciones suministradas por Neon. El proyecto Neon independiente tiene aplicadas las migraciones `0001`–`0005`, incluidas plantillas/permisos, cierre inicial del registro y estructura de analítica opcional. El siguiente despliegue aplica `0006_open_user_registration`, que activa una sola vez el registro existente y conserva la configuración de IA, analítica, revisión documental y permisos. No requiere nuevas variables de entorno. Si `ADMIN_EMAIL` está configurado para el correo expresamente autorizado, el despliegue prepara su invitación mediante `invite_admin`; no eleva cuentas normales existentes.
 

@@ -24,6 +24,17 @@ Los trabajos de IA viven en PostgreSQL. Un reinicio no los borra: las leases ven
 se recuperan con el tope de intentos configurado. El estado de anuncios y versiones
 aprobadas también reside en PostgreSQL. No borrar ni reinicializar la base al desplegar.
 
+En el contenedor único, `runworker` usa `MEDIA_ROOT/.imc-worker-wake` (o
+`WORKER_WAKE_FILE`) como señal local después de confirmar un análisis o correo en
+la cola. Sin trabajo cierra sus conexiones PostgreSQL y usa un sondeo progresivo:
+3 segundos al inicio y hasta 900 segundos por defecto. La señal se comprueba cada
+0.5 segundos (máximo un segundo), por lo que una solicitud web nueva despierta el
+worker sin mantener Neon activo. Después de procesar un análisis conserva un sondeo
+de hasta 15 segundos durante cinco minutos para que los reintentos con lease diferida
+no esperen el máximo inactivo. Un productor fuera de este volumen, otra réplica o un
+fallo de escritura de la señal sólo tiene el sondeo de respaldo; PostgreSQL sigue
+siendo la fuente de verdad y ningún trabajo se descarta por perder una señal.
+
 Variables principales: `SECRET_KEY`, `DATABASE_URL`, `DIRECT_URL`, `PUBLIC_URL`,
 `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `MEDIA_ROOT`, credenciales SMTP y OpenAI.
 Se almacenan en secretos del proveedor, nunca en Git ni en documentación pública.

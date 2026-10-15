@@ -56,7 +56,10 @@ def activation_email(user,kind='activation'):
         'admin_activation':('Activa tu acceso administrativo a IMC México','Tu cuenta administrativa está preparada. Establece tu contraseña y después configura la verificación en dos pasos.'),
     }.get(kind,('Activa tu acceso a IMC México','Tu cuenta está preparada. Abre el enlace para establecer tu contraseña y verificar tu correo.'))
     minutes=max(1,settings.PASSWORD_RESET_TIMEOUT//60)
-    return Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
+    notice = Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
+    from .worker_wake import wake_worker_after_commit
+    wake_worker_after_commit()
+    return notice
 
 def register(request):
     publication_next=publication_destination(request)
