@@ -14,6 +14,7 @@ _FIELDS = (
     "gradeability", "working_width", "horizontal_outreach", "voltage", "dimensions",
     "maximum_reach_ground", "drum_width", "vibration_frequency", "centrifugal_force",
     "compaction_depth", "hydraulic_flow", "travel_speed", "blade_width",
+    "front_tire_size", "rear_tire_size", "mast_tilt", "load_tire_tread",
 )
 _AUTOMATIC = {"system", "image", "plate", "visual_proposal", "ai_reference", "web"}
 

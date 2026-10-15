@@ -1,6 +1,7 @@
 """Validated private uploads and a database-backed, bounded AI work queue."""
 import base64
 from copy import deepcopy
+from email.utils import parsedate_to_datetime
 import hashlib
 import io
 import json
@@ -50,6 +51,7 @@ PROMPT_VERSION = "imc-excavators-2026-09-v47"
 RETRIABLE_SERVICE_FAILURE_CODES = frozenset({
     "billing_unavailable", "credentials_unavailable", "model_unavailable",
 })
+MAX_RATE_LIMIT_RETRY_SECONDS = 300
 MIN_JOB_LEASE_SECONDS = 600
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -741,6 +743,35 @@ def _retriable_service_failure(job):
 def _service_retry_fingerprint(original_fingerprint, previous_job_id):
     """Stable unique fingerprint for the next member of a retry chain."""
     return hashlib.sha256(f"{original_fingerprint}:service-retry:{previous_job_id}".encode()).hexdigest()
+
+
+def _rate_limit_retry_seconds(exc, attempts, now=None):
+    """Use a bounded provider retry hint, preserving the legacy backoff fallback.
+
+    Only the numeric delay is retained; response bodies, request identifiers and
+    headers are intentionally never persisted or logged.
+    """
+    fallback = min(MAX_RATE_LIMIT_RETRY_SECONDS, 15 * 2 ** attempts)
+    headers = getattr(getattr(exc, "response", None), "headers", None)
+    if headers is None:
+        return fallback
+    value = headers.get("retry-after")
+    delay = None
+    if value is not None:
+        try:
+            delay = float(value)
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    return fallback
+                reference = now or timezone.now()
+                delay = (retry_at - reference).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return fallback
+    if delay is None or not math.isfinite(delay) or delay < 0:
+        return fallback
+    return min(MAX_RATE_LIMIT_RETRY_SECONDS, max(1, math.ceil(delay)))
 
 
 def _latest_retry_candidate(machine, original):
@@ -2498,6 +2529,12 @@ def process_next_job():
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
                             "No pudimos completar el análisis. Tu borrador está guardado; puedes enviar la ficha con la información disponible.")
+            rate_limit_delay = None
+            if isinstance(exc, RateLimitError):
+                rate_limit_delay = _rate_limit_retry_seconds(exc, locked.attempts)
+                # This narrow diagnostic class never includes a provider body,
+                # URL, request identifier, or response header.
+                locked.result = {**locked.result, "last_failure_kind": "rate_limited"}
             if configuration_failure:
                 locked.result = {**locked.result, 'provider_error_code': configuration_failure}
                 locked.error = (f"El modelo {locked.model} no está disponible con la configuración actual del proyecto. "
@@ -2515,7 +2552,8 @@ def process_next_job():
             elif not configuration_failure:
                 locked.input_tokens += min(locked.reserved_tokens, per_attempt)
             locked.reserved_tokens = max(0, locked.reserved_tokens - per_attempt) if retry else 0
-            locked.locked_at = timezone.now() + timedelta(seconds=min(300, 15 * 2 ** locked.attempts)) if retry else None
+            retry_seconds = rate_limit_delay if rate_limit_delay is not None else min(300, 15 * 2 ** locked.attempts)
+            locked.locked_at = timezone.now() + timedelta(seconds=retry_seconds) if retry else None
             locked.finished_at = None if retry else timezone.now()
             if not retry:
                 locked.analytics_context = {}
