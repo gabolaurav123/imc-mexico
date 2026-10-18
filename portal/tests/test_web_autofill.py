@@ -56,7 +56,10 @@ class WebAutofillTests(TestCase):
             if not any(item['url']==url for item in sources):sources.append({'url':url,'title':title})
             passages.append(f'{passage} [Fuente]({url})')
         research=normalize_research(ResearchExtraction(fields=fields),identity,scope,sources,'\n\n'.join(passages))
-        return merge_research({'data':{},'provenance':{},'fields':[],'plates':[],'warnings':[]},research)
+        return merge_research({'data':{},'provenance':{},'fields':[],'plates':[],'warnings':[],
+            'relevance':{'status':'relevant','accepted_asset_ids':[str(self.asset.pk)]},
+            'image_observations':[{'asset_id':str(self.asset.pk),'kind':'machine',
+                                   'relevance':'machinery','machine_count':1}]},research)
 
     def job(self,result):
         return AnalysisJob.objects.create(machine=self.machine,requested_by=self.owner,

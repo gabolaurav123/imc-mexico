@@ -123,10 +123,19 @@ def _stage_request(identity, stage, result, category=None, candidate_models=()):
         "Retroexcavadoras": "retroexcavadora backhoe", "Motoniveladoras": "motoniveladora grader",
         "Cargadores frontales": "cargador frontal wheel loader", "Minicargadores": "minicargador skid steer",
         "Montacargas": "montacargas forklift", "Grúas": "grúa crane", "Generadores": "generador generator",
-        "Tractores": "tractor",
+        "Tractores": "tractor", "Pavimentadoras": "pavimentadora paver",
     }
     if category in category_terms:
         query += " " + category_terms[category]
+    if category == "Pavimentadoras":
+        objective += (
+            " Distingue pavimentadoras de asfalto y de concreto de encofrado deslizante; "
+            "no uses fichas de fresadoras, rodillos ni distribuidores de asfalto. Busca potencia, peso "
+            "operativo y ancho de pavimentación del modelo y su variante; conserva la regla o molde "
+            "documentado y distingue ancho básico, máximo con extensiones y ancho de transporte. "
+            "Capacidad sólo con etiqueta y unidad: tolva o producción cuando el modelo lo documente, "
+            "nunca depósito de combustible ni capacidad prestada de otra familia."
+        )
     candidate_models = [model for model in candidate_models if _identifier(model)]
     if candidate_models and stage in {"manufacturer", "catalogs", "manuals"}:
         # A serial-bound longer reading is a review lead only.  It broadens

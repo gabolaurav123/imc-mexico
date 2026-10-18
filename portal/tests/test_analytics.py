@@ -13,6 +13,7 @@ from django.utils import timezone
 from portal.analytics import (CONSENT_COOKIE,SESSION_COOKIE,capture_context,page_category,
     record_event,record_job_completion,safe_slug,session_hash)
 from portal.models import AnalysisJob,AnalyticsEvent,Asset,Consent,Lead,Machine,PlatformSettings,User
+from portal.tests.test_workflow import accepted_photo_analysis
 
 
 @override_settings(STAFF_MFA_REQUIRED=False,SECURE_SSL_REDIRECT=False,
@@ -259,6 +260,7 @@ class AnalyticsPrivacyTests(TestCase):
             response=self.client.post(f"/api/maquinarias/{self.machine.pk}/archivos/",{"file":SimpleUploadedFile("test.jpg",b"test",content_type="image/jpeg")})
         self.assertEqual(response.status_code,201)
         self.assertEqual(AnalyticsEvent.objects.filter(event="upload_started").count(),1)
+        accepted_photo_analysis(self.machine)
         response=self.client.post(f"/api/maquinarias/{self.machine.pk}/enviar/",json.dumps({"advertise_consent":True}),content_type="application/json")
         self.assertEqual(response.status_code,200)
         self.assertEqual(AnalyticsEvent.objects.filter(event="submission_sent").count(),1)

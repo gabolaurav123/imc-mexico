@@ -10,6 +10,7 @@ from pypdf import PdfReader
 
 from portal.models import AnalysisJob, Asset, Machine, MachineVersion, Publication, User
 from portal.services import record_local_duplicate_review, review_submission, submit_machine
+from portal.tests.test_workflow import accepted_photo_analysis
 
 
 @override_settings(SECURE_SSL_REDIRECT=False, PRIVATE_S3_BUCKET="",
@@ -61,6 +62,9 @@ class LatePlatePrivacyTests(TestCase):
         return publication
 
     def test_classification_after_submission_excludes_plate_at_approval(self):
+        # Initially both views were accepted as machinery; the later analysis
+        # below reclassifies one as a private plate after submission.
+        accepted_photo_analysis(self.machine)
         submission = submit_machine(self.machine, self.owner, True)
         self.assertIn(str(self.plate.pk), submission.version.data["public_asset_ids"])
         self.identify_plate()

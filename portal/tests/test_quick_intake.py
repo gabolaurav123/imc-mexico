@@ -9,6 +9,7 @@ import json
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
@@ -18,6 +19,7 @@ from PIL import Image
 from portal.models import (AnalysisJob,Asset,Category,Consent,Machine,MachineVersion,
                            Notification,PlatformSettings,Publication,SiteContent,Submission,User)
 from portal.processing import process_next_job
+from portal.services import automatic_application_snapshot
 
 
 class IntakeHTML(HTMLParser):
@@ -83,6 +85,15 @@ class QuickIntakeTests(TestCase):
         response=self.post(self.base+'/guardar/',{'revision':self.machine.revision,'title':'Maquinaria declarada por el anunciante','data':{'location':'Querétaro, México','year':None,'hours':None,'serial':None,**data}})
         self.assertEqual(response.status_code,200,response.content)
         self.machine.refresh_from_db()
+
+    def assess_photo(self,asset):
+        """Completed visual validation; no model/price guesses are required."""
+        return AnalysisJob.objects.create(machine=self.machine,requested_by=self.owner,
+            revision=self.machine.revision,asset_ids=[str(asset.pk)],fingerprint=uuid4().hex,
+            status='completed',application_snapshot=automatic_application_snapshot(self.machine),
+            result={'relevance':{'status':'relevant','accepted_asset_ids':[str(asset.pk)]},
+                    'image_observations':[{'asset_id':str(asset.pk),'kind':'machine','relevance':'machinery',
+                        'category':self.category.name,'machine_count':1}], 'fields':[]})
 
     def test_wizard_has_two_steps_without_analysis_or_publication_checklists(self):
         response=self.client.get(f'/panel/maquinarias/{self.machine.pk}/')
@@ -180,7 +191,10 @@ class QuickIntakeTests(TestCase):
         self.assertFalse(Consent.objects.filter(machine=self.machine,kind='advertise').exists())
         result={'data':{'title':'Maquinaria observada','description':'Vista general de maquinaria.','brand':'MARCA DE PRUEBA','serial':None,'year':None,'hours':None},
                 'provenance':{'brand':{'source':'image','review':'clear','asset_id':str(asset.pk),'component':'machine','evidence':'MARCA DE PRUEBA'}},
-                'plates':[],'warnings':[],'questions':[]}
+                'plates':[],'warnings':[],'questions':[],
+                'relevance':{'status':'relevant','accepted_asset_ids':[str(asset.pk)]},
+                'image_observations':[{'asset_id':str(asset.pk),'kind':'machine','relevance':'machinery',
+                    'category':self.category.name,'machine_count':1}]}
         with patch('portal.processing.process_analysis',return_value=(result,SimpleNamespace(input_tokens=10,output_tokens=10))):
             self.assertTrue(process_next_job())
         response=self.client.get(f'/api/analisis/{job_id}/')
@@ -199,24 +213,32 @@ class QuickIntakeTests(TestCase):
         self.assertEqual(anonymous.get(f'/archivos/{asset.pk}/').status_code,302)
         self.assertEqual(anonymous.get(f'/panel/maquinarias/{self.machine.pk}/').status_code,302)
 
-    def test_quota_failure_preserves_upload_and_allows_submission_without_manual_specs(self):
+    def test_quota_failure_preserves_upload_but_unchecked_photos_cannot_be_submitted(self):
         asset=self.upload()
         self.platform.ai_user_daily_limit=0;self.platform.save(update_fields=['ai_user_daily_limit'])
         response=self.post(self.base+'/analizar/',{'consent':True,'auto_apply':True,'revision':self.machine.revision})
         self.assertEqual(response.status_code,400)
-        self.assertIn('enviar la ficha con la información disponible',response.json()['error'].lower())
+        self.assertIn('tus fotos y datos siguen guardados',response.json()['error'].lower())
+        self.assertNotIn('puedes enviar',response.json()['error'].lower())
         self.assertFalse(AnalysisJob.objects.exists())
         asset.refresh_from_db();self.assertTrue(asset.original.storage.exists(asset.original.name))
         self.assertEqual(self.machine.assets.count(),1)
+        before=dict(self.machine.data)
         response=self.post(self.base+'/enviar/',{'advertise_consent':True,'contact_consent':False})
-        self.assertEqual(response.status_code,200,response.content)
-        self.assertEqual(Submission.objects.count(),1)
+        self.assertEqual(response.status_code,400,response.content)
+        self.assertIn('pendientes de identificar',response.json()['error'])
+        self.assertFalse(Submission.objects.exists())
+        shared=self.post(self.base+'/compartir/',{'revision':self.machine.revision})
+        self.assertEqual(shared.status_code,400,shared.content)
         self.assertFalse(Publication.objects.exists())
         self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status,'draft')
+        self.assertEqual(self.machine.data,before)
         for field in ('year','hours','serial'):self.assertIsNone(self.machine.data.get(field))
 
     def test_explicit_final_action_is_required_and_repeat_does_not_duplicate_submission(self):
-        self.upload();self.save_manual(contact_public='Este texto no autoriza su difusión')
+        asset=self.upload();self.save_manual(contact_public='Este texto no autoriza su difusión')
+        self.assess_photo(asset)
         response=self.post(self.base+'/enviar/',{})
         self.assertEqual(response.status_code,400)
         self.assertFalse(Submission.objects.exists())
@@ -237,6 +259,7 @@ class QuickIntakeTests(TestCase):
 
     def test_missing_location_can_be_submitted_without_inventing_it_or_publishing(self):
         asset=self.upload();self.save_manual(location='')
+        self.assess_photo(asset)
         response=self.post(self.base+'/enviar/',{'advertise_consent':True,'contact_consent':False})
         self.assertEqual(response.status_code,200,response.content)
         self.machine.refresh_from_db()
@@ -247,19 +270,19 @@ class QuickIntakeTests(TestCase):
         self.assertEqual(submission.version.data['data'].get('location'),'')
         self.assertFalse(Publication.objects.exists())
 
-    def test_photos_and_consent_are_enough_with_neutral_fallback_and_immutable_snapshot(self):
+    def test_photos_and_consent_without_validation_cannot_create_a_submitted_snapshot(self):
         self.upload();before=self.machine.revision
+        saved=dict(self.machine.data)
         response=self.post(self.base+'/enviar/',{'advertise_consent':True,'contact_consent':False})
-        self.assertEqual(response.status_code,200,response.content)
+        self.assertEqual(response.status_code,400,response.content)
+        self.assertIn('pendientes de identificar',response.json()['error'])
         self.machine.refresh_from_db()
-        self.assertEqual(self.machine.title,'Maquinaria para revisión')
-        self.assertIn('pendientes de confirmar',self.machine.data['description'])
-        self.assertEqual(self.machine.revision,before+1)
+        self.assertEqual(self.machine.status,'draft')
+        self.assertEqual(self.machine.data,saved)
+        self.assertEqual(self.machine.revision,before)
         self.assertNotIn('location',self.machine.data)
-        submission=Submission.objects.get(machine=self.machine)
-        self.assertEqual(submission.version.data['revision'],self.machine.revision)
-        self.assertEqual(submission.version.data['title'],self.machine.title)
-        self.assertEqual(submission.version.data['provenance']['description'],{'source':'system','review':'needs_review'})
+        self.assertFalse(Submission.objects.exists())
+        self.assertFalse(MachineVersion.objects.exists())
         self.assertFalse(Publication.objects.exists())
         self.assertFalse(AnalysisJob.objects.exists())
 

@@ -37,7 +37,7 @@ SEARCH_RESERVATION = 27_000
 PARSE_RESERVATION = 9_000
 VALUATION_DEADLINE_SECONDS = 140
 LABEL = 'Estimación orientativa, editable y sujeta a confirmación'
-CONDITION_MISSING = 'Falta confirmar si la máquina es nueva, usada, reacondicionada o para reparación; la apariencia no prueba que sea nueva.'
+CONDITION_MISSING = 'Falta confirmar si la máquina es nueva o usada; la apariencia no prueba que sea nueva.'
 SIGNING_SALT = 'portal.valuation.manifest.v1'
 MAX_DOCUMENTS = 6
 # Search ranking is not a reliability signal: the first result can be a

@@ -217,7 +217,7 @@ class ImageRelevanceWorkerTests(TestCase):
                 self.assertEqual(self.machine.title, "Human title")
                 self.assertEqual(self.machine.data["description"], "Human description")
 
-    def test_mixed_only_passes_accepted_image_data_into_research(self):
+    def test_mixed_keeps_accepted_readings_but_requires_photo_correction_before_research(self):
         other = Asset.objects.create(machine=self.machine, kind="image", purpose="general",
             processing_status="ready", original="test/other.jpg", preview="test/other.jpg",
             size=1, mime_type="image/jpeg", sha256="b" * 64)
@@ -232,10 +232,10 @@ class ImageRelevanceWorkerTests(TestCase):
             provider.return_value.responses.parse.side_effect = [SimpleNamespace(status="completed", output_parsed=response,
                 usage=SimpleNamespace(input_tokens=250, output_tokens=80)) for response in responses]
             result, usage = process_analysis(job)
-        research.assert_called_once()
-        supplied = research.call_args.args[2]
-        self.assertNotIn("SELFIE-MODEL", str(supplied))
-        self.assertEqual(supplied["data"]["power"], "10 kW")
+        research.assert_not_called()
+        self.assertEqual(result["blocking_reason"], "photo_relevance")
+        self.assertNotIn("SELFIE-MODEL", str(result))
+        self.assertEqual(result["data"]["power"], "10 kW")
         self.assertNotIn("mástil vertical", result["description"])
         self.assertIn("mástil vertical", result["visual_description"])
         self.assertEqual(result["relevance"]["status"], "mixed")

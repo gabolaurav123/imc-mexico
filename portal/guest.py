@@ -301,6 +301,7 @@ def guest_state(draft):
         "limits": {"max_images": MAX_GUEST_IMAGES, "max_analysis_jobs": MAX_GUEST_JOBS,
                    "max_service_retries": MAX_GUEST_SERVICE_RETRIES},
         "analysis_used": _guest_analysis_used(machine),
+        "serial_enrichment_available": _serial_enrichment_available(machine),
         "share": {"enabled": bool(share),
                   "url": f"{settings.PUBLIC_URL.rstrip('/')}/s/{share.code}/" if share else ""},
     }
@@ -344,6 +345,61 @@ def _guest_analysis_used(machine):
     """A provider availability failure does not spend the visitor analysis."""
     return any(not _job_is_retriable_service_failure(job)
                for job in machine.analysis_jobs.only("status", "result"))
+
+
+def _serial_enrichment_available(machine, jobs=None):
+    """One serial supplement for the same already-checked visitor machine.
+
+    The allowance is derived under the draft/machine locks when enqueueing. A
+    queued supplement consumes it immediately, so concurrent browser events
+    cannot reserve multiple paid jobs. Provider availability failures retain
+    the existing bounded service-retry policy.
+    """
+    from .intake import has_written_serial
+    serial = (machine.data or {}).get("serial")
+    if not has_written_serial(serial):
+        return False
+    jobs = list(machine.analysis_jobs.all()) if jobs is None else list(jobs)
+    if sum(_job_is_retriable_service_failure(job) for job in jobs) >= MAX_GUEST_SERVICE_RETRIES:
+        return False
+    consumed = [job for job in jobs if not _job_is_retriable_service_failure(job)]
+    if len(consumed) != 1:
+        return False
+    original = consumed[0]
+    result = original.result if isinstance(original.result, dict) else {}
+    snapshot = result.get("input_snapshot")
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("data"), dict):
+        # Unknown historical inputs cannot establish that this is new evidence.
+        return False
+    previous = snapshot["data"]
+    consistency = result.get("consistency", {})
+    reading = result.get("data", {})
+    if not all(isinstance(value, dict) for value in (previous, consistency, reading)):
+        return False
+    if (original.status != "completed" or original.mode != "analysis" or result.get("preflight")
+            or result.get("blocking_reason") or consistency.get("status") == "contradiction"
+            or has_written_serial(previous.get("serial")) or result.get("input_category_id") != machine.category_id):
+        return False
+    # An existing OCR serial does not warrant another paid run unless the
+    # owner actually corrected it. Whitespace/case changes are not new data.
+    normalize = lambda value: "".join(char for char in str(value or "").casefold() if char.isalnum())
+    if normalize(serial) == normalize(reading.get("serial")):
+        return False
+    assets = services._analysis_asset_state(machine)
+    if (not assets or len(assets) > MAX_GUEST_IMAGES
+            or any(item["kind"] != "image" or item["status"] != "ready" for item in assets)
+            or not isinstance(original.application_snapshot, dict)
+            or services._analysis_snapshot_asset_state(original.application_snapshot.get("assets")) != assets):
+        return False
+    current_ids = {item["id"] for item in assets}
+    relevance = result.get("relevance") or {}
+    if (not isinstance(relevance, dict) or not isinstance(original.asset_ids, list)
+            or not isinstance(relevance.get("accepted_asset_ids"), list)):
+        return False
+    return (current_ids == set(map(str, original.asset_ids))
+            and relevance.get("status") == "relevant"
+            and not relevance.get("excluded_asset_ids") and not relevance.get("uncertain_asset_ids")
+            and current_ids <= set(map(str, relevance.get("accepted_asset_ids", []))))
 
 
 def _response_error(exc):
@@ -676,14 +732,19 @@ def analyze(request, pk):
         with transaction.atomic():
             draft = _draft_for_request(request, pk, lock=True)
             machine = Machine.objects.select_for_update().get(pk=draft.machine_id)
-            jobs = list(AnalysisJob.objects.filter(machine=machine).only("status", "result"))
-            if any(not _job_is_retriable_service_failure(job) for job in jobs):
-                raise ValidationError("Este borrador temporal ya usó su análisis. Regístrate para continuar con más revisiones.")
+            jobs = list(AnalysisJob.objects.filter(machine=machine))
+            serial_supplement = _serial_enrichment_available(machine, jobs)
             if sum(_job_is_retriable_service_failure(job) for job in jobs) >= MAX_GUEST_SERVICE_RETRIES:
                 raise ValidationError("El servicio no está disponible después de varios intentos. Regístrate para continuar más tarde.")
+            if any(not _job_is_retriable_service_failure(job) for job in jobs) and not serial_supplement:
+                raise ValidationError("Este borrador temporal ya usó su análisis. Regístrate para continuar con más revisiones.")
             selected = body.get("asset_ids")
             if selected is not None and (not isinstance(selected, list) or len(selected) > MAX_GUEST_IMAGES):
                 raise ValidationError("Selecciona hasta cuatro fotografías.")
+            if serial_supplement:
+                checked_ids = {item["id"] for item in services._analysis_asset_state(machine)}
+                if selected is not None and set(map(str, selected)) != checked_ids:
+                    raise ValidationError("Conserva las fotografías de esta ficha para completar sus datos con la serie.")
             from .intake import preparation_mode
             mode = preparation_mode(machine, selected)
             requested_mode = body.get("mode") or mode

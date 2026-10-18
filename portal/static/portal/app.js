@@ -104,8 +104,8 @@
   catch { $('#wizard-errors').textContent = 'No pudimos cargar el borrador. Recarga antes de editar.'; $('#wizard-errors').hidden = false; return; }
   state.data ||= {}; state.provenance ||= {};
   const guest = Boolean(wizard.dataset.guest);
-  let guestAnalysisUsed=false;
-  try{guestAnalysisUsed=Boolean(JSON.parse($('#guest-state')?.textContent||'{}').analysis_used);}catch{/* Server still enforces the trial. */}
+  let guestAnalysisUsed=false, guestSerialEnrichmentAvailable=false;
+  try{const guestState=JSON.parse($('#guest-state')?.textContent||'{}');guestAnalysisUsed=Boolean(guestState.analysis_used);guestSerialEnrichmentAvailable=Boolean(guestState.serial_enrichment_available);}catch{/* Server still enforces the trial. */}
   const base = wizard.dataset.apiBase || `/api/maquinarias/${wizard.dataset.machine}/`;
   const jobUrl = id => guest ? `${base}analisis/${id}/` : `/api/analisis/${id}/`;
   const assetUrl = id => guest ? `${base}archivos/${encodeURIComponent(id)}/` : `/archivos/${encodeURIComponent(id)}/`;
@@ -138,7 +138,9 @@
   let researchHypotheses = [], researchHypothesisIdentity = valuationIdentityOf(state);
   const previewImageKinds = new Map();
   let activeJob = null, pollTimer, pollTask = null, polling = false, jobPending = false, analysisStartedAt = 0, currentStep = 1;
-  let photoCheckBlocked = false;
+  let photoCheckBlocked = false, evidenceNeedsReview = false, analysisHasCompleted = false;
+  let serialRefreshTimer, serialRefreshCandidate = null, serialRefreshAttempted = null, serialNeedsRefresh = false;
+  let analyzedSerial = String(state.data?.serial || "").trim();
   let servicePaused = false;
   const saveStatus = $('#save-status'), saveRetry = $('#save-retry'), errorBox = $('#wizard-errors');
     const keyLabels = { title:'Título',description:'Descripción',brand:'Marca',model:'Modelo',variant:'Variante',year:'Año',serial:'Serie privada',hours:'Horas',hours_basis:'Origen de las horas',hours_recorded_at:'Fecha de lectura o declaración',category:'Categoría',machine_family:'Familia de máquina',undercarriage:'Sistema de desplazamiento',boom_configuration:'Configuración de pluma',stick_configuration:'Configuración de brazo o balancín',size_class:'Clase de tamaño',application:'Aplicación principal',depth_configuration:'Configuración de profundidad',power_type:'Tipo de potencia',location_country:'País donde está',location_region:'Estado o provincia',location_city:'Ciudad',location:'Ubicación actual',condition:'Condición',plate_kind:'Componente de la placa',plate_transcription:'Texto de la placa',price:'Precio',currency:'Moneda',notes:'Comentarios',contact_public:'Contacto público',power:'Potencia',weight:'Peso operativo',capacity:'Capacidad',dimensions:'Dimensiones',fuel:'Combustible',kilometers:'Kilometraje',attachments:'Accesorios',engine:'Motor',transmission:'Transmisión',vibration_frequency:'Frecuencia de vibración',centrifugal_force:'Fuerza centrífuga',compaction_depth:'Profundidad de compactación',digging_depth:'Profundidad máxima de excavación',hydraulic_system:'Sistema hidráulico',country_of_origin:'País de fabricación' };
@@ -181,20 +183,67 @@
       $('#ready-heading').textContent='Datos actualizados';
       $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
     }
+    if (['category','brand','model','model_family','serial'].includes(key) && activeJob) evidenceNeedsReview = true;
+    if (key === 'serial') {
+      clearTimeout(serialRefreshTimer); serialRefreshCandidate = null;
+      serialNeedsRefresh=String(readInput(input) || '').trim() !== analyzedSerial;
+      if (analysisHasCompleted && currentStep === 2 && usefulSerial(readInput(input)) && String(readInput(input)).trim() !== analyzedSerial)
+        serialRefreshMessage('Al terminar de escribir la serie, actualizaremos los datos disponibles sin borrar tus correcciones.');
+      else serialRefreshMessage('');
+    }
     if (key === 'serial' || !photoCheckBlocked) prepareLabel();
     if (conflict) return;
     markSave('Cambios pendientes','pending'); clearTimeout(saveTimer);
     saveTimer = setTimeout(() => save().catch(() => {}),850);
   }
+  function usefulSerial(value) {
+    const compact=String(value || '').trim().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
+    return compact.length >= (serialInputRules.minimum_alphanumeric || 3) && !serialInputRules.placeholders.includes(compact);
+  }
+  function serialRefreshMessage(message) {
+    const node=$('#serial-refresh-status'); if(node){node.textContent=message;node.hidden=!message;}
+  }
+  function queueSerialRefresh() {
+    if(!editable || !analysisHasCompleted || !serialNeedsRefresh || currentStep !== 2 || deleting)return;
+    const serial=String($('#serial')?.value || '').trim();
+    if(!usefulSerial(serial) || serial===analyzedSerial || serial===serialRefreshAttempted)return;
+    serialRefreshCandidate=serial; clearTimeout(serialRefreshTimer);
+    serialRefreshTimer=setTimeout(runSerialRefresh,350);
+  }
+  async function runSerialRefresh() {
+    const serial=serialRefreshCandidate;
+    if(!serial || String($('#serial')?.value || '').trim()!==serial || !editable || deleting || conflict)return;
+    if(preparing || polling || jobPending || submitting || downloading || uploadCount)return;
+    try{await save();}catch{serialRefreshCandidate=null;serialRefreshMessage('No se guardó la serie. Reintenta el guardado para actualizar la ficha.');return;}
+    if(serialRefreshCandidate!==serial || String($('#serial')?.value || '').trim()!==serial)return;
+    if(guest && guestAnalysisUsed && !guestSerialEnrichmentAvailable){
+      serialRefreshCandidate=null;
+      serialRefreshMessage('Serie guardada. Tu prueba incluye una preparación. Crea tu cuenta para volver a completar esta misma ficha con la serie.');
+      return;
+    }
+    if(servicePaused || photoCheckBlocked){
+      serialRefreshCandidate=null;
+      serialRefreshMessage(servicePaused?'Serie guardada. Podrás actualizar la ficha cuando se restablezca la preparación automática.':'Serie guardada. Corrige las fotografías señaladas antes de actualizar la ficha.');
+      return;
+    }
+    serialRefreshCandidate=null; serialRefreshAttempted=serial;
+    serialRefreshMessage('Actualizando la ficha con la serie. Conservamos tus correcciones.');
+    await startAnalysis();
+  }
+  function resumeSerialRefresh() {
+    if(serialRefreshCandidate){clearTimeout(serialRefreshTimer);serialRefreshTimer=setTimeout(runSerialRefresh,0);}
+  }
   function bindInput(input) {
     input.addEventListener('input',changed);
     if (input.tagName === 'SELECT' || input.type === 'checkbox') input.addEventListener('change',changed);
+    if(input.dataset.field==='serial'){input.addEventListener('change',queueSerialRefresh);input.addEventListener('blur',queueSerialRefresh);}
   }
   function isOwnAutoAdvance(snapshot,metadata,revision=state.revision) {
     return metadata?.status === 'applied' && Number(metadata.revision_before) === Number(revision) && Number(metadata.revision_after) === Number(snapshot?.revision) && Number(snapshot.revision) > Number(revision);
   }
   function hydrate(snapshot) {
     if (!snapshot || Number(snapshot.revision) < Number(state.revision)) return false;
+    if(guest && Object.hasOwn(snapshot,'serial_enrichment_available'))guestSerialEnrichmentAvailable=Boolean(snapshot.serial_enrichment_available);
     if (Object.hasOwn(snapshot,'valuation')) valuationIdentity = valuationIdentityOf(snapshot);
     state = {...state,...snapshot,data:{...(snapshot.data || {})},provenance:{...(snapshot.provenance || {})}};
     $$('[data-top-field]',wizard).forEach(input => { if (!pending.has(input.dataset.topField)) input.value = state[input.dataset.topField] ?? ''; });
@@ -246,6 +295,7 @@
           // hydrate keeps newer pending values, including explicit blanks and zero.
           if (result.machine) hydrate(result.machine);
           markSave(pending.size ? 'Cambios pendientes' : 'Guardado',pending.size ? 'pending' : 'saved');
+          prepareLabel();
         } catch (error) {
           if (error.status === 409 && !recovered && await rebaseOwnAnalysis(payload.revision)) { recovered = true; continue; }
           if (error.status === 409) {
@@ -312,13 +362,17 @@
     servicePaused=false;$('#service-paused').hidden=true;prepareLabel();
     if(!$('#analyze-button').disabled)$('#analyze-button').click();else displayStep(1);
   });
-  $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => displayStep(button.dataset.stepTo)));
+  $$('[data-step-to]',wizard).forEach(button => button.addEventListener('click',() => {
+    if(Number(button.dataset.stepTo)===2 && photoCheckBlocked)return problem('Corrige las fotografías o el tipo de máquina antes de continuar a la ficha.');
+    displayStep(button.dataset.stepTo);
+  }));
   $('#step-prev').addEventListener('click',() => displayStep(1));
   $$('[data-submit-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#submit-machine').click()));
   $$('[data-generate-proxy]',wizard).forEach(button => button.addEventListener('click',()=>$('#analyze-button').click()));
   let sharedUrl='',sharing=false;
   $$('[data-share-machine]',wizard).forEach(button=>button.addEventListener('click',async()=>{
     if(sharing)return;
+    if(photoCheckBlocked || evidenceNeedsReview)return problem('Comprueba las fotografías y el tipo de máquina generando la ficha con la información actual antes de compartir.');
     if(preparing||jobPending||polling||submitting||deleting) return problem('Espera a que termine la preparación o el guardado antes de compartir.');
     if(window.imcSheetCompleteness && !(await window.imcSheetCompleteness.confirm()))return;
     if(sharing||preparing||jobPending||polling||submitting||deleting)return;
@@ -326,12 +380,13 @@
     try{
       window.imcShareModal?.loading?.(collect().title,'#wizard-errors');
       await uploadsReady();await save();
+      if(photoCheckBlocked || evidenceNeedsReview)throw new Error('Las fotos o la identificación cambiaron. Genera de nuevo la ficha antes de compartir.');
       const result=await api(`${base}compartir/`,{revision:state.revision,action:'enable',include_serial:Boolean($('#share-serial')?.checked),include_contact:!guest&&Boolean($('#contact-consent')?.checked)});
       updateRevision(result);
       if(!window.imcShareModal?.open) throw new Error('No se pudo abrir las opciones para compartir. Recarga la página e inténtalo de nuevo.');
       sharedUrl=window.imcShareModal.open(result.url,collect().title);
       $('#revoke-sheet-link').hidden=false;
-    }catch(error){sharedUrl='';problem(error.message);window.imcShareModal?.fail?.(error.message);}finally{sharing=false;$$('[data-share-machine]',wizard).forEach(item=>{item.disabled=false;});}
+    }catch(error){sharedUrl='';problem(error.message);window.imcShareModal?.fail?.(error.message);}finally{sharing=false;prepareLabel();}
   }));
   $('#revoke-sheet-link')?.addEventListener('click',async()=>{
     try{await uploadsReady();await save();const result=await api(`${base}compartir/`,{revision:state.revision,action:'disable'});updateRevision(result);sharedUrl='';$('#revoke-sheet-link').hidden=true;window.imcShareModal?.close();toast('Enlace desactivado. Las personas que lo recibieron ya no pueden abrir la ficha.');}
@@ -380,21 +435,39 @@
     box.hidden=!message;box.textContent=message;box.classList.toggle('error',error);
   }
   function photoCorrection(job) {
-    const result=job.result||{}, categoryConflict=result.category_conflict, actions=$('#photo-correction-actions');
+    const result=job.result||{}, integrity=job.integrity||job.processing_integrity||result.integrity||result.processing_integrity||{}, categoryConflict=integrity.category_conflict||result.category_conflict, multiple=integrity.multiple_machines||result.multiple_machines, actions=$('#photo-correction-actions');
     if(actions){actions.replaceChildren();actions.hidden=true;}
     const excluded=['mixed','relevant','unrelated','uncertain'].includes(result.relevance?.status) ? result.relevance?.excluded_asset_ids?.length||0 : 0;
-    const blocked=Boolean(result.blocking_reason)||result.consistency?.status==='contradiction'||['unrelated','uncertain'].includes(result.relevance?.status)||excluded>0;
-    photoCheckBlocked=blocked;
-    if(!blocked)return false;
-    const message=categoryConflict?.message||result.multiple_machines?.message||(excluded?'Quita las imágenes señaladas que no corresponden a maquinaria antes de generar la ficha.':'')||result.consistency?.explanation||result.relevance?.message||'Revisa las fotografías antes de generar la ficha.';
+    const pendingPhotos=result.blocking_reason==='photo_pending';
+    const blocked=Boolean(result.blocking_reason)||Boolean(categoryConflict)||Boolean(multiple)||result.consistency?.status==='contradiction'||['unrelated','uncertain'].includes(result.relevance?.status)||excluded>0;
+    photoCheckBlocked=blocked&&!pendingPhotos; evidenceNeedsReview=blocked;
+    if(!blocked){photoCheckMessage('');return false;}
+    const message=categoryConflict?.message||multiple?.message||(excluded?'Quita las imágenes señaladas que no corresponden a maquinaria antes de generar la ficha.':'')||result.consistency?.explanation||result.relevance?.message||result.warnings?.[0]||'Revisa las fotografías antes de generar la ficha.';
     photoCheckMessage(message,true);setAnalysisLoading(false);
     $('#ready-heading').textContent='Revisa las fotos antes de generar la ficha';
     $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha pendiente';
     if(categoryConflict&&actions){
-      const option=[...$('#category').options].find(item=>item.textContent.trim().toLocaleLowerCase()===String(categoryConflict.detected).trim().toLocaleLowerCase());
+      const normalize=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'').replace(/s$/,'');
+      let detectedId=categoryConflict.detected_id;
+      try{const categories=JSON.parse($('#category-data')?.textContent||'[]');const detected=categories.find(item=>[item.name,item.slug,...(item.aliases||[])].some(name=>normalize(name)===normalize(categoryConflict.detected)));detectedId ||= detected?.id;}catch{/* Keep the normal category editor available. */}
+      const option=[...$('#category').options].find(item=>detectedId?String(item.value)===String(detectedId):normalize(item.textContent)===normalize(categoryConflict.detected));
       if(option){const change=el('button','button button-outline',`Cambiar tipo a ${option.textContent}`);change.type='button';change.addEventListener('click',async()=>{change.disabled=true;try{$('#category').value=option.value;$('#category').dispatchEvent(new Event('change',{bubbles:true}));await save();photoCheckBlocked=false;photoCheckMessage('Tipo actualizado. Genera de nuevo la ficha para comprobarlo con las fotos.');prepareLabel();}catch(error){problem(error.message);}finally{change.disabled=false;}});actions.append(change);actions.hidden=false;}
+      else{const change=el('button','button button-outline','Elegir el tipo correcto');change.type='button';change.addEventListener('click',()=>openInformation('edit-information','category'));actions.append(change);actions.hidden=false;}
     }
-    renderRelevance(relevanceOf(job));
+    if(actions && editable && !guest){
+      const recheck=el('button','button button-outline','Volver a comprobar fotos');
+      recheck.type='button';recheck.dataset.recheckPhotos='true';
+      recheck.addEventListener('click',async()=>{
+        if(preparing || jobPending || polling || submitting || downloading || deleting || servicePaused)return;
+        recheck.disabled=true;
+        // Explicitly retry the current evidence, including historical false
+        // positives. Only a new accepted result can unlock sharing/submission.
+        photoCheckBlocked=false;evidenceNeedsReview=true;prepareLabel();
+        await startAnalysis();
+      });
+      actions.append(recheck);actions.hidden=false;
+    }
+    renderRelevance(relevanceOf(job),incompleteReadingsOf(job));
     selectEvidenceMode('photos',true);
     return true;
   }
@@ -409,7 +482,7 @@
       button.disabled = true;
       try {
         await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action}));
-        if (action === 'delete') {card.remove();photoCheckBlocked=false;}
+        if (action === 'delete') {const evidence=card.dataset.kind==='image'&&card.dataset.purpose!=='document';card.remove();if(evidence){photoCheckBlocked=false;evidenceNeedsReview=Boolean(activeJob)||evidenceNeedsReview;}}
         if (action === 'cover') { $$('.asset-cover',wizard).forEach(badge => { badge.hidden = true; }); $('.asset-cover',card).hidden = false; }
         if (action === 'up' || action === 'down') { const cards=orderedCards(), index=cards.indexOf(card), other=cards[index+(action==='up'?-1:1)]; if (other) { const position=card.dataset.position; card.dataset.position=other.dataset.position; other.dataset.position=position; } }
         organizePhotos();
@@ -421,7 +494,7 @@
     for (const [value,label] of Object.entries(purposeLabels)) { const option = el('option','',label); option.value = value; option.selected = value === card.dataset.purpose; select.append(option); }
     select.addEventListener('change',async () => {
       const previous = card.dataset.purpose; if (preparing || submitting || downloading || deleting) { select.value = previous; return; } select.disabled = true;
-      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); photoCheckBlocked=false; prepareLabel(); }
+      try { await mutateAsset(() => api(assetActionUrl(card.dataset.assetId),{action:'purpose',purpose:select.value})); card.dataset.purpose = select.value; assetSummary(card); organizePhotos(); renderPreview(); if(card.dataset.kind==='image'&&(previous!=='document'||select.value!=='document')){photoCheckBlocked=false;evidenceNeedsReview=Boolean(activeJob)||evidenceNeedsReview;} prepareLabel(); }
       catch (error) { select.value = previous; problem(error.message); }
       finally { select.disabled = !editable || submitting || deleting; }
     });
@@ -468,9 +541,9 @@
       if (file.size > maxMb * 1024 * 1024) { uploadFailures.add(row); message.textContent = `Supera ${maxMb} MB. Elige un archivo más pequeño o descártalo.`; row.classList.add('error-text'); progress.hidden = true; omit.hidden = false; continue; }
       async function attempt() {
         uploadFailures.delete(row); retry.hidden = omit.hidden = true; progress.hidden = false; row.classList.remove('error-text'); message.textContent = 'Preparando carga…'; progress.value = 0;
-        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido.'; progress.hidden = true; if(result.kind==='image'&&purpose!=='document')photoCheckBlocked=false; }
+        try { const result = await mutateAsset(() => sendFile(file,purpose,row)); appendAsset(result); message.textContent = 'Archivo recibido.'; progress.hidden = true; if(result.kind==='image'&&purpose!=='document'){photoCheckBlocked=false;evidenceNeedsReview=Boolean(activeJob)||evidenceNeedsReview;} }
         catch (error) { uploadFailures.add(row); message.textContent = error.message; row.classList.add('error-text'); retry.hidden = omit.hidden = false; progress.hidden = true; }
-        finally { uploadCount--; prepareLabel(); }
+        finally { uploadCount--; prepareLabel(); resumeSerialRefresh(); }
       }
       function enqueue() { if (deleting) return; uploadCount++; retry.hidden = omit.hidden = true; fileChain = fileChain.then(attempt); prepareLabel(); }
       retry.addEventListener('click',enqueue); enqueue();
@@ -514,6 +587,7 @@
     event.preventDefault();
     if (downloading) return;
     if (submitting || preparing || jobPending || polling || deleting) return problem('Espera a que termine la operación en curso para consultar la ficha.');
+    if(photoCheckBlocked || evidenceNeedsReview)return problem('Revisa las fotografías o el tipo elegido y genera la ficha con la información actual antes de abrirla.');
     const destination = event.currentTarget.href;
     if(mode==='screen' && window.imcSheetCompleteness && !(await window.imcSheetCompleteness.confirm()))return;
     if(downloading||submitting||preparing||jobPending||polling||deleting)return;
@@ -521,6 +595,7 @@
     pdfStatus.hidden = false; pdfStatus.textContent = 'Terminando cargas y guardando tus cambios…';
     try {
       await uploadsReady(); await save();
+      if(photoCheckBlocked || evidenceNeedsReview)throw new Error('Las fotos o la identificación cambiaron. Genera de nuevo la ficha antes de abrirla.');
       if (conflict) throw new Error('El borrador cambió en otra sesión. Conservamos tus cambios; recarga la versión actual antes de consultar la ficha.');
       // Navigation happens only after uploads, asset mutations and every dirty edit settle.
       const link = el('a'); link.href = destination; link.hidden = true;
@@ -566,7 +641,7 @@
   }
   function incompleteReadingMessage(readings) {
     const count = readings.size;
-    return `Lectura incompleta: no terminamos de analizar ${count ? `${count} foto${count === 1 ? '' : 's'}` : 'todas las fotos'}. Conservamos la información disponible, tus correcciones y tus archivos. Puedes continuar con lo disponible o agregar otras fotos.`;
+    return `Lectura incompleta: no terminamos de analizar ${count ? `${count} foto${count === 1 ? '' : 's'}` : 'todas las fotos'}. Conservamos la información disponible, tus correcciones y tus archivos. Puedes editar el borrador o agregar otras fotos. Vuelve a generar la ficha para comprobar las imágenes pendientes antes de compartir o enviar.`;
   }
   function renderRelevance(relevance,readings=new Map()) {
     const excluded = relevanceAssetIds(relevance?.excluded_asset_ids), uncertain = relevanceAssetIds(relevance?.uncertain_asset_ids);
@@ -589,12 +664,13 @@
     const relevance = relevanceOf(job);
     if (!relevance || !['unrelated','uncertain'].includes(relevance.status)) return false;
     const readings = incompleteReadingsOf(job), incomplete = hasIncompleteReadings(job,readings);
+    photoCheckBlocked=!incomplete; evidenceNeedsReview=true;
     setAnalysisLoading(false); renderRelevance(relevance,readings); analysisOutcome = incomplete ? 'partial' : relevance.status;
     const message = incomplete ? incompleteReadingMessage(readings) : relevance.status === 'unrelated'
       ? 'Estas fotos no corresponden a maquinaria ni a una placa de equipo. Agrega una foto de la máquina o de su placa para preparar la ficha. Tus archivos y datos se conservan.'
       : 'No pudimos identificar maquinaria o una placa con claridad en estas fotos. Agrega una foto del equipo o una placa más legible. Tus archivos y datos se conservan.';
-    analysisStatus(message,analysisOutcome);
-    $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.';
+    analysisStatus(message,analysisOutcome); photoCheckMessage(message,true);
+    $('#ready-heading').textContent = 'Revisa las fotografías para continuar';
     $('.wizard-progress [data-step-to="2"] b',wizard).textContent = 'Ficha';
     $('#analysis-results').hidden = true; $('#research-brief').hidden = true;
     renderPreview();
@@ -603,15 +679,15 @@
   }
   function prepareLabel() {
     const serial = ($('#serial')?.value || '').trim();
-    const compactSerial=serial.normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/gi,'').toLowerCase();
-    const usefulSerial=compactSerial.length >= (serialInputRules.minimum_alphanumeric || 3) && !serialInputRules.placeholders.includes(compactSerial);
-    const hasInput = usefulSerial || uploadCount > 0 || $$('.asset-card[data-kind="image"]',wizard).some(card=>card.dataset.purpose !== 'document');
+    const hasInput = usefulSerial(serial) || uploadCount > 0 || $$('.asset-card[data-kind="image"]',wizard).some(card=>card.dataset.purpose !== 'document');
     const requirement = $('#evidence-requirement'); if(requirement) requirement.hidden = hasInput;
     $$('[data-file-open]',wizard).forEach(button => { button.disabled = !editable || preparing || submitting || downloading || deleting; });
     $('#analyze-button').disabled = !editable || !hasInput || servicePaused || uploadCount > 0 || preparing || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting;
-    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : uploadCount > 0 ? 'Subiendo foto…' : preparing ? 'Esperando tus archivos…' : jobPending || polling ? 'Preparando tu ficha…' : guest && guestAnalysisUsed ? 'Crear cuenta para volver a generar →' : 'Generar ficha de maquinaria →';
+    $('#analyze-button').textContent = servicePaused ? 'Preparación automática pausada' : uploadCount > 0 ? 'Subiendo foto…' : preparing ? 'Esperando tus archivos…' : jobPending || polling ? 'Preparando tu ficha…' : guest && guestAnalysisUsed && !guestSerialEnrichmentAvailable ? 'Crear cuenta para volver a generar →' : guestSerialEnrichmentAvailable ? 'Actualizar ficha con la serie →' : 'Generar ficha de maquinaria →';
     $$('[data-generate-proxy]',wizard).forEach(button=>{button.disabled=$('#analyze-button').disabled;});
-    $('#submit-machine').disabled = !editable || photoCheckBlocked || submitting || downloading || deleting;
+    $('#submit-machine').disabled = !editable || (!guest && (photoCheckBlocked || evidenceNeedsReview)) || submitting || downloading || deleting;
+    $$('[data-submit-proxy]',wizard).forEach(button=>{button.disabled=$('#submit-machine').disabled;});
+    $$('[data-share-machine]',wizard).forEach(button=>{button.disabled=sharing || photoCheckBlocked || evidenceNeedsReview || preparing || jobPending || polling || submitting || deleting;});
     const remove = $('#delete-draft'); if (remove) remove.disabled = !editable || preparing || submitting || downloading || deleting;
     pdfLabel();
   }
@@ -619,13 +695,13 @@
     if (saving) { try { await saving; } catch { return job; } }
     if (assetMutation) await assetMutation;
     if (job.machine && Number(job.machine.revision) < Number(state.revision)) job = await api(jobUrl(job.id));
-    if (!conflict && job.machine && (!pending.size || Number(job.machine.revision) === Number(state.revision) || isOwnAutoAdvance(job.machine,job.auto_apply))) hydrate(job.machine);
+    if (!conflict && analysisPhotosCurrent(job) && job.machine && (!pending.size || Number(job.machine.revision) === Number(state.revision) || isOwnAutoAdvance(job.machine,job.auto_apply))) hydrate(job.machine);
     return job;
   }
   async function completedJob(job) {
     if(job.preflight||job.result?.preflight){return;}
     if(!analysisPhotosCurrent(job)){
-      setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas';
+      evidenceNeedsReview=true;setAnalysisLoading(false);$('#ready-heading').textContent='Fotos actualizadas';
       $('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';
       photoCheckMessage('Las fotos o el tipo de máquina cambiaron. Genera la ficha con la información actual.');
       return;
@@ -633,10 +709,15 @@
     // Rejected/uncertain photos must never trigger legacy autofill or replace
     // the existing draft, even when an older client result contains fields.
     if (blockedRelevance(job)) return;
+    if(photoCorrection(job)){analysisOutcome='needs_information';analysisStatus('Corrige las fotos o el tipo elegido para generar una ficha coherente.','needs_information');return;}
     job = await syncSnapshot(job);
+    if(!analysisPhotosCurrent(job)){evidenceNeedsReview=true;setAnalysisLoading(false);photoCheckMessage('Las fotografías cambiaron durante la preparación. Genera la ficha con las fotos actuales.');$('#ready-heading').textContent='Fotos actualizadas';return;}
     if (blockedRelevance(job)) return;
     if(photoCorrection(job)){analysisOutcome='needs_information';analysisStatus('Corrige las fotos o el tipo elegido para generar una ficha coherente.','needs_information');return;}
     const readings = incompleteReadingsOf(job), incomplete = hasIncompleteReadings(job,readings);
+    analysisHasCompleted=true; evidenceNeedsReview=incomplete || serialNeedsRefresh;
+    if(!serialNeedsRefresh)analyzedSerial=String(collect().data.serial || '').trim();
+    if(!serialRefreshCandidate)serialRefreshMessage('');
     if (incomplete) {
       analysisOutcome = 'partial';
       $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.';
@@ -653,7 +734,8 @@
     completionDetails = Array.isArray(job.completion?.missing_details) ? job.completion.missing_details : [];
     completionFields = Array.isArray(job.completion?.missing_fields) ? job.completion.missing_fields : [];
     renderEstimateGuidance(collect().data);
-    if (Array.isArray(job.completion?.missing_fields) && job.completion.missing_fields.length) {
+    if(serialNeedsRefresh){renderResults(job);$('#ready-heading').textContent='Serie actualizada';$('.wizard-progress [data-step-to="2"] b',wizard).textContent='Ficha';analysisStatus('La serie cambió durante la preparación. Actualiza la ficha con esta identificación antes de compartir.','needs_information');return;}
+    if (!incomplete && Array.isArray(job.completion?.missing_fields) && job.completion.missing_fields.length) {
       analysisOutcome = 'needs_information';
       renderResults(job);
       renderRelevance(relevanceOf(job),readings);
@@ -692,7 +774,7 @@
     clearTimeout(pollTimer); activeJob = id; polling = true; prepareLabel(); $('#analysis-resume').hidden = true;
     try {
       const job = await api(jobUrl(id));
-      if(guest)guestAnalysisUsed=typeof job.guest_draft?.analysis_used==='boolean'?job.guest_draft.analysis_used:job.status==='completed'||job.status==='failed'&&!['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code);
+      if(guest){guestAnalysisUsed=typeof job.guest_draft?.analysis_used==='boolean'?job.guest_draft.analysis_used:job.status==='completed'||job.status==='failed'&&!['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code);guestSerialEnrichmentAvailable=Boolean(job.guest_draft?.serial_enrichment_available);}
       if(job.status==='failed' && ['billing_unavailable','credentials_unavailable','model_unavailable'].includes(job.failure_code)){
         await syncSnapshot(job);pausePreparation();return;
       }
@@ -703,7 +785,7 @@
       }
       analysisOutcome = job.status;
       if (job.status === 'completed') { jobPending = false; await completedJob(job); }
-      else if (job.status === 'failed') { jobPending = false; setAnalysisLoading(false); await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas y puedes enviar la ficha para revisión.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
+      else if (job.status === 'failed') { jobPending = false; setAnalysisLoading(false); await syncSnapshot(job); analysisStatus(job.error || 'No pudimos completar la lectura. Tus fotos están guardadas. Puedes editar el borrador y volver a intentar la preparación.','failed'); $('#ready-heading').textContent = 'Tu ficha conserva la información disponible.'; renderPreview(); }
       else {
         jobPending = true;
         const message=job.status === 'running' ? (processingMessage(job) || 'Estamos identificando el equipo, buscando sus especificaciones y preparando la descripción. Tus correcciones se conservarán.') : 'Tus fotos están guardadas. La ficha espera su turno de preparación.';
@@ -711,30 +793,32 @@
         if (Date.now() - analysisStartedAt > 10 * 60 * 1000) { $('#analysis-resume').hidden = false; $('#analysis-loading-continue').hidden=false; jobPending = false; setAnalysisLoading(false); analysisStatus('El análisis sigue en el servidor. Puedes consultar su estado después; tus datos se conservan.','queued'); }
         else if (!deleting) pollTimer = setTimeout(() => pollJob(id),2500);
       }
-    } catch (error) { jobPending = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen aquí y puedes enviar la ficha disponible para revisión.`,'failed'); $('#analysis-resume').hidden = false; }
-    finally { polling = false; prepareLabel(); }
+    } catch (error) { jobPending = false; setAnalysisLoading(false); analysisStatus(`${error.message} Tus datos siguen guardados. Consulta de nuevo el estado de la preparación; no necesitas volver a subir las fotos.`,'failed'); $('#analysis-resume').hidden = false; }
+    finally { polling = false; prepareLabel(); resumeSerialRefresh(); }
   }
   $('#analysis-resume').addEventListener('click',() => { if (activeJob) { analysisStartedAt = Date.now(); pollJob(activeJob); } });
   $('#analysis-loading-continue').addEventListener('click',() => setAnalysisLoading(false));
-  $('#analyze-button').addEventListener('click',async () => {
+  async function startAnalysis() {
     if (!editable || servicePaused || preparing || photoCheckBlocked || jobPending || polling || submitting || downloading || deleting) return;
-    if(guest && guestAnalysisUsed){keepGuestResult();return;}
     if ($('#consistency-status')) $('#consistency-status').hidden = true;
     preparing = true; clearProblem(); prepareLabel();
     try {
       await uploadsReady(); await save();
+      if(guest && guestAnalysisUsed && !guestSerialEnrichmentAvailable){keepGuestResult();return;}
       const assetIds = $$('.asset-card[data-kind=image]',wizard).filter(card => card.dataset.purpose !== 'document').map(card => card.dataset.assetId);
       const mode = assetIds.length ? 'analysis' : 'description';
       if (!assetIds.length && !String(collect().data.serial || '').trim() && !Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake')) throw new Error('Agrega una fotografía, escribe la serie o selecciona un modelo de la base técnica para generar la ficha.');
       const enrichCatalogue = !assetIds.length && !String(collect().data.serial || '').trim() && Object.values(state.provenance||{}).some(meta=>meta?.basis==='catalogue_intake');
       const job = await api(`${base}analizar/`,{consent:true,auto_apply:true,research:true,revision:state.revision,asset_ids:assetIds,mode,...(enrichCatalogue?{enrich_catalogue:true}:{})});
       if(job.mode==='catalogue' && job.refresh){hydrate(job.machine);displayStep(2);$('#ready-heading').textContent='Ficha de referencia preparada.';return;}
+      analyzedSerial=String(collect().data.serial || '').trim();serialNeedsRefresh=false;
       activeJob = job.id; analysisStartedAt = Date.now(); jobPending = ['queued','running'].includes(job.status);
       renderRelevance(null);
       displayStep(2); setAnalysisLoading(true,assetIds.length?'Tus fotos están guardadas. Estamos preparando una ficha editable con la información disponible.':'La identificación está guardada. Completamos las características y referencias de año y valor que faltan.'); analysisStatus('Preparando tu ficha de maquinaria…','running'); await pollJob(job.id);
     } catch (error) { analysisOutcome = 'failed'; setAnalysisLoading(false); renderPreview(); problem(error.message); analysisStatus('Tus datos se conservan. Completa la información indicada y vuelve a generar la ficha.','failed'); }
-    finally { preparing = false; prepareLabel(); }
-  });
+    finally { preparing = false; prepareLabel(); resumeSerialRefresh(); }
+  }
+  $('#analyze-button').addEventListener('click',()=>startAnalysis());
   function researchHypothesesOf(research) {
     return Array.isArray(research?.hypotheses) ? research.hypotheses.filter(item => item && typeof item === 'object') : [];
   }
@@ -1106,21 +1190,23 @@
   $('#submit-machine').addEventListener('click',async () => {
     if (guest) { try { await uploadsReady(); await save(); keepGuestResult(); } catch (error) { problem(error.message); } return; }
     if (!editable || submitting || downloading || deleting) return;
+    if(photoCheckBlocked || evidenceNeedsReview)return problem('Corrige las fotografías o el tipo de máquina y vuelve a generar la ficha antes de enviar.');
     submitting = true; clearProblem(); pdfLabel(); const frozenControls = $$('input,textarea,select,[data-asset-action],[data-file-open],#analyze-button',wizard).map(control => [control,control.disabled]);
     frozenControls.forEach(([control]) => { control.disabled = true; });
     const button = $('#submit-machine'); button.disabled = true; button.textContent = 'Enviando tu solicitud…';
     try {
       await uploadsReady(); await save();
+      if(photoCheckBlocked || evidenceNeedsReview)throw new Error('Las fotos o la identificación cambiaron. Genera de nuevo la ficha antes de enviar.');
       if (!$('.asset-card[data-kind=image]',wizard) && !String(collect().data.serial || '').trim()) { displayStep(1); throw new Error('Agrega una fotografía o el número de serie antes de enviar.'); }
       const result = await api(`${base}enviar/`,{advertise_consent:true,contact_consent:$('#contact-consent').checked});
       pending.clear(); submitting = false; location.assign(result.url || '/panel/solicitudes/');
-    } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.disabled = !editable; button.textContent = 'Enviar a revisión ↗'; }
+    } catch (error) { problem(error.message); submitting = false; frozenControls.forEach(([control,wasDisabled]) => { control.disabled = !editable || wasDisabled; }); $$('[data-asset-action],.asset-purpose,[data-field],[data-top-field]',wizard).forEach(control => { if (control.matches('[data-asset-action],.asset-purpose') || !frozenControls.some(([original]) => original === control)) control.disabled = !editable; }); prepareLabel(); button.textContent = 'Enviar a revisión ↗'; }
   });
   $('#delete-draft')?.addEventListener('click',async () => {
     if (!editable || deleting || preparing || submitting || downloading) return;
     if (conflict) return problem('El borrador cambió en otra sesión. Conservamos tus correcciones; recarga la versión actual antes de eliminar.');
     if (!confirm(deleteDraftConfirmation)) return;
-    deleting = true; clearTimeout(saveTimer); clearTimeout(pollTimer); clearProblem();
+    deleting = true; clearTimeout(serialRefreshTimer);serialRefreshCandidate=null; clearTimeout(saveTimer); clearTimeout(pollTimer); clearProblem();
     const button = $('#delete-draft'), frozen = $$('input,textarea,select,button',wizard).map(control => [control,control.disabled]);
     frozen.forEach(([control]) => { control.disabled = true; });
     button.textContent = 'Moviendo a la papelera…'; prepareLabel();
@@ -1252,7 +1338,7 @@
   selectEvidenceMode(params.get('entrada')==='serial' || params.get('entrada')!=='photos' && params.get('entrada')!=='plate' && !missing(state.data.serial) ? 'serial' : 'photos');
   if(params.get('entrada')==='plate' && !initialJob && $('#upload-purpose')) $('#upload-purpose').value='plate';
   displayStep(explicitStep || (initialJob || (state.title && state.title !== 'Mi maquinaria') ? 2 : wizard.dataset.step),false);
-  if (initialJob && !(initialJob.preflight === true)) { activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
+  if (initialJob && !(initialJob.preflight === true)) { analysisHasCompleted=initialJob.status==='completed'; activeJob = initialJob.id; jobPending = ['queued','running'].includes(initialJob.status); analysisStartedAt = Date.now(); pollJob(initialJob.id); }
   prepareLabel(); renderPreview();
   if(params.get('entrada')==='catalogue' && params.get('completar')==='1' && editable && !initialJob){
     // The preceding "Generar ficha" form is the explicit request. Consume

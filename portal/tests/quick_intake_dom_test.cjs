@@ -295,18 +295,18 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    assert.match(rejected.doc.querySelector('#analysis-status').textContent,/Agrega una foto/);
    assert.doesNotMatch(rejected.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
    assert.equal(rejected.doc.querySelector('#analysis-feedback img'),null);
-   assert.equal(rejected.doc.querySelector('#analyze-button').disabled,false);
+   assert.equal(rejected.doc.querySelector('#analyze-button').disabled,true);assert.equal(rejected.doc.querySelector('[data-share-machine]').disabled,true);
    assert.equal(rejected.doc.querySelector('[data-file-open]').disabled,false);
    assert.equal(rejectedCalls.some(url=>url.endsWith('aplicar/')),false);
    click(rejected,'submit-machine');await pause(40);
-   assert.equal(rejectedCalls.filter(url=>url.endsWith('enviar/')).length,1,'manual submission remains available');
+   assert.equal(rejectedCalls.filter(url=>url.endsWith('enviar/')).length,0,'unrelated/uncertain images cannot bypass validation through manual submission');
    rejected.close();
  }
- pass('unrelated and uncertain photos stay in step 1, never hydrate or request autofill, retain edits/files, and permit manual submission');
+ pass('unrelated and uncertain photos stay in step 1, never hydrate or request autofill, retain edits/files, and block sharing/submission until evidence is corrected');
 
  let mixed;
  mixed=setup(async(url)=>{assert.ok(url.includes('/api/analisis/'));await pause(1);const job=completed(mixed.state,{model:'Equipo leído'});job.result.relevance={status:'mixed',accepted_asset_ids:['1'],excluded_asset_ids:['2'],uncertain_asset_ids:[]};return response(200,job);},{job:{id:'mixed',status:'completed'}});
- await pause(35);assert.equal(mixed.doc.querySelector('#model').value,'Equipo leído');assert.equal(mixed.doc.querySelector('[data-step-panel="1"]').hidden,false);
+ await pause(35);assert.equal(mixed.doc.querySelector('#model').value,'');assert.equal(mixed.doc.querySelector('[data-step-panel="1"]').hidden,false);
  assert.match(mixed.doc.querySelector('#photo-validation').textContent,/Quita las imágenes/);assert.equal(mixed.doc.querySelector('#analyze-button').disabled,true);
  assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.relevance,'excluded');
  assert.equal(mixed.doc.querySelector('[data-asset-id="2"]').dataset.purpose,'plate','relevance never changes original file classification');
@@ -366,15 +366,15 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    assert.equal(interrupted.doc.querySelector('#model').value,interrupted.state.data.model??'');
    assert.equal(interrupted.doc.querySelector('[data-step-panel="1"]').hidden,false);
    assert.equal(interrupted.doc.querySelector('#analysis-status').dataset.state,'partial');
-   assert.match(interrupted.doc.querySelector('#analysis-status').textContent,/Lectura incompleta.*1 foto.*Conservamos.*continuar.*otras fotos/);
-   assert.doesNotMatch(interrupted.doc.querySelector('#analysis-status').textContent,/legible|claridad|ajena|no corresponden|identificar maquinaria|reintentar|volver a preparar/);
+   assert.match(interrupted.doc.querySelector('#analysis-status').textContent,/Lectura incompleta.*1 foto.*Conservamos.*editar el borrador.*otras fotos.*comprobar las imágenes pendientes/);
+   assert.doesNotMatch(interrupted.doc.querySelector('#analysis-status').textContent,/legible|claridad|ajena|no corresponden|identificar maquinaria|puedes enviar|puedes compartir/i);
    const card=interrupted.doc.querySelector('[data-asset-id="2"]');
    assert.equal(card.dataset.relevance,readingStatus);assert.match(card.querySelector('.asset-relevance').textContent,readingStatus==='failed'?/Análisis interrumpido/:/Lectura pendiente/);
    assert.doesNotMatch(card.textContent,/No se pudo identificar|Foto ajena/);assert.equal(card.querySelector('.asset-relevance img'),null);
    assert.equal(interrupted.doc.querySelector('#preview-description').textContent,'');
    assert.doesNotMatch(interrupted.doc.querySelector('#ready-heading').textContent,/preparada|lista/);
    assert.equal(interrupted.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
-   assert.equal(interrupted.doc.querySelector('#analyze-button').disabled,false);assert.equal(interrupted.doc.querySelector('#submit-machine').disabled,false);
+   assert.equal(interrupted.doc.querySelector('#analyze-button').disabled,false);assert.equal(interrupted.doc.querySelector('#submit-machine').disabled,true);
    interrupted.close();
  }
  pass('interrupted uncertain reads preserve continuation without mislabeling unfinished photos, promising duplicate retries or hydrating an unaccepted result');
@@ -401,7 +401,7 @@ const professional=setup(async()=>{throw Error('Preview must not make requests')
    assert.equal(partial.doc.querySelector('.wizard-progress [data-step-to="2"] b').textContent,'Ficha');
    assert.equal(partial.doc.querySelector('[data-asset-id="1"] .asset-relevance'),null);
    assert.equal(partial.doc.querySelector('[data-asset-id="2"]').dataset.relevance,readingStatus);
-   assert.equal(partial.doc.querySelector('#submit-machine').disabled,false);assert.equal(partial.doc.querySelector('#analyze-button').disabled,false);
+   assert.equal(partial.doc.querySelector('#submit-machine').disabled,true);assert.equal(partial.doc.querySelector('#analyze-button').disabled,false);
    partial.close();
  }
  pass('partial mixed reads preserve useful values and concurrent edits, label only unfinished photos and never announce a ready sheet');

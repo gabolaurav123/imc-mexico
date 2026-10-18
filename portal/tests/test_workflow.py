@@ -1,6 +1,7 @@
 from copy import deepcopy
 from io import StringIO
 from tempfile import TemporaryDirectory
+import uuid
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group, Permission
@@ -13,7 +14,32 @@ from portal.models import (AnalysisJob, Asset, AuditEvent, Category, Consent, Ma
                            Notification, PlatformSettings, Publication, Submission, User)
 from portal.services import (apply_analysis_suggestions, duplicate_machine, review_submission,
                              save_draft, set_advertiser_status, set_availability, set_publication,
-                             snapshot, submit_machine, reassign_machine, record_local_duplicate_review)
+                             snapshot, submit_machine, reassign_machine, record_local_duplicate_review,
+                             automatic_application_snapshot)
+
+
+def accepted_photo_analysis(machine):
+    """Synthetic positive evidence for workflow tests unrelated to AI classification.
+
+    Record the exact ready-photo manifest instead of bypassing the submission
+    gate. No attributes, consent, publication or provider requests are invented.
+    Tests of rejected/unanalysed media must not call this fixture.
+    """
+    photos = list(machine.assets.filter(kind='image', processing_status='ready').exclude(purpose='document'))
+    ids = [str(asset.pk) for asset in photos]
+    category = machine.category.name if machine.category_id else None
+    return AnalysisJob.objects.create(machine=machine, requested_by=machine.owner,
+        revision=machine.revision, fingerprint=uuid.uuid4().hex, mode='analysis', status='completed',
+        asset_ids=ids, application_snapshot=automatic_application_snapshot(machine),
+        result={'category': category, 'data': {}, 'provenance': {}, 'fields': [], 'plates': [],
+                'input_category_id': machine.category_id,
+                'input_snapshot': {'data': deepcopy(machine.data), 'provenance': deepcopy(machine.provenance)},
+                'relevance': {'status': 'relevant', 'accepted_asset_ids': ids,
+                              'excluded_asset_ids': [], 'uncertain_asset_ids': []},
+                'image_observations': [
+                    {'asset_id': str(asset.pk), 'relevance': 'related' if asset.purpose == 'plate' else 'machinery',
+                     'kind': 'plate' if asset.purpose == 'plate' else 'machine', 'machine_count': 1,
+                     'category': category} for asset in photos]})
 
 
 class WorkflowTests(TestCase):
@@ -29,6 +55,7 @@ class WorkflowTests(TestCase):
                                               data={"location": "Querétaro", "year": None})
         self.photo = Asset.objects.create(machine=self.machine, kind="image", purpose="general", processing_status="ready",
                                          original="private/test.jpg", mime_type="image/jpeg", sha256="a" * 64, size=100)
+        accepted_photo_analysis(self.machine)
 
     def approve(self):
         set_advertiser_status(self.owner, self.admin, "approved", "Datos revisados por operador")
@@ -176,6 +203,7 @@ class WorkflowTests(TestCase):
         Asset.objects.create(machine=self.machine, kind="image", purpose="plate", processing_status="ready",
                              original="private/plate.jpg", mime_type="image/jpeg", sha256="b" * 64,
                              public_authorized=True)
+        accepted_photo_analysis(self.machine)
         self.approve()
         self.assertEqual(self.machine.approved_version.data["public_asset_ids"], [str(self.photo.pk)])
 

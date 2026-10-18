@@ -185,9 +185,45 @@ MOTOR_GRADER_PROFILE = {
     "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
 }
 
+PAVER_PROFILE = {
+    "key": "paver", "label": "Pavimentadora",
+    "aliases": ["pavimentadora", "pavimentadoras", "extendedora de asfalto", "asphalt paver",
+                "pavimentadora de concreto", "pavimentadora de hormigón", "concrete slipform paver"],
+    "classification": {"undercarriage": _options(("crawler", "Orugas"), ("wheeled", "Ruedas"))},
+    "fields": [
+        {"key": "variant", "label": "Variante", "kind": "text", "optional": True,
+         "help": "Conserva la configuración de regla o molde documentada."},
+        {"key": "undercarriage", "label": "Sistema de desplazamiento", "kind": "choice", "optional": True},
+        {"key": "working_width", "label": "Ancho de pavimentación", "kind": "text", "optional": True},
+        {"key": "power", "label": "Potencia", "kind": "text", "optional": True},
+        {"key": "weight", "label": "Peso operativo", "kind": "text", "optional": True},
+        {"key": "capacity", "label": "Capacidad documentada", "kind": "text", "optional": True},
+        {"key": "engine", "label": "Motor", "kind": "text", "optional": True},
+    ],
+    "photo_guidance": [
+        "Máquina completa y ambos laterales", "Rótulo del modelo y placa de la máquina, si los tienes",
+        "Regla de extendido o molde de concreto", "Orugas o ruedas y puesto del operador",
+        "Tolva y sistema de alimentación, si forman parte de este equipo", "Horómetro y mandos",
+    ],
+    "ai_instructions": (
+        "Distingue una pavimentadora de asfalto de una pavimentadora de concreto de encofrado deslizante. "
+        "No confundas pavimentadora, fresadora, compactador ni distribuidor de asfalto. "
+        "Identifica regla de extendido, tolva, alimentación o molde sólo cuando sean visibles; "
+        "no atribuyas tolva ni regla de asfalto a otra familia. Conserva modelo, variante y configuración "
+        "de regla o molde documentados. working_width es ancho de pavimentación, no ancho de transporte; "
+        "distingue ancho básico, máximo y extensiones. capacity conserva la etiqueta y unidades de la "
+        "capacidad de tolva o producción documentada, nunca un depósito de combustible. "
+        "Peso y potencia mantienen su criterio publicado y no se confirman para esta unidad sin evidencia. "
+        "La serie identifica la máquina sólo con una vinculación documental; no deduzcas año, horas ni país."
+    ),
+    "sources": [],
+    "valuation_rules": {"requires_compatible_comparables": True, "minimum_independent_references": 2},
+}
+
 PROFILES = {"excavadoras": EXCAVATOR_PROFILE, "compactadores": COMPACTOR_PROFILE,
             "plataformas-elevadoras": PLATFORM_PROFILE, "minicargadores": LOADER_PROFILE,
-            "montacargas": FORKLIFT_PROFILE, "motoniveladoras": MOTOR_GRADER_PROFILE}
+            "montacargas": FORKLIFT_PROFILE, "motoniveladoras": MOTOR_GRADER_PROFILE,
+            "pavimentadoras": PAVER_PROFILE}
 
 # The release file records IMC's actual public catalogue vocabulary. Keep a
 # canonical family for retrieval (e.g. all excavators), while making every

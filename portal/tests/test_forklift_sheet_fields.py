@@ -141,8 +141,14 @@ class ForkliftSheetFieldsTests(TestCase):
                     self.assertIn(field["label"], html)
                 self.assertIn("4500 kg", html)
                 self.assertIn("188 in", html)
+                # The essential field selection stays compact. A literal tire
+                # size may also appear in the short technical description;
+                # manufacturer contact data must never become a machine spec.
+                essential_keys = {field["key"] for field in context["essential_fields"]}
                 for key in ("manufacturer_address", "front_tire_size", "rear_tire_size", "battery_weight"):
-                    self.assertNotIn(PLATE_VALUES[key], html)
+                    self.assertNotIn(key, essential_keys)
+                self.assertNotIn(PLATE_VALUES["manufacturer_address"], html)
+                self.assertEqual(version.data["data"]["front_tire_size"], PLATE_VALUES["front_tire_size"])
                 self.assertNotIn("husqvarna", html.lower())
                 self.assertNotIn("wacker", html.lower())
                 self.assertEqual(context["data"].get("location"), None)

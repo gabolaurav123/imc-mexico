@@ -238,7 +238,7 @@ class AIReferenceContextTests(TestCase):
     def test_previous_verified_valuation_still_expires_after_condition_or_identity_correction(self):
         self.apply(self.valuation_job())
         self.edit(hours=100, location_country='México')
-        self.edit(condition='Para reparación')
+        self.edit(condition='new')
         self.assertNotIn('estimate_min', self.machine.data)
         self.edit(condition='Usada')
         self.apply(self.valuation_job())

@@ -272,7 +272,7 @@ def _valuation_identity_matches(data, valuation, *, allow_previous_context=False
            for key, value in identity.get("compatibility", {}).items()
            if not allow_previous_context or key not in {"hours", "year"}):
         return False
-    condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
+    condition = {"new": "new", "used": "used", "Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
                  "Para reparación": "for_repair"}.get(data.get("condition"))
     if data.get("operating_status") == "No funciona (declarado por el propietario)":
         condition = "for_repair"
@@ -380,7 +380,7 @@ def _family_identity_unchanged(machine, manifest):
 
 def _family_market_matches_condition(data, manifest):
     """A used-equipment reference cannot price a declared repair-only machine."""
-    condition = {"Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
+    condition = {"new": "new", "used": "used", "Nueva": "new", "Usada": "used", "Reacondicionada": "refurbished",
                  "Para reparación": "for_repair"}.get(data.get("condition"))
     if data.get("operating_status") == "No funciona (declarado por el propietario)":
         condition = "for_repair"
@@ -681,7 +681,7 @@ def _clear_profile_visual_classification(machine, job, key, value, meta):
 
 
 def _clear_automatic_field(machine, job, key, value, meta):
-    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict"}:
+    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict", "photo_relevance", "photo_pending"}:
         return False
     if _analysis_relevance_status(job) in {"unrelated", "uncertain"} or _analysis_excludes_asset(job, meta):
         return False
@@ -816,7 +816,7 @@ def apply_analysis_automatically(machine, user, job, expected_revision=None, *, 
 
     if machine.deleted_at is not None or job.result.get("draft_deleted"):
         return finish("draft_deleted")
-    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict"}:
+    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict", "photo_relevance", "photo_pending"}:
         return finish(job.result["blocking_reason"])
     if machine.owner_id != job.requested_by_id or user.pk != job.requested_by_id or not user.is_active:
         return finish("owner_changed")
@@ -1204,6 +1204,13 @@ def _validate_payload(machine, payload, trusted_provenance=False):
                 if len(value) > (12000 if key in {"description", "notes", "plate_transcription"} else 2000 if key in VISUAL_LABELS or key in ESTIMATE_LABELS or key == "estimated_year_basis" else 1000):
                     raise ValidationError({"data": f"El campo {key} es demasiado largo."})
             clean[key] = value
+        if "condition" in clean:
+            condition = clean["condition"]
+            aliases = {"Nueva": "new", "Usada": "used"}
+            condition = aliases.get(condition, condition)
+            if condition not in (None, "", "new", "used") and condition != previous_data.get("condition"):
+                raise ValidationError({"condition": "Selecciona Nueva o Usada, o deja el estado sin indicar."})
+            clean["condition"] = condition
         from .structured_data import parse_decimal, validate_manual_data
         numeric_fields = {"year", "hours", "kilometers", "price", "estimated_year_from", "estimated_year_to",
                           "estimate_min", "estimate_max", "estimate_suggested_price"}
@@ -1376,7 +1383,7 @@ def apply_analysis_suggestions(machine, user, job, fields, expected_revision):
     after_automatic = job.application_result.get("revision_after") if job.application_result.get("status") in {"applied", "no_changes"} else None
     if job.revision != machine.revision and after_automatic != machine.revision:
         raise ValidationError("El borrador cambió después del análisis. Solicita un nuevo análisis para conservar tus correcciones.")
-    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict"}:
+    if job.result.get("blocking_reason") in {"multiple_machines", "category_conflict", "photo_relevance", "photo_pending"}:
         raise ValidationError("Revisa el tipo de maquinaria y separa las fotos de equipos diferentes antes de aplicar datos.")
     if _analysis_relevance_status(job) in {"unrelated", "uncertain"}:
         raise ValidationError("Estas fotos no permiten identificar maquinaria. Agrega una foto del equipo o de su placa y vuelve a preparar la ficha.")

@@ -47,7 +47,9 @@ class PlateCompletionTests(TestCase):
             revision=self.machine.revision, fingerprint=uuid.uuid4().hex, status="completed",
             auto_apply=True, asset_ids=[str(self.asset.pk)],
             application_snapshot=automatic_application_snapshot(self.machine),
-            result={"data": values, "provenance": provenance, "plates": [], "fields": []})
+            result={"data": values, "provenance": provenance, "plates": [], "fields": [],
+                    "relevance": {"status": "relevant", "accepted_asset_ids": [str(self.asset.pk)]},
+                    "image_observations": [{"asset_id": str(self.asset.pk), "kind": "plate", "relevance": "related"}]})
 
     def apply(self, job):
         self.machine, summary = apply_analysis_automatically(self.machine, self.owner, job, self.machine.revision)
@@ -137,7 +139,7 @@ class PlateCompletionTests(TestCase):
         self.asset.public_authorized = True
         self.asset.save(update_fields=["public_authorized"])
         job = self.job()
-        job.result["image_observations"] = [{"asset_id": str(self.asset.pk), "kind": "plate"}]
+        job.result["image_observations"] = [{"asset_id": str(self.asset.pk), "kind": "plate", "relevance": "related"}]
         job.result["plates"] = [{"asset_id": str(self.asset.pk), "component": "machine", "readability": "clear"}]
         job.save(update_fields=["result"])
         version = snapshot(self.machine, self.owner)
@@ -161,7 +163,7 @@ class PlateCompletionTests(TestCase):
 
     def test_whole_machine_observation_takes_precedence_over_plate_excerpt(self):
         job = self.job()
-        job.result["image_observations"] = [{"asset_id": str(self.asset.pk), "kind": "machine"}]
+        job.result["image_observations"] = [{"asset_id": str(self.asset.pk), "kind": "machine", "relevance": "machinery"}]
         job.result["plates"] = [{"asset_id": str(self.asset.pk), "component": "machine", "readability": "clear"}]
         job.save(update_fields=["result"])
         self.assertEqual(detected_plate_asset_ids(self.machine), set())

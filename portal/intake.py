@@ -5,9 +5,6 @@ from copy import deepcopy
 
 from django.core.exceptions import ValidationError
 
-from .models import AnalysisJob
-
-
 _SERIAL_PLACEHOLDERS = {
     "na", "noaplica", "notiene", "notengo", "nosabe", "nose",
     "sinserie", "sinnumero", "sinnumerodeserie", "nodisponible",
@@ -93,8 +90,8 @@ def has_completed_preparation(machine):
         return False
     if not any(machine.data.get(key) for key in ("brand", "model", "description")):
         return False
-    current_photo_ids = {str(pk) for pk in machine.assets.filter(kind="image", processing_status="ready")
-                         .exclude(purpose="document").values_list("pk", flat=True)}
+    current = _current_photo_manifest(machine)
+    current_photo_ids = set(current)
     def valid_normal_job(job):
         result = job.result if isinstance(job.result, dict) else {}
         if result.get("preflight") is True:
@@ -111,11 +108,16 @@ def has_completed_preparation(machine):
         # prepared unit fiche.  This prevents catalogue + typed text from
         # becoming a shareable fiche without an actual generation run.
         return any(valid_normal_job(job) for job in machine.analysis_jobs.filter(status="completed"))
+    jobs = list(machine.analysis_jobs.filter(status="completed", mode="analysis").order_by("-created_at", "-pk"))
+    states = assessed_photo_states(machine, current=current, jobs=jobs)
+    if any(states.get(pk) != "accepted" for pk in current_photo_ids):
+        return False
     prepared_photo_ids = set()
-    for job in machine.analysis_jobs.filter(status="completed", mode="analysis"):
+    for job in jobs:
         if not valid_normal_job(job):
             continue
-        prepared_photo_ids.update(str(asset_id) for asset_id in job.asset_ids)
+        prepared_photo_ids.update(pk for pk in _matching_photo_ids(job, current)
+                                  if _job_photo_state(job, pk) == "accepted")
     return current_photo_ids <= prepared_photo_ids
 
 
@@ -230,30 +232,78 @@ def require_prepared_serial(machine):
         raise ValidationError("Genera la ficha con el número de serie antes de enviarla a revisión, o agrega una fotografía del equipo.")
 
 
-def assessed_photo_states(machine):
-    """Latest per-photo decisions; a later unrelated photo cannot hide an older one."""
+def _current_photo_manifest(machine):
+    return {str(asset.pk): {"sha256": asset.sha256, "purpose": asset.purpose}
+            for asset in machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")}
+
+
+def _matching_photo_ids(job, current):
+    """Bind a decision to the photo bytes/purpose it actually reviewed.
+
+    Legacy results with explicit per-photo decisions predate the manifest.
+    They retain compatibility; whenever an immutable manifest exists, it is
+    authoritative and a replaced image cannot borrow its predecessor's pass.
+    """
+    ids = set(map(str, job.asset_ids)) & set(current) if isinstance(job.asset_ids, list) else set()
+    snapshot = job.application_snapshot if isinstance(job.application_snapshot, dict) else {}
+    assets = snapshot.get("assets")
+    if isinstance(assets, list):
+        original = {str(item.get("id")): item for item in assets if isinstance(item, dict)}
+        return {pk for pk in ids if pk in original and original[pk].get("kind") == "image"
+                and original[pk].get("status") == "ready"
+                and all(original[pk].get(key) == current[pk][key] for key in ("sha256", "purpose"))}
+    # Intermediate releases recorded those bindings on reusable photo reads.
+    result = job.result if isinstance(job.result, dict) else {}
+    cache = result.get("photo_cache", [])
+    cache = cache if isinstance(cache, list) else []
+    original = {str(item["asset_id"]): item for item in cache
+                if isinstance(item, dict) and item.get("asset_id") and "sha256" in item and "purpose" in item}
+    return {pk for pk in ids if pk not in original
+            or all(original[pk][key] == current[pk][key] for key in ("sha256", "purpose"))}
+
+
+def _job_photo_state(job, asset_id):
+    result = job.result if isinstance(job.result, dict) else {}
+    relevance = result.get("relevance")
+    if not isinstance(relevance, dict):
+        return "uncertain"
+    groups = {}
+    for name in ("accepted_asset_ids", "excluded_asset_ids", "uncertain_asset_ids"):
+        values = relevance.get(name)
+        groups[name] = set(map(str, values)) if isinstance(values, list) else set()
+    if asset_id in groups["excluded_asset_ids"]:
+        return "unrelated"
+    if asset_id in groups["uncertain_asset_ids"]:
+        return "uncertain"
+    readings = result.get("image_readings", [])
+    if isinstance(readings, list) and any(isinstance(item, dict) and str(item.get("asset_id")) == asset_id
+            and item.get("status") not in {"completed", "reused"} for item in readings):
+        return "uncertain"
+    if asset_id in groups["accepted_asset_ids"] and relevance.get("status") in {"relevant", "mixed"}:
+        return "accepted"
+    return "uncertain"
+
+
+def assessed_photo_states(machine, *, current=None, jobs=None):
+    """Latest decision for every current photo, including incomplete readings."""
+    current = _current_photo_manifest(machine) if current is None else current
+    jobs = machine.analysis_jobs.filter(status="completed", mode="analysis").order_by("-created_at", "-pk") if jobs is None else jobs
     states = {}
-    for job in machine.analysis_jobs.filter(status="completed", mode="analysis").order_by("-created_at", "-pk"):
-        result = job.result if isinstance(job.result, dict) else {}
-        relevance = result.get("relevance", {})
-        if not isinstance(relevance, dict):
-            continue
-        for key, state in (("excluded_asset_ids", "unrelated"), ("uncertain_asset_ids", "uncertain"),
-                           ("accepted_asset_ids", "accepted")):
-            values = relevance.get(key, [])
-            for value in values if isinstance(values, list) else []:
-                states.setdefault(str(value), state)
+    for job in jobs:
+        for pk in _matching_photo_ids(job, current):
+            states.setdefault(pk, _job_photo_state(job, pk))
     return states
 
 
 def require_consistent_photos(machine, asset_ids=None):
     """Restrict this fiche, not the account, when actual photo evidence conflicts."""
-    purposes = {str(pk): purpose for pk, purpose in machine.assets.filter(kind="image", processing_status="ready")
-                .exclude(purpose="document").values_list("pk", "purpose")}
+    current = _current_photo_manifest(machine)
+    purposes = {pk: item["purpose"] for pk, item in current.items()}
     ids = set(purposes)
     if asset_ids is not None:
         ids &= {str(value) for value in asset_ids}
-    states = assessed_photo_states(machine)
+    jobs = list(machine.analysis_jobs.filter(status="completed", mode="analysis").order_by("-created_at", "-pk"))
+    states = assessed_photo_states(machine, current=current, jobs=jobs)
     if any(states.get(pk) == "unrelated" for pk in ids):
         raise ValidationError("Retira las fotografías que no corresponden a maquinaria antes de compartir o enviar esta ficha.")
     from .analysis_specialization import check_equipment_consistency, historical_model_fragments, private_consistency_error
@@ -265,10 +315,10 @@ def require_consistent_photos(machine, asset_ids=None):
     model_fragments = set()
     model_diagnostics = {}
     combined = {"fields": [], "image_observations": []}
-    for job in AnalysisJob.objects.filter(machine=machine, status="completed", mode="analysis").order_by("-created_at", "-pk"):
+    for job in jobs:
         if not isinstance(job.result, dict):
             continue
-        relevant = (set(map(str, job.asset_ids)) & ids) - seen
+        relevant = (_matching_photo_ids(job, current) & ids) - seen
         if not relevant:
             continue
         seen |= relevant
@@ -285,3 +335,5 @@ def require_consistent_photos(machine, asset_ids=None):
     check_equipment_consistency(combined, snapshot, model_fragments=model_fragments)
     if combined.get("consistency", {}).get("status") == "contradiction":
         raise ValidationError(private_consistency_error(combined, model_diagnostics))
+    if any(states.get(pk) != "accepted" for pk in ids):
+        raise ValidationError("Genera la ficha con las nuevas fotografías o con tomas más claras antes de compartir o enviar; hay imágenes pendientes de identificar.")

@@ -20,6 +20,7 @@ from portal.models import (AnalysisJob, Asset, AuditEvent, Category, Machine, Me
 from portal.services import (record_local_duplicate_review, review_submission, set_advertiser_status,
                              set_publication, submit_machine)
 from portal.views import safe_public_data, sheet_context
+from portal.tests.test_workflow import accepted_photo_analysis
 
 
 @override_settings(STAFF_MFA_REQUIRED=True, SECURE_SSL_REDIRECT=False,
@@ -61,6 +62,7 @@ class WebSecurityTests(TestCase):
 
     def approved(self):
         set_advertiser_status(self.owner,self.admin,"approved","Validado en prueba")
+        accepted_photo_analysis(self.machine)
         sub=submit_machine(self.machine,self.owner,True)
         self.photo.public_authorized=True;self.photo.save()
         record_local_duplicate_review(

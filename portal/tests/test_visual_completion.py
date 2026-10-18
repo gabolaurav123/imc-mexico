@@ -40,6 +40,9 @@ class VisualCompletionTests(TestCase):
                 "data": {"description": "Texto recompuesto anterior que no debe copiarse: potencia 999 kW."},
                 "provenance": {"description": {"source": "system", "review": "needs_review"}},
                 "fields": [], "plates": [], "warnings": [],
+                "relevance": {"status": "relevant", "accepted_asset_ids": [str(self.asset.pk)]},
+                "image_observations": [{"asset_id": str(self.asset.pk), "kind": "machine",
+                    "relevance": "machinery", "category": "Excavadoras", "machine_count": 1}],
                 "research": empty_research("insufficient_identifiers")}
 
     def job(self, result):

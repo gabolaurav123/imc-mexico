@@ -16,6 +16,7 @@ from portal.admin import AnalyticsAdmin
 from portal.models import AnalyticsEvent,Asset,Machine,Notification,NotificationTemplate,PlatformSettings,RateLimit,User
 from portal.security import RedactingFormatter
 from portal.services import find_possible_duplicates,send_machine_reminder,submit_machine
+from portal.tests.test_workflow import accepted_photo_analysis
 
 
 class OperationsTests(TestCase):
@@ -59,6 +60,7 @@ class OperationsTests(TestCase):
     def test_invalid_template_cannot_prevent_workflow_notifications(self):
         NotificationTemplate.objects.create(key="submission",subject="Invalid $secret",body="Mensaje")
         Asset.objects.create(machine=self.machine,kind="image",purpose="general",processing_status="ready",original="private.jpg",mime_type="image/jpeg",sha256="a"*64)
+        accepted_photo_analysis(self.machine)
         submission=submit_machine(self.machine,self.owner,True)
         self.assertEqual(submission.status,"submitted")
         self.assertTrue(Notification.objects.filter(kind="submission",channel="email").exists())

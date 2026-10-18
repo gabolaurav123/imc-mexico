@@ -41,13 +41,13 @@ from .research_field_values import is_fuel_name
 from .model_reading import apply_model_label_visibility, allows_model_prefix_hint, partial_model_label
 from .dual_measurements import canonical_dual_measurement
 from .valuation import VALUATION_RESERVATION, estimate_machine, is_validated_estimate, valuation_reservation
-from .analysis_specialization import PROFILE_INSTRUCTIONS, check_equipment_consistency
+from .analysis_specialization import PROFILE_INSTRUCTIONS, canonical_photo_category, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
                             merge_machine_reference, missing_fields)
 from .worker_wake import wake_worker_after_commit
 
-PROMPT_VERSION = "imc-excavators-2026-09-v47"
+PROMPT_VERSION = "imc-excavators-2026-10-v48"
 RETRIABLE_SERVICE_FAILURE_CODES = frozenset({
     "billing_unavailable", "credentials_unavailable", "model_unavailable",
 })
@@ -245,6 +245,13 @@ esa maquinaria; unrelated para mascotas, selfies o personas sin equipo, comida,
 memes y documentos personales o ajenos; uncertain cuando el desenfoque, oscuridad
 o encuadre no permiten determinarlo. Una persona junto a una máquina visible no
 invalida la máquina. No supongas relevancia por la intención o los datos del usuario.
+Clasifica primero el objeto visible de forma independiente. Una retroexcavadora
+cargadora combina cucharón frontal y brazo de excavación trasero; una
+motoconformadora/motoniveladora tiene una hoja central bajo un bastidor largo.
+Una pavimentadora tiene tolva y regla de extendido; no es una retroexcavadora ni
+un rodillo. Describe sólo los rasgos realmente visibles y usa null si el encuadre
+no permite determinar la familia. Nunca ajustes la clasificación a una elección
+previa del anunciante ni conviertas comida, juguetes o fotografías ajenas en máquinas.
 Una etiqueta con SERIAL o MODEL no basta: placas de teléfonos, computadoras o
 electrodomésticos domésticos son unrelated si ese objeto está claro; si no se
 puede determinar el tipo de equipo por la placa, usa uncertain. Las placas de
@@ -401,7 +408,10 @@ class ImageObservation(StrictModel):
     visual_features: list[str] = Field(default_factory=list)
     visual_assessment: VisualAssessment | None = None
     age_estimate: AgeEstimate | None = None
-    machine_count: StrictInt | None = None
+    machine_count: StrictInt | None = Field(default=None, description=(
+        "Número de equipos distintos presentados como sujetos principales de la foto o collage. "
+        "Ignora maquinaria incidental al fondo, personas y accesorios; varias vistas de la misma unidad cuentan como una. "
+        "Usa null si no se pueden distinguir con claridad los sujetos principales."))
     quality_issue: str | None = None
 
 
@@ -643,7 +653,7 @@ def _ensure_execution_reservation(job, limits, now):
     affordable = min(remaining, max(0, available) // per_attempt)
     if affordable < 1:
         job.status = "failed"
-        job.error = "No hay capacidad de análisis disponible hoy. Puedes enviar la ficha con la información disponible."
+        job.error = "No hay capacidad de análisis disponible hoy. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis."
         job.reserved_tokens = 0
         job.locked_at = None
         job.finished_at = now
@@ -819,7 +829,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
     if not has_unit_evidence(machine):
         raise ValidationError("Agrega una fotografía de la máquina o escribe un número de serie válido antes de generar su ficha.")
     if not option("OPENAI_API_KEY", ""):
-        raise ValidationError("El análisis asistido aún no está configurado. Puedes enviar la ficha con la información disponible.")
+        raise ValidationError("El análisis asistido aún no está configurado. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis.")
     with transaction.atomic():
         platform_settings()
         limits = PlatformSettings.objects.select_for_update().get(pk=1)
@@ -830,12 +840,16 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if not has_unit_evidence(machine):
             raise ValidationError("Agrega una fotografía de la máquina o escribe un número de serie válido antes de generar su ficha.")
         if mode == "description":
-            from .intake import has_written_serial
+            from .intake import has_written_serial, require_consistent_photos
             # A description-only call cannot quietly use an unselected photo.
             # It needs a written serial, unless a current photo was already
             # accepted in a completed full analysis for this same fiche.
             current_photo_ids = {str(pk) for pk in machine.assets.filter(
                 kind="image", processing_status="ready").exclude(purpose="document").values_list("pk", flat=True)}
+            if current_photo_ids:
+                # A caller cannot skip the photo checks by selecting no images
+                # and requesting a serial/description-only generation instead.
+                require_consistent_photos(machine)
             analysed_photo = any(
                 current_photo_ids.intersection(map(str, job.asset_ids or []))
                 and not (isinstance(job.result, dict) and job.result.get("preflight") is True)
@@ -862,7 +876,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         if research and consent.version != CONSENT_VERSION:
             raise ValidationError("Autoriza la lectura de fotografías y la búsqueda de identificadores públicos antes de continuar.")
         if not limits.ai_enabled:
-            raise ValidationError("El análisis asistido está pausado. Puedes enviar la ficha con la información disponible.")
+            raise ValidationError("El análisis asistido está pausado. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis.")
         selected = machine.assets.filter(kind="image", processing_status="ready").exclude(purpose="document")
         if asset_ids is not None:
             if not isinstance(asset_ids, list) or len(asset_ids) > limits.max_images:
@@ -927,9 +941,9 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         now = timezone.now()
         jobs = daily_quota_jobs(limits, now)
         if jobs.filter(requested_by=user).count() >= limits.ai_user_daily_limit:
-            raise ValidationError("Alcanzaste el límite diario de análisis. Puedes enviar la ficha con la información disponible.")
+            raise ValidationError("Alcanzaste el límite diario de análisis. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis.")
         if jobs.count() >= limits.ai_global_daily_limit:
-            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Puedes enviar la ficha con la información disponible o intentarlo mañana.")
+            raise ValidationError("El análisis alcanzó el límite diario de la plataforma. Tu borrador está guardado; puedes editarlo y volver a intentar el análisis mañana.")
         per_attempt = _reservation(len(assets), mode, research,
                                    research_description_only=research_description_only, model=model)
         # A reset frees the quota of finished work, while carried executions
@@ -940,7 +954,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
         available = limits.ai_daily_token_limit - sum(v or 0 for v in totals.values())
         attempt_limit = min(max(1, limits.ai_max_attempts), available // per_attempt)
         if attempt_limit < 1:
-            raise ValidationError("No hay capacidad de análisis disponible hoy. Puedes enviar la ficha con la información disponible.")
+            raise ValidationError("No hay capacidad de análisis disponible hoy. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis.")
         reserve = per_attempt * attempt_limit
         job_fingerprint = (_service_retry_fingerprint(fingerprint, retry_of.pk)
                            if retry_of else fingerprint)
@@ -961,6 +975,7 @@ def enqueue_analysis(machine, user, asset_ids=None, mode="analysis", analytics_c
                                                 "research_requested": research,
                                                 "catalogue_enrichment": catalogue_enrichment,
                                                 "vision_model": material["vision_model"],
+                                                "photo_cache_scope": "independent-image-v1",
                                                 "category_profile": category_profile,
                                                 "progress": {"stage": "queued", "completed": 0, "total": len(assets)},
                                                 "research_description_only": research_description_only, "category_names": category_names,
@@ -1334,7 +1349,8 @@ def _image_relevance(parsed, asset_ids):
             if not matches or len(classifications) != 1 or any(
                     "relevance" not in item.model_fields_set for item in matches):
                 uncertain.append(asset_id)
-            elif matches[0].relevance in {"machinery", "related"}:
+            elif (matches[0].relevance == "machinery" and matches[0].kind == "machine"
+                    or matches[0].relevance == "related" and matches[0].kind in {"machine", "plate", "document"}):
                 accepted.append(asset_id)
             elif matches[0].relevance == "unrelated":
                 excluded.append(asset_id)
@@ -1531,7 +1547,7 @@ def normalize_analysis(parsed, asset_ids, mode="analysis", *, allowed_categories
         for item in observations:
             useful = item["asset_id"] in accepted
             category = item.get("category") if useful else None
-            item["category"] = category if category in (allowed_categories or ()) else None
+            item["category"] = canonical_photo_category(category, allowed_categories)
             if item["category"]:
                 categories.add(item["category"])
             safe_features = []
@@ -1834,6 +1850,12 @@ def _photo_cache_keys(job, assets, snapshot):
     context = {"prompt": job.prompt_version, "model": job.result.get("vision_model", job.model),
                "category": snapshot.get("category"), "profile": job.result.get("category_profile", {}),
                "declared": human_declared_data(snapshot)}
+    if job.result.get("photo_cache_scope") == "independent-image-v1":
+        # New visual reads do not see declarations. Reuse the same checked
+        # pixels after a category/serial correction and recompare the result
+        # with the new snapshot, without paying to read those pixels again.
+        context = {"prompt": job.prompt_version, "model": job.result.get("vision_model", job.model),
+                   "scope": "independent-image-v1"}
     return {str(asset.pk): hashlib.sha256(json.dumps({**context, "id": str(asset.pk),
                 "sha256": asset.sha256, "purpose": asset.purpose}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
             for asset in assets}
@@ -2023,9 +2045,9 @@ def process_analysis(job):
     request_data = {
         "task": "Solo redacta nuevamente la descripción a partir de datos declarados." if job.mode == "description"
                 else "Analiza únicamente estas fotografías y prepara sugerencias para revisar.",
-        "declared_data": {"data": declared, "provenance": {
+        "declared_data": {"data": declared if job.mode == "description" else {}, "provenance": {
             key: {name: meta[name] for name in ("source", "review", "component") if name in meta}
-            for key, meta in declared_snapshot["provenance"].items()}},
+            for key, meta in declared_snapshot["provenance"].items()} if job.mode == "description" else {}},
         # A fresh photograph reading must not anchor itself to a previous AI
         # extraction. Description-only tasks can use stored values labelled
         # with their actual provenance; they do not claim a new plate reading.
@@ -2033,8 +2055,10 @@ def process_analysis(job):
         "allowed_field_keys": sorted(AI_KEYS),
         "current_year": timezone.localdate().year,
         "allowed_category_names": job.result.get("category_names", []),
-        "selected_category": snapshot.get("category"),
-        "category_profile": job.result.get("category_profile", {}),
+        # Classification is independent of the choice being checked. The
+        # saved selection/profile still scopes research after this photo gate.
+        "selected_category": snapshot.get("category") if job.mode == "description" else None,
+        "category_profile": job.result.get("category_profile", {}) if job.mode == "description" else {},
     }
     def context(manifest):
         return {"role": "user", "content": [{"type": "input_text", "text": json.dumps(
@@ -2119,7 +2143,7 @@ def process_analysis(job):
             else:
                 usage.add(response.usage)
             if response.output_parsed is None or response.status != "completed":
-                raise ValidationError("No se pudo completar el análisis. Puedes enviar la ficha con la información disponible.")
+                raise ValidationError("No se pudo completar el análisis. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis.")
             result = normalize_analysis(response.output_parsed, job.asset_ids, job.mode,
                                         allowed_categories=job.result.get("category_names", []))
             if _provider_model(response):
@@ -2205,6 +2229,11 @@ def process_analysis(job):
                 model_meta["review_reason"] = "repeated_ambiguous_reading"
                 result["warnings"].append("La lectura del modelo se repitió en la misma fotografía; confirma el sufijo antes de aplicar referencias del modelo.")
         result["photo_cache"] = photo_cache
+        result["photo_cache_scope"] = job.result.get("photo_cache_scope", "")
+        result["vision_model"] = visual_model
+        # Keep the immutable decision boundary after completion too. It must
+        # never be reconstructed from a later edited draft when reusing reads.
+        result["input_snapshot"] = deepcopy(snapshot)
         result["input_image_bindings"] = bindings
         result["image_readings"] = image_readings
         result["image_analysis_status"] = "partial" if image_pipeline_interrupted else "completed"
@@ -2232,6 +2261,27 @@ def process_analysis(job):
             # human identifiers nor generic fallbacks can turn unrelated input
             # into a new machinery proposal or trigger an external search.
             result["research"] = {**empty_research("not_run"), "reason": "image_relevance"}
+            result["blocking_reason"] = "photo_relevance" if result["relevance"]["status"] == "unrelated" else "photo_pending"
+            result["valuation"] = {"status": "not_run", "reason": result["blocking_reason"]}
+            result["progress"] = {"stage": "needs_information", "completed": len(image_readings), "total": len(bindings)}
+            result["usage"] = usage.as_dict()
+            return result, usage
+        if job.mode == "analysis" and (result["relevance"]["status"] != "relevant" or image_pipeline_interrupted):
+            # A valid photo cannot launder a second unrelated/unread photo.
+            # Retain its extraction privately for reuse after correction, but
+            # do not spend on market research or apply a misleading ready fiche.
+            excluded = bool(result["relevance"].get("excluded_asset_ids"))
+            result["blocking_reason"] = "photo_relevance" if excluded else "photo_pending"
+            message = ("Hay fotografías que no corresponden a maquinaria. Retíralas antes de generar la ficha."
+                       if excluded else "Hay fotografías pendientes de identificar. Retíralas o añade una toma más clara y vuelve a generar la ficha.")
+            if image_pipeline_interrupted and not excluded:
+                message = "El análisis se interrumpió y quedaron fotografías pendientes de analizar. Vuelve a generar la ficha; conservamos las lecturas completadas."
+            result["relevance"]["message"] = message
+            result["warnings"] = [message]
+            reason = "image_pipeline_incomplete" if image_pipeline_interrupted else result["blocking_reason"]
+            result["research"] = {**empty_research("not_run"), "reason": reason}
+            result["valuation"] = {"status": "not_run", "reason": reason}
+            result["progress"] = {"stage": "needs_information", "completed": len(image_readings), "total": len(bindings)}
             result["usage"] = usage.as_dict()
             return result, usage
         if result["preflight"]:
@@ -2431,7 +2481,7 @@ def _claim_job():
             if deleted:
                 _mark_deleted_analysis(stale, Machine.all_objects.values_list("revision", flat=True).get(pk=stale.machine_id))
             stale.status = "failed" if deleted or stale.attempts >= _attempt_limit(stale, limits) else "queued"
-            stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Puedes enviar la ficha con la información disponible."
+            stale.error = "El proceso fue interrumpido; se reintentará." if stale.status == "queued" else "El análisis fue interrumpido. Tus fotos y datos siguen guardados; puedes editarlos y volver a intentar el análisis."
             if deleted:
                 stale.error = "El borrador se envió a la papelera; el análisis interrumpido no se reanudará."
             stale.locked_at = None
@@ -2528,7 +2578,7 @@ def process_next_job():
             retry = not deleted and transient and locked.attempts < _attempt_limit(locked, platform_settings())
             locked.status = "queued" if retry else "failed"
             locked.error = ("El proveedor está ocupado; volveremos a intentar el análisis." if retry else
-                            "No pudimos completar el análisis. Tu borrador está guardado; puedes enviar la ficha con la información disponible.")
+                            "No pudimos completar el análisis. Tu borrador está guardado; puedes editarlo y volver a intentar el análisis.")
             rate_limit_delay = None
             if isinstance(exc, RateLimitError):
                 rate_limit_delay = _rate_limit_retry_seconds(exc, locked.attempts)

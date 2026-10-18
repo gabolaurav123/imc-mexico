@@ -13,6 +13,7 @@ from portal.context import site_context
 from portal.models import Asset, Machine, Message, Notification, User
 from portal.notifications import AUTH_KINDS, notification_target, unread_state
 from portal.services import review_submission, submit_machine
+from portal.tests.test_workflow import accepted_photo_analysis
 
 
 @override_settings(STAFF_MFA_REQUIRED=True, SECURE_SSL_REDIRECT=False,
@@ -43,6 +44,7 @@ class NotificationUnreadTests(TestCase):
     def submission(self):
         Asset.objects.create(machine=self.machine, kind='image', purpose='general', processing_status='ready',
             original='private/synthetic-only.jpg', mime_type='image/jpeg', sha256='c' * 64, size=100)
+        accepted_photo_analysis(self.machine)
         return submit_machine(self.machine, self.owner, True)
 
     def test_summary_is_owner_only_sent_in_app_and_excludes_every_auth_kind(self):

@@ -199,6 +199,7 @@ class ReasoningModelWorkerTests(TestCase):
     def test_description_uses_policy_and_only_keeps_safe_provider_model_metadata(self):
         # Description-only preparation has no selected photo, so it needs the
         # same meaningful unit identifier required in production.
+        self.machine.assets.all().delete()
         self.machine.data["serial"] = "POLICY-SN-001"
         self.machine.provenance["serial"] = {"source": "user", "review": "confirmed"}
         self.machine.save(update_fields=["data", "provenance"])
@@ -272,6 +273,7 @@ class ReasoningModelWorkerTests(TestCase):
                 with self.subTest(mode=mode, error=error_type.__name__):
                     AnalysisJob.objects.all().delete()
                     if mode == "description":
+                        self.machine.assets.all().delete()
                         self.machine.data["serial"] = "POLICY-SN-001"
                         self.machine.provenance["serial"] = {"source": "user", "review": "confirmed"}
                         self.machine.save(update_fields=["data", "provenance"])
