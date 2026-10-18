@@ -5,6 +5,7 @@ by this server; it cannot supply a price, currency, identity or sale type from
 its own search summary. No exchange rates, serial queries or condition discounts.
 """
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 import hashlib
 import ipaddress
@@ -46,6 +47,7 @@ MAX_DOCUMENTS = 6
 # attempts so one bad result does not make an otherwise researched model lose
 # its price range.
 MAX_DOCUMENT_ATTEMPTS = 12
+MAX_CONCURRENT_DOCUMENTS = 3
 MAX_INDEX_DOCUMENTS = 2
 MAX_PASSAGES = 10
 MAX_PARSE_INPUT_BYTES = 6_000  # + instructions and 2500 output stays inside 9000 reserved tokens.
@@ -386,6 +388,35 @@ def _fetch_discovered_ceg_listing(url, index_url, observed_urls, deadline):
             != (urlsplit(index).hostname or '').removeprefix('www.')):
         raise CatalogFetchError('not_observed')
     return _fetch_public_document(listing, deadline, _listing_url)
+
+
+def _fetch_document_batch(fetcher, requests, *, allowed, deadline):
+    """Read a small independent batch; authorization stays on the caller thread.
+
+    Each request still goes through the pinned-IP fetcher with its own eight
+    second limit and the shared deadline. Results retain search order, rather
+    than allowing the fastest site to decide which evidence reaches the parser.
+    ``None`` discards the batch if consent changes while downloads are in flight.
+    No model calls or database access take place in these helper threads.
+    """
+    futures = []
+    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOCUMENTS,
+                            thread_name_prefix='valuation-document') as pool:
+        for args in requests[:MAX_CONCURRENT_DOCUMENTS]:
+            if allowed is not None and not allowed():
+                return None
+            if time.monotonic() >= deadline:
+                break
+            futures.append(pool.submit(fetcher, *args))
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append((future.result(), None))
+            except Exception as exc:
+                outcomes.append((None, exc))
+    if allowed is not None and not allowed():
+        return None
+    return outcomes
 
 
 def _visible(node):
@@ -877,6 +908,7 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
         if not web_search_completed(response):
             raise ValueError('Incomplete valuation search')
         phase = 'documents'
+        phase_start, phase_usage_start = time.monotonic(), usage.as_dict()
         deadline = time.monotonic() + 24
         passages = []
         candidates = []
@@ -895,25 +927,34 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                     continue
         direct_attempts = 0
         direct_reads = 0
-        for source in candidates:
-            if direct_attempts >= MAX_DOCUMENT_ATTEMPTS or direct_reads >= MAX_DOCUMENTS:
-                break
-            direct_attempts += 1
-            if allowed is not None and not allowed():
+        retrieved_urls = [entry['url'] for entry in sources]
+        while direct_attempts < min(len(candidates), MAX_DOCUMENT_ATTEMPTS) and direct_reads < MAX_DOCUMENTS:
+            # Do not prefetch more listings than the remaining evidence slots;
+            # failed pages get replacements in the next bounded batch.
+            count = min(MAX_CONCURRENT_DOCUMENTS, MAX_DOCUMENTS - direct_reads,
+                        MAX_DOCUMENT_ATTEMPTS - direct_attempts)
+            batch = candidates[direct_attempts:direct_attempts + count]
+            outcomes = _fetch_document_batch(_fetch_listing,
+                [(source['url'], retrieved_urls, deadline) for source in batch],
+                allowed=allowed, deadline=deadline)
+            if outcomes is None:
                 return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
-            if time.monotonic() >= deadline:
+            if not outcomes:
                 break
-            try:
-                html, final_url = _fetch_listing(source['url'], [entry['url'] for entry in sources], deadline)
-                current = _document_passages(html, final_url, identity, private)
-                passages.extend(current[:MAX_PASSAGES - len(passages)])
-                fetches.append({'status': 'read', 'passages': len(current)})
-                # A syntactically readable page without an individual listing
-                # passage cannot help the parser; keep looking for a real
-                # replacement within the fixed attempt budget.
-                direct_reads += int(bool(current))
-            except Exception as exc:
-                fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__})
+            direct_attempts += len(outcomes)
+            for document, error in outcomes:
+                try:
+                    if error is not None:
+                        raise error
+                    html, final_url = document
+                    current = _document_passages(html, final_url, identity, private)
+                    passages.extend(current[:MAX_PASSAGES - len(passages)])
+                    fetches.append({'status': 'read', 'passages': len(current)})
+                    # A readable page without a listing passage still needs a
+                    # replacement within the same attempt budget.
+                    direct_reads += int(bool(current))
+                except Exception as exc:
+                    fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__})
         # CEG result pages are only a bounded link-discovery source. Their
         # card prices are never sent to the parser or treated as comparables.
         # Direct individual search results take all six listing slots first.
@@ -923,13 +964,16 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
         # price evidence themselves.
         if direct_reads < MAX_DOCUMENTS:
             discovered, discovered_urls = [], set()
-            for source in indexes[:MAX_INDEX_DOCUMENTS]:
-                if allowed is not None and not allowed():
-                    return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
-                if time.monotonic() >= deadline:
-                    break
+            index_outcomes = _fetch_document_batch(_fetch_ceg_index,
+                [(source['url'], retrieved_urls, deadline) for source in indexes[:MAX_INDEX_DOCUMENTS]],
+                allowed=allowed, deadline=deadline)
+            if index_outcomes is None:
+                return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
+            for document, error in index_outcomes:
                 try:
-                    html, final_url = _fetch_ceg_index(source['url'], [entry['url'] for entry in sources], deadline)
+                    if error is not None:
+                        raise error
+                    html, final_url = document
                     observed = _ceg_listing_urls(html, final_url)
                     fetches.append({'status': 'index_read', 'listings': len(observed)})
                     for url in observed:
@@ -938,21 +982,30 @@ def estimate_machine(client, model, result, snapshot=None, allowed=None, categor
                             discovered_urls.add(url)
                 except Exception as exc:
                     fetches.append({'status': 'index_unavailable', 'error_type': type(exc).__name__})
-            for url, index_url, observed in discovered[:MAX_DOCUMENTS - direct_reads]:
-                if allowed is not None and not allowed():
+            remaining = discovered[:MAX_DOCUMENTS - direct_reads]
+            for offset in range(0, len(remaining), MAX_CONCURRENT_DOCUMENTS):
+                outcomes = _fetch_document_batch(_fetch_discovered_ceg_listing,
+                    [(url, index_url, observed, deadline)
+                     for url, index_url, observed in remaining[offset:offset + MAX_CONCURRENT_DOCUMENTS]],
+                    allowed=allowed, deadline=deadline)
+                if outcomes is None:
                     return finish(_empty(identity, 'La autorización de estimación ya no está vigente.', 'not_run'))
-                if time.monotonic() >= deadline:
+                if not outcomes:
                     break
-                try:
-                    # ``url`` is authorized by _ceg_listing_urls above; pass
-                    # that observed set rather than expanding search authority.
-                    html, final_url = _fetch_discovered_ceg_listing(url, index_url, observed, deadline)
-                    current = _document_passages(html, final_url, identity, private)
-                    passages.extend(current[:MAX_PASSAGES - len(passages)])
-                    fetches.append({'status': 'read', 'passages': len(current), 'discovered': True})
-                    direct_reads += int(bool(current))
-                except Exception as exc:
-                    fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__, 'discovered': True})
+                for document, error in outcomes:
+                    try:
+                        if error is not None:
+                            raise error
+                        # Discovery is still authorized by the exact observed
+                        # index links, never by an invented URL or card price.
+                        html, final_url = document
+                        current = _document_passages(html, final_url, identity, private)
+                        passages.extend(current[:MAX_PASSAGES - len(passages)])
+                        fetches.append({'status': 'read', 'passages': len(current), 'discovered': True})
+                        direct_reads += int(bool(current))
+                    except Exception as exc:
+                        fetches.append({'status': 'unavailable', 'error_type': type(exc).__name__, 'discovered': True})
+        record_phase('documents', 'completed' if passages else 'no_readable_listings')
         if not passages:
             value = _empty(identity, 'No se pudieron verificar precios con moneda explícita en anuncios individuales del modelo. Hace falta una fuente pública legible.')
             return finish(value)

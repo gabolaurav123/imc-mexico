@@ -41,6 +41,8 @@ from .research_field_values import is_fuel_name
 from .model_reading import apply_model_label_visibility, allows_model_prefix_hint, partial_model_label
 from .dual_measurements import canonical_dual_measurement
 from .valuation import VALUATION_RESERVATION, estimate_machine, is_validated_estimate, valuation_reservation
+from .valuation import _identity as valuation_identity
+from .analysis_parallel import ConcurrentReference
 from .analysis_specialization import PROFILE_INSTRUCTIONS, canonical_photo_category, check_equipment_consistency
 from .family_reference import build_family_reference, merge_family_reference
 from .ai_completion import (complete_machine_reference, completion_reservation,
@@ -1944,6 +1946,40 @@ def _cached_valuation(job, data):
     return None, None
 
 
+def _reference_allowed(job):
+    try:
+        _check_image_execution(job)
+    except ValidationError:
+        return False
+    latest = Consent.objects.filter(user=job.requested_by, user__is_active=True,
+        machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
+    return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
+
+
+def _independent_valuation_identity(job, result, snapshot):
+    """Only clear photo identities can be valued before research finishes.
+
+    Serial discovery, ambiguous suffixes and model hypotheses keep the original
+    sequential route. A transaction's uncommitted job/consent is not visible to
+    a second database connection, so that route also stays sequential.
+    """
+    if (job.mode != "analysis" or connection.in_atomic_block
+            or result.get("relevance", {}).get("status") != "relevant"
+            or snapshot.get("data", {}).get("serial") or result.get("data", {}).get("serial")):
+        return None
+    identity = valuation_identity(result, snapshot)
+    if not all(identity.get(key) for key in ("brand", "model")):
+        return None
+    declared = human_declared_data(snapshot)
+    for key in ("brand", "model"):
+        meta = result.get("provenance", {}).get(key, {})
+        if key not in declared and not (
+                meta.get("source") in {"image", "plate"} and meta.get("review") == "clear"
+                and meta.get("component") == "machine"):
+            return None
+    return identity
+
+
 def _same_cached_general_photo(entry, prior, asset):
     """Check the exact cached pixel identity, including legacy cache records."""
     if not isinstance(entry, dict) or asset.purpose != "general":
@@ -2110,6 +2146,9 @@ def process_analysis(job):
     cache_keys = _photo_cache_keys(job, assets, snapshot)
     cached_readings = _cached_photo_readings(job, cache_keys) if job.mode == "analysis" else {}
     image_pipeline_interrupted = False
+    parallel_valuation = None
+    parallel_identity = None
+    early_cached_valuation, early_cached_job_id = None, None
     try:
         research_requested = job.result.get("research_requested") is True
         research_description_only = (job.mode == "description" and research_requested
@@ -2296,11 +2335,8 @@ def process_analysis(job):
         elif research_requested:
             _record_progress(job, "research", len(image_readings), len(bindings))
             def research_allowed():
-                if _deleted_analysis(AnalysisJob.objects.get(pk=job.pk)):
-                    return False
-                latest = Consent.objects.filter(user=job.requested_by, user__is_active=True,
-                                                machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
-                return bool(latest and latest.granted and latest.version == CONSENT_VERSION)
+                return ((parallel_valuation is None or not parallel_valuation.stopped.is_set())
+                        and _reference_allowed(job))
 
             # Reuse the decoded, metadata-free photo already read by vision.
             # Catalogue matching compares locally; no photo is uploaded to a
@@ -2329,11 +2365,32 @@ def process_analysis(job):
                 from .catalogue_intake import catalogue_reference_ready, catalogue_selection_research
                 if catalogue_reference_ready(job.machine):
                     catalogue_reference = catalogue_selection_research(job.machine)
-            research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
-                                                       allowed_categories=job.result.get("category_names", []),
-                                                       photo_inputs=photo_inputs, knowledge_category=job.machine.category,
-                                                       catalogue_enrichment=catalogue_enrichment,
-                                                       catalogue_reference=catalogue_reference)
+            parallel_identity = _independent_valuation_identity(job, result, snapshot)
+            if parallel_identity is not None:
+                early_cached_valuation, early_cached_job_id = _cached_valuation(job, {**result["data"], **declared})
+                # Allocate BOTH branches together. Neither branch may spend the
+                # other's reservation; each retains its existing internal caps.
+                if early_cached_valuation is None and _can_spend_step(job, usage,
+                        research_reservation(job.model) + valuation_reservation(job.model)):
+                    valuation_result, valuation_snapshot = deepcopy(result), deepcopy(snapshot)
+                    valuation_category = job.machine.category
+                    parallel_valuation = ConcurrentReference(lambda stopped: estimate_machine(
+                        client, job.model, valuation_result, valuation_snapshot,
+                        allowed=lambda: not stopped.is_set() and _reference_allowed(job),
+                        category=valuation_category))
+                    result["execution"] = {"references": "parallel"}
+            try:
+                research, research_usage = research_machine(client, job.model, result, snapshot, allowed=research_allowed,
+                                                           allowed_categories=job.result.get("category_names", []),
+                                                           photo_inputs=photo_inputs, knowledge_category=job.machine.category,
+                                                           catalogue_enrichment=catalogue_enrichment,
+                                                           catalogue_reference=catalogue_reference)
+            except Exception as exc:
+                branch_usage = getattr(exc, "accounted_usage", None)
+                usage.add(branch_usage)
+                usage.estimated_tokens += getattr(branch_usage, "estimated_tokens", 0)
+                usage.web_search_calls += getattr(branch_usage, "web_search_calls", 0)
+                raise
             usage.add(research_usage)
             usage.estimated_tokens += research_usage.estimated_tokens
             usage.web_search_calls += research_usage.web_search_calls
@@ -2353,9 +2410,22 @@ def process_analysis(job):
         else:
             result["research"] = empty_research()
         valuation_input = {**result["data"], **declared}
-        cached_valuation, cached_valuation_job_id = (
-            _cached_valuation(job, valuation_input) if research_requested and not image_pipeline_interrupted else (None, None))
-        if cached_valuation is not None:
+        cached_valuation, cached_valuation_job_id = None, None
+        if research_requested and not image_pipeline_interrupted and parallel_valuation is None:
+            if early_cached_valuation is not None and valuation_identity(result, snapshot) == parallel_identity:
+                cached_valuation, cached_valuation_job_id = early_cached_valuation, early_cached_job_id
+            else:
+                cached_valuation, cached_valuation_job_id = _cached_valuation(job, valuation_input)
+        if parallel_valuation is not None:
+            _record_progress(job, "valuation", len(image_readings), len(bindings))
+            valuation = parallel_valuation.settle(usage)
+            if valuation_identity(result, snapshot) != parallel_identity:
+                # Never attach a price researched for another identity/context,
+                # and never silently buy the same lookup twice. The normal final
+                # completion may fill a justified model reference if possible.
+                valuation = {"status": "not_run", "reason": "identity_changed"}
+            valuation_usage = None  # Already accounted exactly once by settle.
+        elif cached_valuation is not None:
             # Keep the original signed object intact.  The separate marker is
             # an internal trace of a call avoided, not part of its proof.
             valuation, valuation_usage = cached_valuation, UsageTotals()
@@ -2363,13 +2433,7 @@ def process_analysis(job):
         elif research_requested and not image_pipeline_interrupted and _can_spend_step(job, usage, valuation_reservation(job.model)):
             _record_progress(job, "valuation", len(image_readings), len(bindings))
             def valuation_allowed():
-                try:
-                    _check_image_execution(job)
-                except ValidationError:
-                    return False
-                consent = Consent.objects.filter(user=job.requested_by, user__is_active=True,
-                    machine=job.machine, kind="ai").order_by("-created_at", "-pk").first()
-                return bool(consent and consent.granted and consent.version == CONSENT_VERSION)
+                return _reference_allowed(job)
 
             valuation, valuation_usage = estimate_machine(client, job.model, result, snapshot,
                 allowed=valuation_allowed, category=job.machine.category)
@@ -2438,11 +2502,16 @@ def process_analysis(job):
         result["progress"] = {"stage": "completed", "completed": len(image_readings), "total": len(bindings)}
         return result, usage
     except Exception as exc:
+        if parallel_valuation is not None:
+            parallel_valuation.stopped.set()
+            parallel_valuation.settle(usage, raise_error=False)
         if usage.input_tokens or usage.output_tokens:
             # Preserve known consumption if a later local validation fails.
             exc.accounted_usage = usage
         raise
     finally:
+        if parallel_valuation is not None:
+            parallel_valuation.close()
         client.close()
 
 

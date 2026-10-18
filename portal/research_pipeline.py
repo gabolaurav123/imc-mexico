@@ -1,5 +1,6 @@
 """Staged, bounded external research, retaining independently cited evidence."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 from django.core import signing
@@ -211,6 +212,84 @@ def _can_allocate(model, usage, legacy_allocation, *, reserve_final=False, obser
     return usage.input_tokens + usage.output_tokens + allocation + headroom <= research_reservation(model)
 
 
+def _search_configuration(model, identity, stage, result, category, candidate_models=()):
+    payload, domains = _stage_request(identity, stage, result, category, candidate_models)
+    tool = {"type": "web_search", "search_context_size": "low"}
+    if domains:
+        if model.startswith("gpt-4.1"):
+            sites = " OR ".join("site:" + domain for domain in domains)
+            payload["query"] = f"({sites}) " + payload["query"]
+        else:
+            tool["filters"] = {"allowed_domains": list(dict.fromkeys(domains))[:30]}
+    return payload, domains, tool
+
+
+def _request_search(client, model, payload, tool):
+    return client.responses.create(
+        model=model, store=False, timeout=request_timeout(model, 65),
+        max_output_tokens=output_limit(model, 3000), max_tool_calls=1, **model_options(model),
+        tools=[tool], tool_choice="required", include=["web_search_call.action.sources"],
+        instructions=SEARCH_INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False),
+    )
+
+
+def _parallel_search_pair(client, model, requests, *, outcomes=None):
+    """Fetch independent model sources; the caller merges in original order.
+
+    No worker touches consent, database state or shared token counters. Both
+    outcomes are returned even when one fails so every started request remains
+    accounted if later authorization or provider checks discard the batch.
+    """
+    outcomes = {} if outcomes is None else outcomes
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="model-research") as pool:
+        futures = {}
+        try:
+            for stage, payload, tool in requests:
+                futures[stage] = pool.submit(_request_search, client, model, payload, tool)
+        finally:
+            # A local executor failure while submitting the second task must
+            # still expose the first task's consumption to the owning wrapper.
+            for stage, future in futures.items():
+                try:
+                    outcomes[stage] = (future.result(), None)
+                except Exception as exc:
+                    outcomes[stage] = (None, exc)
+    return outcomes
+
+
+def _account_search(usage, model, response, diagnostics=None):
+    inventory, calls = response_sources(response, diagnostics)
+    usage.web_search_calls += calls
+    if _get(response, 'usage') is None:
+        usage.estimate(token_reservation(model, SEARCH_RESERVATION) + 8000 * max(0, calls - 1))
+    else:
+        usage.add(_get(response, 'usage'))
+        usage.estimate(8000 * calls)
+    return inventory
+
+
+def _account_pending_searches(usage, model, pending):
+    """Drain launched siblings exactly once, including unexpected exit paths."""
+    while pending:
+        _, (response, error) = pending.popitem()
+        charge = UsageTotals()
+        if response is not None:
+            try:
+                _account_search(charge, model, response)
+            except Exception:
+                # A malformed provider usage record must neither conceal the
+                # original application error nor turn a started call into zero
+                # consumption. Keep this conservative fallback isolated from
+                # the totals already recorded for earlier stages.
+                charge = UsageTotals(web_search_calls=charge.web_search_calls)
+                charge.estimate(token_reservation(model, SEARCH_RESERVATION))
+        elif not provider_configuration_failure(error):
+            charge.estimate(token_reservation(model, SEARCH_RESERVATION))
+        usage.add(charge)
+        usage.estimated_tokens += charge.estimated_tokens
+        usage.web_search_calls += charge.web_search_calls
+
+
 def _normalize(client, model, identity, basis, sources, passages, titles, usage, original_identity=None,
                direct_fields=(), serial_model_leads=(), category=None):
     if not _can_allocate(model, usage, NORMALIZE_RESERVATION):
@@ -276,9 +355,25 @@ def _normalize(client, model, identity, basis, sources, passages, titles, usage,
 
 def research_identified_machine(client, model, result, identity, basis, allowed=None, category=None,
                                 initial_evidence=None):
+    # The wrapper owns all started-call accounting, so a database/consent or
+    # local parser failure outside the provider try/except cannot lose earlier
+    # consumption or a sibling fetched concurrently.
+    usage, pending = UsageTotals(), {}
+    try:
+        return _research_identified_machine(client, model, result, identity, basis,
+                                             allowed, category, initial_evidence,
+                                             usage=usage, pending=pending)
+    except Exception as exc:
+        _account_pending_searches(usage, model, pending)
+        exc.accounted_usage = usage
+        raise
+
+
+def _research_identified_machine(client, model, result, identity, basis, allowed, category,
+                                 initial_evidence, *, usage, pending):
     original_identity = dict(identity)
     identity = dict(identity)
-    outcome, usage = empty_research("no_results", identity, basis), UsageTotals()
+    outcome = empty_research("no_results", identity, basis)
     seed = initial_evidence if isinstance(initial_evidence, dict) else {}
     sources = list(seed.get("sources", []))
     passages = list(seed.get("passages", []))
@@ -291,6 +386,11 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
     interrupted = False
     observed_search_cost = 0
     provider_error_code = ""
+    prefetched = pending
+    parallel_stage_count = 0
+
+    def account_unconsumed():
+        _account_pending_searches(usage, model, prefetched)
 
     def configuration_failure(exc):
         code = provider_configuration_failure(exc)
@@ -298,11 +398,13 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
             # The provider explicitly rejected this request for lack of
             # credit.  Continuing with valuation or completion only produces
             # more rejected requests and a misleading completed fiche.
+            account_unconsumed()
             exc.accounted_usage = usage
             raise exc
         if code and result.get("identifier_only") is True:
             # No visual reading exists to preserve. Let the worker expose its
             # safe configuration error, retaining any earlier successful usage.
+            account_unconsumed()
             exc.accounted_usage = usage
             raise exc
         return code
@@ -324,54 +426,56 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         stages = (["catalogs"] if category == "Excavadoras"
                   and {"power", "weight", "digging_depth"}.issubset(local_fields)
                   else ["manufacturer", "catalogs"])
-    for stage in stages:
+    for stage_index, stage in enumerate(stages):
         if interrupted or (allowed is not None and not allowed()):
             interrupted = True
             break
         # Once evidence exists, another optional search must leave enough room
         # to validate it. Otherwise use the retained evidence now, rather than
         # buying further summaries that the final extractor cannot process.
-        if not _can_allocate(model, usage, SEARCH_RESERVATION, reserve_final=bool(passages),
-                             observed_cost=observed_search_cost):
+        if stage not in prefetched and not _can_allocate(
+                model, usage, SEARCH_RESERVATION, reserve_final=bool(passages),
+                observed_cost=observed_search_cost):
             attempts.append({'stage': stage, 'status': 'budget_unavailable'})
             break
-        payload, domains = _stage_request(identity, stage, result, category,
-                                          [lead["model"] for lead in serial_model_leads])
         # Unknown brands have no invented official domain. Broader technical
         # documentation is still searched in a separate final stage.
         if stage == "catalogs" and (not identity.get("brand") or not identity.get("model")):
-            payload, domains = _stage_request(identity, "manuals", result, category,
-                                              [lead["model"] for lead in serial_model_leads])
             stage = "manuals"
-        tool = {"type": "web_search", "search_context_size": "low"}
-        if domains:
-            if model.startswith("gpt-4.1"):
-                sites = " OR ".join("site:" + domain for domain in domains)
-                payload["query"] = f"({sites}) " + payload["query"]
-            else:
-                tool["filters"] = {"allowed_domains": list(dict.fromkeys(domains))[:30]}
+        payload, domains, tool = _search_configuration(model, identity, stage, result, category,
+                                                       [lead["model"] for lead in serial_model_leads])
+        # The first request checks provider availability before spending on
+        # more sources. Only subsequent independent model lookups overlap;
+        # serial discovery and identity resolution remain sequential.
+        pair_cost = 2 * max(token_reservation(model, SEARCH_RESERVATION), observed_search_cost)
+        pair_fits = (usage.input_tokens + usage.output_tokens + pair_cost
+                     + token_reservation(model, NORMALIZE_RESERVATION) <= research_reservation(model))
+        if (stage_index == 1 and len(stages) == 3 and not identity.get("serial")
+                and identity.get("brand") and identity.get("model")
+                and attempts[0].get("status") in {"no_results", "evidence_found"} and pair_fits):
+            if allowed is not None and not allowed():
+                interrupted = True
+                break
+            next_stage = stages[stage_index + 1]
+            next_payload, _, next_tool = _search_configuration(model, identity, next_stage, result, category)
+            _parallel_search_pair(client, model, [
+                (stage, payload, tool), (next_stage, next_payload, next_tool)], outcomes=prefetched)
+            parallel_stage_count = len(prefetched)
         attempt = {"stage": stage, "domains": domains, "status": "no_results",
                    "domain_control": "site_query_and_source_check" if domains and "filters" not in tool else "tool_filter_and_source_check" if domains else "open_search"}
         attempts.append(attempt)
         received = False
         before_search = usage.input_tokens + usage.output_tokens
         try:
-            response = client.responses.create(
-                model=model, store=False, timeout=request_timeout(model, 65),
-                max_output_tokens=output_limit(model, 3000),
-                max_tool_calls=1, **model_options(model),
-                tools=[tool], tool_choice="required", include=["web_search_call.action.sources"],
-                instructions=SEARCH_INSTRUCTIONS, input=json.dumps(payload, ensure_ascii=False),
-            )
+            if stage in prefetched:
+                response, error = prefetched.pop(stage)
+                if error is not None:
+                    raise error
+            else:
+                response = _request_search(client, model, payload, tool)
             received = True
             # Account real calls even when a response is incomplete.
-            inventory, calls = response_sources(response, attempt)
-            usage.web_search_calls += calls
-            if _get(response, 'usage') is None:
-                usage.estimate(token_reservation(model, SEARCH_RESERVATION) + 8000 * max(0, calls - 1))
-            else:
-                usage.add(_get(response, 'usage'))
-                usage.estimate(8000 * calls)
+            inventory = _account_search(usage, model, response, attempt)
             if not web_search_completed(response):
                 raise ValueError("Incomplete web search")
             metrics, _ = _collect(response, identity, sources, passages, titles, domains)
@@ -429,6 +533,9 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
                 if provider_error_code:
                     attempt["provider_error_code"] = provider_error_code
                     break
+    # A sibling request may already have completed before cancellation or an
+    # error stopped the ordered merge. Charge it without retaining its data.
+    account_unconsumed()
     if not interrupted and retrieved:
         from .research_documents import collect_document_fields
         extra_fields, extra_attempts, interrupted = collect_document_fields(
@@ -477,6 +584,7 @@ def research_identified_machine(client, model, result, identity, basis, allowed=
         cited_source_count=len(sources), selected_source_count=len(sources), cited_passage_count=len(passages),
         documents=document_attempts, document_count=len(document_attempts),
         direct_candidate_count=len(direct_fields),
+        parallel_stage_count=parallel_stage_count,
     )
     outcome["usage"] = usage.as_dict()
     # Sign any partial result too; only evidence fields enter the signed manifest.

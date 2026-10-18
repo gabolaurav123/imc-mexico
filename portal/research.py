@@ -1858,13 +1858,14 @@ def research_machine(client, model, result, snapshot=None, allowed=None, allowed
             if _local_reference_is_complete(local, identity, profile_category, result, snapshot):
                 return local, UsageTotals()
             seed = _local_pipeline_evidence(local, identity)
-            if catalogue_enrichment or catalogue_recovery:
-                # A local technical reference means a broad manual search is
-                # redundant.  The pipeline still checks manufacturer and
-                # independent catalogue sources for genuinely missing fields.
-                seed["prioritize_local_reference"] = True
-                seed["local_field_keys"] = sorted({field.get("key") for field in local.get("fields", [])
-                                                   if isinstance(field, dict) and isinstance(field.get("key"), str)})
+            # A verified exact model reference is equally useful whether it
+            # came from a catalogue selection or the photograph's clear model
+            # reading. Avoid repeating its technical lookup solely because the
+            # owner chose the simpler photo route. The pipeline still looks
+            # for the missing period, and serial research keeps all its stages.
+            seed["prioritize_local_reference"] = True
+            seed["local_field_keys"] = sorted({field.get("key") for field in local.get("fields", [])
+                                               if isinstance(field, dict) and isinstance(field.get("key"), str)})
             return research_identified_machine(client, model, result, identity, basis, allowed, category,
                                                initial_evidence=seed)
     return research_identified_machine(client, model, result, identity, basis, allowed, category)

@@ -619,20 +619,28 @@ class ValuationPipelineTests(SimpleTestCase):
         with patch('portal.valuation._fetch_listing', return_value=(html(), URLS[0])):
             value, usage = estimate_machine(client, 'gpt-4.1-mini', vision(), {})
         stages = value['diagnostics']['phases']
-        self.assertEqual([stage['stage'] for stage in stages], ['search', 'parse'])
+        self.assertEqual([stage['stage'] for stage in stages], ['search', 'documents', 'parse'])
         self.assertEqual(stages[0]['measured_input_tokens'], 200)
         self.assertEqual(stages[0]['estimated_tokens'], 8000)
-        self.assertEqual(stages[1]['input_tokens'], PARSE_RESERVATION)
-        self.assertEqual(stages[1]['estimated_tokens'], PARSE_RESERVATION)
-        self.assertEqual(stages[1]['status'], 'outcome_unknown')
+        self.assertEqual(stages[1]['input_tokens'], 0)
+        self.assertEqual(stages[2]['input_tokens'], PARSE_RESERVATION)
+        self.assertEqual(stages[2]['estimated_tokens'], PARSE_RESERVATION)
+        self.assertEqual(stages[2]['status'], 'outcome_unknown')
         self.assertEqual(sum(stage['input_tokens'] for stage in stages), usage.input_tokens)
         self.assertEqual(sum(stage['output_tokens'] for stage in stages), usage.output_tokens)
 
     def test_consent_revoked_after_parse_discards_prices_but_keeps_all_usage(self):
         client = provider([URLS[0]])
+        permitted = True
+        def parse_and_revoke(**kwargs):
+            nonlocal permitted
+            permitted = False
+            return client.responses.parse.return_value
+        client.responses.parse.side_effect = parse_and_revoke
         with patch('portal.valuation._fetch_listing', return_value=(html(), URLS[0])):
             value, usage = estimate_machine(client, 'gpt-4.1-mini', vision(), {},
-                                           allowed=Mock(side_effect=[True, True, True, False]))
+                                           allowed=lambda: permitted)
+        client.responses.parse.assert_called_once()
         self.assertEqual(value['status'], 'not_run')
         self.assertFalse(value['comparables'])
         self.assertIsNone(value['suggested_price'])
