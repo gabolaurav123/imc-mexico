@@ -1,4 +1,5 @@
 """Read a small number of retrieved public specification tables, without AI."""
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 from .research import (
@@ -75,15 +76,33 @@ def collect_document_fields(identity, retrieved, sources, passages, titles, allo
             hosts.add(host)
     selected.extend(s for s in candidates if s not in selected)
     fields, attempts = [], []
-    for source in selected[:2]:
-        if allowed is not None and not allowed():
-            return [], attempts, True
-        attempt = {"host": urlsplit(source["url"]).hostname, "status": "no_data"}
-        attempts.append(attempt)
-        try:
-            page = fetch_catalog_html(source["url"], retrieved_urls=[s["url"] for s in retrieved])
+    downloads = []
+    # Only the two already-selected public pages overlap. The existing fetcher
+    # retains its pinned-IP checks and complete request deadline. Authorization,
+    # parsing, evidence limits and mutation remain on the caller's thread.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="research-document") as pool:
+        futures = []
+        for source in selected[:2]:
             if allowed is not None and not allowed():
                 return [], attempts, True
+            attempt = {"host": urlsplit(source["url"]).hostname, "status": "no_data"}
+            attempts.append(attempt)
+            future = pool.submit(fetch_catalog_html, source["url"],
+                                 retrieved_urls=[s["url"] for s in retrieved])
+            futures.append((attempt, future))
+        for attempt, future in futures:
+            try:
+                downloads.append((attempt, future.result(), None))
+            except Exception as exc:
+                downloads.append((attempt, None, exc))
+    # Merge in the original selected order, independent of which site responded
+    # first. All requests have finished before parsing or returning to caller.
+    for attempt, page, error in downloads:
+        if allowed is not None and not allowed():
+            return [], attempts, True
+        try:
+            if error is not None:
+                raise error
             document = parse_catalog_html(page.html, page.final_url, identity)
             attempt["status"] = document["status"]
             attempt["parsed_field_count"] = len(document["fields"])

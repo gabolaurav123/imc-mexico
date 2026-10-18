@@ -212,6 +212,28 @@ def _can_allocate(model, usage, legacy_allocation, *, reserve_final=False, obser
     return usage.input_tokens + usage.output_tokens + allocation + headroom <= research_reservation(model)
 
 
+def _clear_photo_identity(result, identity):
+    """A completed visual reading can serve as the provider availability check.
+
+    This is not an identity shortcut: both identifiers must be clear readings
+    of the machine, every photo accepted, and the research identity unchanged.
+    Owner-only, inferred, component and serial identities keep the old route.
+    """
+    relevance = result.get("relevance", {})
+    if (identity.get("serial") or result.get("blocking_reason")
+            or result.get("consistency", {}).get("status") == "contradiction"
+            or relevance.get("status") != "relevant" or not relevance.get("accepted_asset_ids")
+            or relevance.get("excluded_asset_ids") or relevance.get("uncertain_asset_ids")):
+        return False
+    for key in ("brand", "model"):
+        meta = result.get("provenance", {}).get(key, {})
+        if (not identity.get(key) or meta.get("source") not in {"image", "plate"}
+                or meta.get("review") != "clear" or meta.get("component") != "machine"
+                or identifier_key(result.get("data", {}).get(key)) != identifier_key(identity[key])):
+            return False
+    return True
+
+
 def _search_configuration(model, identity, stage, result, category, candidate_models=()):
     payload, domains = _stage_request(identity, stage, result, category, candidate_models)
     tool = {"type": "web_search", "search_context_size": "low"}
@@ -444,15 +466,21 @@ def _research_identified_machine(client, model, result, identity, basis, allowed
             stage = "manuals"
         payload, domains, tool = _search_configuration(model, identity, stage, result, category,
                                                        [lead["model"] for lead in serial_model_leads])
-        # The first request checks provider availability before spending on
-        # more sources. Only subsequent independent model lookups overlap;
-        # serial discovery and identity resolution remain sequential.
-        pair_cost = 2 * max(token_reservation(model, SEARCH_RESERVATION), observed_search_cost)
+        # A successful clear-photo reading already checked the provider. Its
+        # independent manufacturer/catalogue queries can start together with
+        # conservative headroom for larger web responses. Other paths keep
+        # the first lookup sequential before considering a later pair.
+        early_pair = (stage_index == 0 and not seed and _clear_photo_identity(result, identity))
+        late_pair = (stage_index == 1 and attempts
+                     and attempts[0].get("status") in {"no_results", "evidence_found"})
+        search_headroom = token_reservation(model, SEARCH_RESERVATION) * (2 if early_pair else 1)
+        pair_cost = 2 * max(search_headroom, observed_search_cost)
         pair_fits = (usage.input_tokens + usage.output_tokens + pair_cost
                      + token_reservation(model, NORMALIZE_RESERVATION) <= research_reservation(model))
-        if (stage_index == 1 and len(stages) == 3 and not identity.get("serial")
+        if ((early_pair or late_pair) and not parallel_stage_count and not prefetched
+                and len(stages) == 3 and not identity.get("serial")
                 and identity.get("brand") and identity.get("model")
-                and attempts[0].get("status") in {"no_results", "evidence_found"} and pair_fits):
+                and pair_fits):
             if allowed is not None and not allowed():
                 interrupted = True
                 break

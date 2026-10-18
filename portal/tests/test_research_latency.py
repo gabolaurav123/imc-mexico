@@ -274,6 +274,166 @@ class ParallelModelResearchTests(SimpleTestCase):
         self.assertEqual(usage.input_tokens, 2 * (120 + 8000) + token_reservation("gpt-6-luna", SEARCH_RESERVATION))
         self.assertEqual(usage.output_tokens, 160)
 
+
+class ClearPhotoEarlyResearchTests(SimpleTestCase):
+    def visual(self):
+        result = vision()
+        result["relevance"] = {"status": "relevant", "accepted_asset_ids": ["image-1"],
+                               "excluded_asset_ids": [], "uncertain_asset_ids": []}
+        return result
+
+    def test_first_two_sources_overlap_without_duplicate_prefetch_or_three_concurrent_calls(self):
+        catalogue_started = threading.Event()
+        finished = set()
+        client = Mock()
+
+        def search(**kwargs):
+            stage = json.loads(kwargs["input"])["research_stage"]
+            if stage == "manufacturer":
+                self.assertTrue(catalogue_started.wait(2), "Manufacturer and catalogue did not overlap")
+                value = response(TEXT)
+            elif stage == "catalogs":
+                catalogue_started.set()
+                value = response("Caterpillar 420F2: peso 8400 kg.",
+                                 "https://www.ritchiespecs.com/model/caterpillar-420f2")
+            else:
+                self.assertEqual(finished, {"manufacturer", "catalogs"})
+                value = web_response(sources=[])
+            finished.add(stage)
+            return value
+
+        client.responses.create.side_effect = search
+        client.responses.parse.return_value = extraction(candidate(), candidate(1, key="weight", value="8400 kg"))
+        with patch("portal.research_documents.collect_document_fields", return_value=([], [], False)):
+            value, usage = research_machine(client, "gpt-6-luna", self.visual())
+        stages = [json.loads(call.kwargs["input"])["research_stage"]
+                  for call in client.responses.create.call_args_list]
+        self.assertCountEqual(stages[:2], ["manufacturer", "catalogs"])
+        self.assertEqual(stages[2:], ["manuals"])
+        self.assertEqual(value["diagnostics"]["parallel_stage_count"], 2)
+        self.assertEqual({field["key"] for field in value["fields"]}, {"power", "weight"})
+        self.assertEqual(usage.web_search_calls, 3)
+
+    def test_large_first_pair_preserves_year_and_technical_evidence_without_unfunded_manual_call(self):
+        client = Mock()
+
+        def search(**kwargs):
+            stage = json.loads(kwargs["input"])["research_stage"]
+            self.assertIn(stage, {"manufacturer", "catalogs"})
+            value = (response(TEXT) if stage == "manufacturer" else
+                     response("Caterpillar 420F2: Production years 2012-2020.",
+                              "https://www.ritchiespecs.com/model/caterpillar-420f2"))
+            value.usage.input_tokens = 22000  # Roughly 30k including web allowance.
+            return value
+
+        client.responses.create.side_effect = search
+        client.responses.parse.return_value = extraction(
+            candidate(), candidate(1, key="estimated_year_from", value="2012"),
+            candidate(1, key="estimated_year_to", value="2020"))
+        with patch("portal.research_documents.collect_document_fields", return_value=([], [], False)):
+            value, usage = research_machine(client, "gpt-6-luna", self.visual())
+        self.assertEqual(client.responses.create.call_count, 2)
+        self.assertEqual(value["diagnostics"]["parallel_stage_count"], 2)
+        self.assertEqual(value["diagnostics"]["stages"][-1], {"stage": "manuals", "status": "budget_unavailable"})
+        self.assertEqual({field["key"]: field["value"] for field in value["fields"] if field["key"] != "estimated_year_basis"},
+                         {"power": "70 kW", "estimated_year_from": "2012", "estimated_year_to": "2020"})
+        self.assertEqual(usage.web_search_calls, 2)
+
+    def test_early_pair_requires_complete_unchanged_machine_reading_and_all_photos_accepted(self):
+        from portal.research_pipeline import _clear_photo_identity
+        identity = {"brand": "Caterpillar", "model": "420F2", "serial": None}
+        self.assertTrue(_clear_photo_identity(self.visual(), identity))
+        cases = [
+            ("source", "user"), ("source", "visual_proposal"), ("component", "engine"),
+            ("review", "needs_review"),
+        ]
+        for key, setting in cases:
+            with self.subTest(key=key, setting=setting):
+                result = self.visual()
+                result["provenance"]["model"][key] = setting
+                self.assertFalse(_clear_photo_identity(result, identity))
+        for relevance in (
+            {"status": "mixed", "accepted_asset_ids": ["image-1"]},
+            {"status": "relevant", "accepted_asset_ids": []},
+            {"status": "relevant", "accepted_asset_ids": ["image-1"], "excluded_asset_ids": ["image-2"]},
+            {"status": "relevant", "accepted_asset_ids": ["image-1"], "uncertain_asset_ids": ["image-2"]},
+        ):
+            result = self.visual()
+            result["relevance"] = relevance
+            self.assertFalse(_clear_photo_identity(result, identity))
+        self.assertFalse(_clear_photo_identity(self.visual(), {**identity, "serial": "UNIT123"}))
+        self.assertFalse(_clear_photo_identity(self.visual(), {**identity, "model": "430F2"}))
+
+    def test_existing_local_seed_keeps_the_single_missing_period_lookup(self):
+        from portal.research_pipeline import research_identified_machine
+        client = Mock()
+        client.responses.create.return_value = web_response(sources=[])
+        value, _ = research_identified_machine(
+            client, "gpt-6-luna", self.visual(), {"brand": "Caterpillar", "model": "420F2", "serial": None},
+            "model", category="Excavadoras",
+            initial_evidence={"prioritize_local_reference": True,
+                              "local_field_keys": ["weight", "power", "digging_depth"]})
+        self.assertEqual(client.responses.create.call_count, 1)
+        self.assertEqual(json.loads(client.responses.create.call_args.kwargs["input"])["research_stage"], "catalogs")
+        self.assertEqual(value["diagnostics"]["parallel_stage_count"], 0)
+
+    def test_early_pair_does_not_increase_the_reserved_budget(self):
+        from portal.research import research_reservation
+        client = Mock()
+        client.responses.create.return_value = web_response(sources=[])
+        # The conservative first pair needs 91,500 of Luna's existing 95,500.
+        # Reducing the available reservation by one token below that admission
+        # threshold must keep the first request sequential.
+        self.assertEqual(research_reservation("gpt-6-luna"), 95500)
+        with patch("portal.research_pipeline.research_reservation", return_value=91499), \
+                patch("portal.research_pipeline._parallel_search_pair") as pair:
+            # Make the first sequential request exhaust later admission too,
+            # keeping this assertion about early admission unambiguous.
+            client.responses.create.return_value = web_response(sources=[], input_tokens=70000)
+            value, _ = research_machine(client, "gpt-6-luna", self.visual())
+        pair.assert_not_called()
+        self.assertEqual(client.responses.create.call_count, 1)
+        self.assertEqual(value["diagnostics"]["parallel_stage_count"], 0)
+
+    def test_early_provider_failure_accounts_sibling_and_never_starts_manuals(self):
+        from portal.tests.test_serial_research_failures import no_credit_error
+        client = Mock()
+        failure = no_credit_error()
+
+        def search(**kwargs):
+            stage = json.loads(kwargs["input"])["research_stage"]
+            if stage == "manufacturer":
+                raise failure
+            self.assertEqual(stage, "catalogs")
+            return web_response(sources=[])
+
+        client.responses.create.side_effect = search
+        with self.assertRaises(type(failure)) as caught:
+            research_machine(client, "gpt-6-luna", self.visual())
+        self.assertEqual(client.responses.create.call_count, 2)
+        self.assertEqual(caught.exception.accounted_usage.web_search_calls, 1)
+        self.assertEqual(caught.exception.accounted_usage.input_tokens, 8120)
+
+    def test_revocation_during_first_pair_discards_evidence_and_counts_both_started_calls(self):
+        permitted = threading.Event()
+        permitted.set()
+        client = Mock()
+
+        def search(**kwargs):
+            stage = json.loads(kwargs["input"])["research_stage"]
+            if stage == "catalogs":
+                permitted.clear()
+            return response(TEXT)
+
+        client.responses.create.side_effect = search
+        value, usage = research_machine(client, "gpt-6-luna", self.visual(), allowed=permitted.is_set)
+        self.assertEqual(client.responses.create.call_count, 2)
+        self.assertEqual(usage.web_search_calls, 2)
+        self.assertEqual(usage.input_tokens, 16240)
+        self.assertEqual(value["status"], "degraded")
+        self.assertEqual(value["fields"], [])
+        client.responses.parse.assert_not_called()
+
     def test_executor_failure_after_first_submission_retains_started_request_usage(self):
         from concurrent.futures import ThreadPoolExecutor
         client = Mock()

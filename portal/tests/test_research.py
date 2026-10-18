@@ -561,7 +561,12 @@ class ResearchPipelineTests(TestCase):
         self.assertEqual((job.status, job.attempts, job.input_tokens, job.output_tokens, job.reserved_tokens),
                          ("failed", 1, 300, 120, 0))
         self.assertEqual(job.result["provider_error_code"], "billing_unavailable")
-        provider.return_value.responses.create.assert_called_once()
+        # The successful clear-photo reading admits the first independent
+        # research pair together. Both explicit billing rejections cost zero;
+        # neither manuals, valuation nor completion may follow them.
+        self.assertCountEqual([json.loads(call.kwargs["input"])["research_stage"]
+                               for call in provider.return_value.responses.create.call_args_list],
+                              ["manufacturer", "catalogs"])
         provider.return_value.responses.parse.assert_called_once()
         estimate.assert_not_called()
         completion.assert_not_called()
