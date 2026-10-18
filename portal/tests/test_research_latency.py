@@ -339,6 +339,42 @@ class ClearPhotoEarlyResearchTests(SimpleTestCase):
                          {"power": "70 kW", "estimated_year_from": "2012", "estimated_year_to": "2020"})
         self.assertEqual(usage.web_search_calls, 2)
 
+    def test_optional_manual_cannot_spend_the_final_normalization_allowance(self):
+        from portal.research import research_reservation
+        client = Mock()
+
+        def search(**kwargs):
+            stage = json.loads(kwargs["input"])["research_stage"]
+            self.assertIn(stage, {"manufacturer", "catalogs"},
+                          "An optional manual would leave too little for normalization")
+            value = (response(TEXT) if stage == "manufacturer" else
+                     response("Caterpillar 420F2: Production years 2012-2020.",
+                              "https://www.ritchiespecs.com/model/caterpillar-420f2"))
+            # Each completed lookup cost 20,000 including its web allowance.
+            value.usage.input_tokens, value.usage.output_tokens = 11920, 80
+            return value
+
+        client.responses.create.side_effect = search
+        client.responses.parse.return_value = extraction(
+            candidate(), candidate(1, key="estimated_year_from", value="2012"),
+            candidate(1, key="estimated_year_to", value="2020"))
+        # Previously the observed 20k admitted a manual after 40k. The real
+        # incident reached 74,338, leaving 338 fewer tokens than the 21,500
+        # extractor reservation and dropping all model-extracted specs.
+        cap = research_reservation("gpt-6-luna")
+        self.assertEqual(cap, 95500)
+        self.assertLessEqual(40000 + 20000 + 21500, cap)
+        self.assertGreater(74338 + 21500, cap)
+        with patch("portal.research_documents.collect_document_fields", return_value=([], [], False)):
+            value, usage = research_machine(client, "gpt-6-luna", self.visual())
+        self.assertEqual(client.responses.create.call_count, 2)
+        client.responses.parse.assert_called_once()
+        self.assertNotIn("error_stage", value)
+        self.assertEqual(value["diagnostics"]["llm_candidate_count"], 3)
+        self.assertEqual({field["key"]: field["value"] for field in value["fields"] if field["key"] != "estimated_year_basis"},
+                         {"power": "70 kW", "estimated_year_from": "2012", "estimated_year_to": "2020"})
+        self.assertEqual(usage.input_tokens + usage.output_tokens, 40300)
+
     def test_early_pair_requires_complete_unchanged_machine_reading_and_all_photos_accepted(self):
         from portal.research_pipeline import _clear_photo_identity
         identity = {"brand": "Caterpillar", "model": "420F2", "serial": None}

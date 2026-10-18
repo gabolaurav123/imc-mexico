@@ -410,6 +410,7 @@ def _research_identified_machine(client, model, result, identity, basis, allowed
     provider_error_code = ""
     prefetched = pending
     parallel_stage_count = 0
+    initial_parallel_pair = False
 
     def account_unconsumed():
         _account_pending_searches(usage, model, prefetched)
@@ -455,9 +456,16 @@ def _research_identified_machine(client, model, result, identity, basis, allowed
         # Once evidence exists, another optional search must leave enough room
         # to validate it. Otherwise use the retained evidence now, rather than
         # buying further summaries that the final extractor cannot process.
+        search_cost_floor = observed_search_cost
+        if initial_parallel_pair and stage == "manuals" and stage not in prefetched:
+            # A manual lookup can include an additional page opening even
+            # when max_tool_calls=1 was requested. After two useful sources,
+            # keep conservative room for that call AND final normalization;
+            # an optional document must not consume the extraction allowance.
+            search_cost_floor = max(search_cost_floor, 2 * token_reservation(model, SEARCH_RESERVATION))
         if stage not in prefetched and not _can_allocate(
                 model, usage, SEARCH_RESERVATION, reserve_final=bool(passages),
-                observed_cost=observed_search_cost):
+                observed_cost=search_cost_floor):
             attempts.append({'stage': stage, 'status': 'budget_unavailable'})
             break
         # Unknown brands have no invented official domain. Broader technical
@@ -489,6 +497,7 @@ def _research_identified_machine(client, model, result, identity, basis, allowed
             _parallel_search_pair(client, model, [
                 (stage, payload, tool), (next_stage, next_payload, next_tool)], outcomes=prefetched)
             parallel_stage_count = len(prefetched)
+            initial_parallel_pair = early_pair
         attempt = {"stage": stage, "domains": domains, "status": "no_results",
                    "domain_control": "site_query_and_source_check" if domains and "filters" not in tool else "tool_filter_and_source_check" if domains else "open_search"}
         attempts.append(attempt)
