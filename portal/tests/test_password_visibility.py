@@ -88,7 +88,7 @@ class PasswordVisibilityTemplateTests(TestCase):
             "request": SimpleNamespace(path="/administracion/"), "csrf_token": "a" * 64})
         self.assertIn("ADMINISTRACIÓN IMC MÉXICO", html)
         self.assertIn("Entrar a administración", html)
-        self.assertIn("código de tu aplicación de autenticación", html)
+        self.assertIn("Las herramientas disponibles dependen de los permisos de tu cuenta.", html)
         self.assertIn('href="/recuperar-acceso/"', html)
         self.assertNotIn("Todo empieza", html)
         self.assertNotIn("Sube tus fotos", html)

@@ -1,7 +1,8 @@
 import re
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, SetPasswordForm, PasswordChangeForm
 from .models import User, Lead
+from .password_policy import configure_password_fields
 
 # Known country calling codes shown in the form's datalist.  Keeping this list in
 # the form also lets us split existing E.164 values without guessing a code.
@@ -134,6 +135,9 @@ class RegisterForm(PhoneFieldsMixin, UserCreationForm):
     class Meta:
         model=User
         fields=('first_name','last_name','email','phone_prefix','phone_national','phone','company','contact_preference','password1','password2','terms')
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        configure_password_fields(self, self.instance)
     def clean_email(self):
         email=self.cleaned_data['email'].strip().lower()
         if User.objects.filter(email__iexact=email).exists(): raise forms.ValidationError('Ya existe una cuenta con este correo. Inicia sesión o recupera el acceso.')
@@ -146,8 +150,20 @@ class RegisterForm(PhoneFieldsMixin, UserCreationForm):
 
 class LoginForm(AuthenticationForm):
     username=forms.EmailField(label='Correo electrónico',widget=forms.EmailInput(attrs={'autocomplete':'username'}))
-    password=forms.CharField(label='Contraseña',widget=forms.PasswordInput(attrs={'autocomplete':'current-password'}))
+    password=forms.CharField(label='Contraseña',strip=False,widget=forms.PasswordInput(attrs={'autocomplete':'current-password'}))
     def clean_username(self): return self.cleaned_data['username'].strip().lower()
+
+
+class AccountSetPasswordForm(SetPasswordForm):
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        configure_password_fields(self, user)
+
+
+class AccountPasswordChangeForm(PasswordChangeForm):
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        configure_password_fields(self, user)
 
 class ProfileForm(PhoneFieldsMixin, forms.ModelForm):
     email = forms.EmailField(label='Correo de contacto y acceso', disabled=True,

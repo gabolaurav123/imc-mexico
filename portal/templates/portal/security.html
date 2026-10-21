@@ -13,7 +13,7 @@
     <h2 id="password-recovery-heading">¿No recuerdas tu contraseña?</h2>
     <p>Puedes elegir una nueva sin escribir la anterior. Te enviaremos un enlace privado a <strong>{{ user.email }}</strong>.</p>
     <form method="post">{% csrf_token %}<input type="hidden" name="action" value="recover_password"><button class="button button-outline" type="submit">Elegir una nueva contraseña por correo →</button></form>
-    <p class="small muted">Si ya conoces tu contraseña, puedes continuar con el acceso de abajo.</p>
+    <p class="small muted">Si recuerdas tu contraseña actual, puedes actualizarla en «Cambiar contraseña».</p>
   </section>
   {% if user.is_staff %}
   {% if mfa_required %}
@@ -38,7 +38,7 @@
   </section>
   {% endif %}
   {% endif %}
-  {% if password_form %}<details class="surface security-password"{% if password_form.errors %} open{% endif %}><summary>Cambiar contraseña</summary><form method="post">{% csrf_token %}<input type="hidden" name="action" value="password"><p class="small muted">Utiliza esta opción cuando quieras actualizar tu contraseña.</p>{% include 'portal/form_fields.html' with form=password_form %}<button type="submit" class="button button-red">Guardar contraseña →</button></form></details>{% endif %}
+  {% if password_form %}<details id="cambiar-contrasena" class="surface security-password"{% if password_form.errors or not mfa_required or request.GET.contrasena %} open{% endif %}><summary>Cambiar contraseña</summary><form method="post">{% csrf_token %}<input type="hidden" name="action" value="password"><p class="small muted">Puedes cambiarla cuando quieras. Tu sesión actual seguirá abierta y la nueva contraseña se usará en tus próximos accesos.</p>{% include 'portal/form_fields.html' with form=password_form %}<button type="submit" class="button button-red">Guardar contraseña →</button></form></details>{% endif %}
 </div><aside>
   <form method="post" class="surface">{% csrf_token %}<input type="hidden" name="action" value="sessions"><h3>Cerrar las demás sesiones</h3><p>Renueva el acceso de tu cuenta si dejaste una sesión abierta en otro dispositivo.</p><button class="button button-outline full-width" type="submit">Cerrar otras sesiones</button></form>
   {% if account_form %}<form method="post" class="surface">{% csrf_token %}<input type="hidden" name="action" value="account_request"><h3>Mis datos personales</h3><p>Solicita acceso, corrección o eliminación. El equipo revisará tu petición y los plazos de conservación aplicables.</p>{% include 'portal/form_fields.html' with form=account_form %}<button class="button button-outline full-width" type="submit">Enviar solicitud</button></form>{% endif %}

@@ -30,7 +30,7 @@ if not DEBUG and not TESTING and DATABASES['default']['ENGINE'].endswith('sqlite
 if DATABASES['default']['ENGINE'].endswith('postgresql'):
     DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 AUTH_USER_MODEL = 'portal.User'
-AUTH_PASSWORD_VALIDATORS = [{'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},{'NAME':'django.contrib.auth.password_validation.MinimumLengthValidator','OPTIONS':{'min_length':12}},{'NAME':'django.contrib.auth.password_validation.CommonPasswordValidator'},{'NAME':'django.contrib.auth.password_validation.NumericPasswordValidator'}]
+AUTH_PASSWORD_VALIDATORS = [{'NAME':'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},{'NAME':'portal.password_policy.AccountMinimumLengthValidator'},{'NAME':'django.contrib.auth.password_validation.CommonPasswordValidator'},{'NAME':'django.contrib.auth.password_validation.NumericPasswordValidator'}]
 PASSWORD_HASHERS = ['django.contrib.auth.hashers.Argon2PasswordHasher','django.contrib.auth.hashers.PBKDF2PasswordHasher']
 PASSWORD_RESET_TIMEOUT = 3600
 LOGIN_URL = '/iniciar-sesion/'

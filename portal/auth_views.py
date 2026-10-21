@@ -6,7 +6,6 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import SetPasswordForm, PasswordChangeForm
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.sessions.models import Session
 from django.core.exceptions import ValidationError, PermissionDenied
@@ -20,6 +19,7 @@ from django.views.decorators.http import require_POST
 from django_otp import login as otp_login
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from .forms import RegisterForm, LoginForm, RecoveryForm, ProfileForm, OTPForm, AccountRequestForm
+from .forms import AccountSetPasswordForm as SetPasswordForm, AccountPasswordChangeForm as PasswordChangeForm
 from .models import User, Consent, Notification, AccountRequest, PlatformSettings, Category
 from .security import throttle, login_destination, safe_next_url, management_home, is_management_user, management_mfa_required
 from .services import audit
@@ -53,7 +53,7 @@ def activation_email(user,kind='activation'):
     subject,intro={
         'recovery':('Recupera tu acceso a IMC México','Recibimos una solicitud para recuperar el acceso a tu cuenta. Abre el enlace y elige una nueva contraseña.'),
         'verify':('Confirma tu correo en IMC México','Tu cuenta está lista para preparar tus fichas. Abre el enlace para establecer o confirmar tu contraseña y verificar tu correo.'),
-        'admin_activation':('Activa tu acceso administrativo a IMC México','Tu cuenta administrativa está preparada. Establece tu contraseña y después configura la verificación en dos pasos.'),
+        'admin_activation':('Activa tu acceso administrativo a IMC México','Tu cuenta administrativa está preparada. Establece tu contraseña para entrar a tus herramientas de gestión.'),
     }.get(kind,('Activa tu acceso a IMC México','Tu cuenta está preparada. Abre el enlace para establecer tu contraseña y verificar tu correo.'))
     minutes=max(1,settings.PASSWORD_RESET_TIMEOUT//60)
     notice = Notification.objects.create(user=user,channel='email',kind=kind,subject=subject,body=f'{intro}\n\n{url}\n\nEl enlace caduca en {minutes} minutos desde la solicitud y sólo puede usarse una vez.')
@@ -74,22 +74,29 @@ def register(request):
         return auth_render(request,None,'Próximamente podrás anunciar tu maquinaria','',intro='El registro de nuevos anunciantes todavía no está abierto. Puedes consultar cómo funciona el portal o comunicarte con el equipo desde Contacto.')
     form=RegisterForm(request.POST or None)
     if request.method=='POST':
-        if not throttle(request,'register',5,3600):form.add_error(None,'Demasiados intentos. Espera un momento para volver a intentarlo.')
+        # Corrections to a form are not new accounts. Keep an independent,
+        # bounded attempt limit without consuming the account-creation quota.
+        if not throttle(request,'register-attempt',30,900):
+            form.add_error(None,'Se alcanzó el límite de intentos de registro. Inténtalo de nuevo en 15 minutos.')
         elif form.is_valid():
             with transaction.atomic():
-                user=form.save()
-                Consent.objects.bulk_create([Consent(user=user,kind=k,granted=True) for k in ('terms','privacy')])
-                audit(user,'account.register',user)
+                if not throttle(request,'register',5,3600):
+                    form.add_error(None,'Se alcanzó el límite de cuentas creadas desde esta conexión. Inténtalo de nuevo en una hora.')
+                else:
+                    user=form.save()
+                    Consent.objects.bulk_create([Consent(user=user,kind=k,granted=True) for k in ('terms','privacy')])
+                    audit(user,'account.register',user)
+            if not form.errors:
                 # Tokens include last_login: create the verification link only
                 # after login has updated it, otherwise it is invalid on arrival.
-            login(request,user)
-            activation_email(user,'verify')
-            from .guest import claim_after_authentication
-            claimed = claim_after_authentication(request, user)
-            attach_consent_to_account(request,user)
-            record_event(request,'register_completed',page='register')
-            messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')
-            return redirect(f'/panel/maquinarias/{claimed}/' if claimed else destination)
+                login(request,user)
+                activation_email(user,'verify')
+                from .guest import claim_after_authentication
+                claimed = claim_after_authentication(request, user)
+                attach_consent_to_account(request,user)
+                record_event(request,'register_completed',page='register')
+                messages.success(request,'Tu cuenta está lista para preparar borradores. Te enviaremos un enlace para verificar el correo; tu celular sigue siendo un contacto declarado.')
+                return redirect(f'/panel/maquinarias/{claimed}/' if claimed else destination)
     return auth_render(request,form,'Crea tu cuenta para publicar maquinaria','Crear mi cuenta y continuar' if publication_flow else 'Crear mi cuenta')
 
 def sign_in(request,management_only=False):
@@ -111,7 +118,7 @@ def sign_in(request,management_only=False):
                 claimed = claim_after_authentication(request, request.user)
                 return redirect(f'/panel/maquinarias/{claimed}/' if claimed else login_destination(request,None if management_only else (request.POST.get('next') or request.GET.get('next'))))
     if management_only:
-        intro='Ingresa con el correo de tu cuenta administrativa. Después verificarás tu acceso en dos pasos.'
+        intro='Ingresa con el correo y la contraseña de tu cuenta administrativa para abrir tus herramientas de gestión.'
         if request.user.is_authenticated and not is_management_user(request.user):
             intro='Tu sesión actual no tiene permisos administrativos. Ingresa con una cuenta del equipo IMC México para continuar; el nombre mostrado no determina tus permisos.'
         return auth_render(request,form,'Acceso administrativo','Entrar a administración',admin_access=True,intro=intro)
@@ -140,9 +147,11 @@ def activate(request,uidb64,token):
     try:user=User.objects.get(pk=urlsafe_base64_decode(uidb64).decode(),is_active=True,is_guest=False)
     except (User.DoesNotExist,ValueError,TypeError,UnicodeDecodeError):user=None
     if user is None or not default_token_generator.check_token(user,token):
-        return auth_render(request,None,'Este enlace venció o ya se utilizó','',intro='Solicita un nuevo enlace en Recuperar acceso.')
+        return auth_render(request,None,'Este enlace venció o ya se utilizó','',intro='Solicita un nuevo enlace en Recuperar acceso.',recovery_required=True)
     form=SetPasswordForm(user,request.POST or None)
-    if request.method=='POST' and throttle(request,'activate',10,3600) and form.is_valid():
+    if request.method=='POST' and not throttle(request,'activate',10,3600):
+        form.add_error(None,'Se alcanzó el límite de intentos. Vuelve a intentarlo dentro de una hora.')
+    elif request.method=='POST' and form.is_valid():
         with transaction.atomic():
             user=User.objects.select_for_update().get(pk=user.pk)
             if not default_token_generator.check_token(user,token):return redirect('/recuperar-acceso/')
@@ -152,7 +161,12 @@ def activate(request,uidb64,token):
             user.save(update_fields=['email_verified'])
             audit(user,'account.activated',user)
         login(request,user)
-        return redirect('/panel/seguridad/' if user.is_staff else '/panel/')
+        from .guest import claim_after_authentication
+        claimed = claim_after_authentication(request, user)
+        # Recovery must preserve the same in-progress fiche as normal login.
+        # Administrative accounts still complete their existing security route.
+        return redirect('/panel/seguridad/' if user.is_staff else
+                        f'/panel/maquinarias/{claimed}/' if claimed else '/panel/')
     response=auth_render(request,form,'Establece tu contraseña','Guardar y entrar',
         intro='Elige una contraseña que recuerdes. Después continuarás con la verificación de tu acceso administrativo.' if user.is_staff else 'Elige la contraseña que usarás para entrar a tu cuenta.')
     response['Referrer-Policy']='same-origin'

@@ -12,6 +12,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 from .storage import PrivateStorage
 
@@ -43,6 +44,14 @@ class User(AbstractUser):
         REJECTED = "rejected", "Rechazado"
         SUSPENDED = "suspended", "Suspendido"
 
+    # The login identifier mirrors the email address, including addresses
+    # longer than AbstractUser's default 150-character username column.
+    username = models.CharField(
+        _("username"), max_length=254, unique=True,
+        help_text=_("Required. 254 characters or fewer. Letters, digits and @/./+/-/_ only."),
+        validators=[AbstractUser.username_validator],
+        error_messages={"unique": _("A user with that username already exists.")},
+    )
     email = models.EmailField("correo", unique=True)
     phone = models.CharField("celular", max_length=32, blank=True)
     contact_preference = models.CharField("contacto preferido", max_length=12, choices=[("whatsapp", "WhatsApp"), ("call", "Llamada"), ("email", "Correo")], default="email")

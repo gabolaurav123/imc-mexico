@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django.contrib.auth.forms import UserChangeForm, UserCreationForm, AdminPasswordChangeForm
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import HttpResponse
 from django.shortcuts import redirect
@@ -20,6 +20,7 @@ from .models import (AccountRequest, AnalyticsEvent, AnalysisJob, Asset, AuditEv
                      PlatformSettings, Publication, SiteContent, Submission, User, NotificationTemplate, IntegrationDelivery)
 from .services import audit, review_submission, save_draft, set_advertiser_status, set_availability, set_publication, reassign_machine, find_possible_duplicates, send_machine_reminder, _validate_payload
 from . import knowledge_admin  # Register the reviewed technical-reference library.
+from .password_policy import configure_password_fields
 
 
 admin.site.site_header = "IMC México · Administración"
@@ -84,6 +85,10 @@ class AccountAccessAdmin(HistoricalAdmin):
 
 
 class SafeUserCreationForm(UserCreationForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        configure_password_fields(self, self.instance)
+
     class Meta(UserCreationForm.Meta):
         model = User
         fields = ("email", "first_name", "last_name")
@@ -95,10 +100,17 @@ class SafeUserChangeForm(UserChangeForm):
         fields = "__all__"
 
 
+class SafeAdminPasswordChangeForm(AdminPasswordChangeForm):
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        configure_password_fields(self, user)
+
+
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
     form = SafeUserChangeForm
     add_form = SafeUserCreationForm
+    change_password_form = SafeAdminPasswordChangeForm
     list_display = ("email", "first_name", "phone", "machine_count_link", "advertiser_status", "last_login", "email_verified", "is_active", "is_staff", "is_test")
     list_filter = ("advertiser_status", "email_verified", "is_staff", "is_active", "is_test")
     search_fields = ("email", "first_name", "last_name", "phone", "company")
